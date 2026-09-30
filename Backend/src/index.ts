@@ -9,6 +9,7 @@ import { handleAuthRoute } from './routes/auth';
 import { handleBusinessRoute } from './routes/business';
 import { handlePlacesAutocomplete } from './routes/places';
 import { handlePublicCampaignRoute } from './routes/public';
+import { handleSettingsRoute } from './routes/settings';
 
 export { CampaignParticipationLock };
 
@@ -27,6 +28,9 @@ app.use('/api/places', createWorkerRoute(handlePlacesAutocomplete, env));
 app.use('/api/auth', createWorkerRoute(handleAuthRoute, env));
 app.use('/api/business', createWorkerRoute(handleBusinessRoute, env));
 app.use('/api/analytics', createWorkerRoute(handleAnalyticsRoute, env));
+app.use('/api/profile', createWorkerRoute(handleSettingsRoute, env));
+app.use('/api/settings', createWorkerRoute(handleSettingsRoute, env));
+app.use('/api/billing', createWorkerRoute(handleSettingsRoute, env));
 app.use('/api/public', createWorkerRoute(handlePublicCampaignRoute, env, { cacheTtlSeconds: 30 }));
 
 app.use((_request, response) => {

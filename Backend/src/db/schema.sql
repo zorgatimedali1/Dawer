@@ -59,6 +59,12 @@ CREATE TABLE IF NOT EXISTS business_settings (
   business_id TEXT NOT NULL,
   timezone TEXT,
   branding TEXT,
+  google_maps_name TEXT,
+  google_maps_url TEXT,
+  google_place_id TEXT,
+  facebook_url TEXT,
+  instagram_url TEXT,
+  notifications TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -234,6 +240,17 @@ CREATE TABLE IF NOT EXISTS plans (
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
+
+INSERT OR IGNORE INTO plans (id, name, slug, price_cents, interval, features, active, created_at) VALUES
+  ('plan_starter', 'Starter', 'starter', 2900, 'month',
+   '{"limits":{"campaigns":1,"customers":100},"features":["1 campagne active","100 clients","3 recompenses","Support email"]}',
+   1, '2026-01-01T00:00:00.000Z'),
+  ('plan_growth', 'Growth', 'growth', 7900, 'month',
+   '{"limits":{"campaigns":10,"customers":10000},"features":["10 campagnes","10 000 clients","Reseaux sociaux","Analytics avances"]}',
+   1, '2026-01-01T00:00:00.000Z'),
+  ('plan_scale', 'Scale', 'scale', 14900, 'month',
+   '{"limits":{"campaigns":-1,"customers":-1},"features":["Campagnes illimitees","Support prioritaire","API / integrations","SSO"]}',
+   1, '2026-01-01T00:00:00.000Z');
 
 CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY,

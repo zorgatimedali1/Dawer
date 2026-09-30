@@ -148,3 +148,45 @@ export const qrCodePatchSchema = z
   .refine((value) => Object.keys(value).length > 0, 'Provide at least one field to update.');
 
 export type CouponListQuery = z.infer<typeof couponListQuerySchema>;
+
+export const profileUpdateSchema = z
+  .object({
+    firstName: z.string().trim().min(1).max(60),
+    lastName: z.string().trim().min(1).max(60),
+  })
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'Provide at least one field to update.');
+
+export const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(8).max(128),
+  newPassword: z.string().min(8).max(128),
+});
+
+const hexColor = z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Enter a hex color such as #4f46e5.');
+
+export const businessSettingsSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(1000),
+  website: optionalUrl,
+  phone: z.string().trim().max(30),
+  email: z.union([z.string().trim().email(), z.literal('')]),
+  address: z.string().trim().max(250),
+  timezone: z.string().trim().max(60),
+  googleMapsName: z.string().trim().max(250),
+  googleMapsUrl: optionalUrl,
+  googlePlaceId: z.string().trim().max(255),
+  facebookUrl: optionalUrl,
+  instagramUrl: optionalUrl,
+  logo: z.string().trim().max(2048),
+  primaryColor: hexColor,
+  secondaryColor: hexColor,
+  notifications: z.object({
+    email: z.boolean(),
+    sms: z.boolean(),
+    push: z.boolean(),
+  }),
+});
+
+export const changePlanSchema = z.object({
+  planSlug: z.enum(['starter', 'growth', 'scale']),
+});

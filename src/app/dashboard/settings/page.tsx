@@ -1,104 +1,120 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  SettingsService,
+  type BusinessSettings,
+  type Profile,
+} from '@/services/settings.service';
+
+type TabKey = 'profile' | 'business' | 'notifications' | 'security' | 'branding' | 'integrations';
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'profile', label: 'Profile' },
+  { key: 'business', label: 'Business' },
+  { key: 'notifications', label: 'Notifications' },
+  { key: 'security', label: 'Security' },
+  { key: 'branding', label: 'Branding' },
+  { key: 'integrations', label: 'Integrations' },
+];
+
+const inputClass =
+  'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500';
+
+function Status({ pending, message, error }: { pending: boolean; message: string; error: string }) {
+  if (pending) return <p className="text-sm text-gray-500">Saving…</p>;
+  if (error) return <p className="text-sm text-red-600">{error}</p>;
+  if (message) return <p className="text-sm text-green-600">{message}</p>;
+  return null;
+}
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState('profile');
-  const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<TabKey>('profile');
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [settings, setSettings] = useState<BusinessSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
+  const [pending, setPending] = useState(false);
 
-  // Integration states
-  const [googleMaps, setGoogleMaps] = useState({ placeId: '', apiKey: '' });
-  const [facebook, setFacebook] = useState({ pageId: '', accessToken: '' });
-  const [instagram, setInstagram] = useState({ instagramAccountId: '', accessToken: '' });
-  const [showFacebook, setShowFacebook] = useState(false);
-  const [showInstagram, setShowInstagram] = useState(false);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' });
 
-  // Fetch existing integrations
-  useEffect(() => {
-    const fetchIntegrations = async () => {
-      setLoading(true);
-      try {
-        // Simulate API call - replace with actual API endpoint
-        // const response = await fetch('/api/integrations');
-        // const data = await response.json();
-
-        // Mock data for demonstration
-        const mockData = {
-          googleMaps: { placeId: 'ChIJN1t_tDeuEmsRUsoyG83frY4', apiKey: 'AIza...' },
-          facebook: { pageId: '1234567890', accessToken: 'EAAC...' },
-          instagram: { instagramAccountId: '17841400000000000', accessToken: 'EAAC...' }
-        };
-
-        setGoogleMaps(mockData.googleMaps);
-        setFacebook(mockData.facebook);
-        setInstagram(mockData.instagram);
-        setShowFacebook(true);
-        setShowInstagram(true);
-      } catch (error) {
-        console.error('Failed to fetch integrations:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchIntegrations();
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [loadedProfile, loadedSettings] = await Promise.all([
+        SettingsService.getProfile(),
+        SettingsService.getSettings(),
+      ]);
+      setProfile(loadedProfile);
+      setSettings(loadedSettings);
+      setFirstName(loadedProfile.firstName);
+      setLastName(loadedProfile.lastName);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to load settings.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const handleSaveGoogleMaps = async () => {
-    setLoading(true);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const save = async (action: () => Promise<void>, successMessage: string) => {
+    setPending(true);
+    setStatus('');
+    setError('');
     try {
-      // Simulate API call
-      // await fetch('/api/integrations/google-maps', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(googleMaps)
-      // });
-      console.log('Saving Google Maps config:', googleMaps);
-      alert('Google Maps configuration saved!');
-    } catch (error) {
-      console.error('Failed to save Google Maps config:', error);
-      alert('Failed to save configuration');
+      await action();
+      setStatus(successMessage);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to save.');
     } finally {
-      setLoading(false);
+      setPending(false);
     }
   };
 
-  const handleSaveFacebook = async () => {
-    setLoading(true);
-    try {
-      // await fetch('/api/integrations/facebook', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(facebook)
-      // });
-      console.log('Saving Facebook config:', facebook);
-      alert('Facebook configuration saved!');
-    } catch (error) {
-      console.error('Failed to save Facebook config:', error);
-      alert('Failed to save configuration');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const patchSettings = (changes: Parameters<typeof SettingsService.updateSettings>[0], message: string) =>
+    save(async () => {
+      const updated = await SettingsService.updateSettings(changes);
+      setSettings(updated);
+    }, message);
 
-  const handleSaveInstagram = async () => {
-    setLoading(true);
-    try {
-      // await fetch('/api/integrations/instagram', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(instagram)
-      // });
-      console.log('Saving Instagram config:', instagram);
-      alert('Instagram configuration saved!');
-    } catch (error) {
-      console.error('Failed to save Instagram config:', error);
-      alert('Failed to save configuration');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const noBusiness = !loading && !settings && error.startsWith('Create a business');
+
+  if (loading) {
+    return (
+      <div className="p-6">
+        <p className="text-sm text-gray-500">Loading settings…</p>
+      </div>
+    );
+  }
+
+  if (noBusiness) {
+    return (
+      <div className="p-6">
+        <h2 className="text-2xl font-bold text-gray-900">Settings</h2>
+        <p className="mt-2 text-sm text-gray-600">Create a business before configuring settings.</p>
+      </div>
+    );
+  }
+
+  if (!settings) {
+    return (
+      <div className="p-6">
+        <h2 className="text-2xl font-bold text-gray-900">Settings</h2>
+        <p className="mt-2 text-sm text-red-600">{error || 'Unable to load settings.'}</p>
+        <Button className="mt-4" variant="outline" onClick={() => void load()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6">
@@ -107,267 +123,359 @@ export default function SettingsPage() {
           <h2 className="text-2xl font-bold text-gray-900">Settings</h2>
           <p className="text-sm text-gray-600">Manage your account, preferences, and security settings</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={() => console.log('Save changes')}>
-            Save Changes
-          </Button>
-        </div>
+        <Status pending={pending} message={status} error={error} />
       </div>
 
-      <div className="mb-6 flex border-b border-gray-200">
-        {['profile', 'business', 'notifications', 'security', 'branding', 'integrations'].map((tabKey) => (
+      <div className="mb-6 flex border-b border-gray-200 overflow-x-auto">
+        {TABS.map(({ key, label }) => (
           <button
-            key={tabKey}
-            onClick={() => setTab(tabKey)}
-            className={`px-4 py-2 text-sm font-medium ${
-              tab === tabKey ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-gray-500 hover:text-gray-700'
+            key={key}
+            onClick={() => setTab(key)}
+            className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${
+              tab === key ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            {tabKey === 'profile' && 'Profile'}
-            {tabKey === 'business' && 'Business'}
-            {tabKey === 'notifications' && 'Notifications'}
-            {tabKey === 'security' && 'Security'}
-            {tabKey === 'branding' && 'Branding'}
-            {tabKey === 'integrations' && 'Integrations'}
+            {label}
           </button>
         ))}
       </div>
 
       {tab === 'profile' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Profile Information</h3>
-            <p className="text-gray-600">John Doe • john.doe@business.com</p>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
+          <h3 className="text-lg font-medium text-gray-900">Profile Information</h3>
+          <p className="text-sm text-gray-600">
+            {profile?.email} {profile?.emailVerified ? '• verified' : '• unverified'}
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block text-sm font-medium text-gray-700">
+              First name
+              <input className={inputClass} value={firstName} onChange={(event) => setFirstName(event.target.value)} />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Last name
+              <input className={inputClass} value={lastName} onChange={(event) => setLastName(event.target.value)} />
+            </label>
           </div>
+          <Button
+            onClick={() =>
+              void save(async () => {
+                const updated = await SettingsService.updateProfile({ firstName, lastName });
+                setProfile((current) => (current ? { ...current, ...updated } : updated));
+              }, 'Profile updated.')
+            }
+          >
+            Save profile
+          </Button>
         </div>
       )}
 
       {tab === 'business' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Business Information</h3>
-            <p className="text-gray-600">Beachside Cafe • Miami, FL</p>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
+          <h3 className="text-lg font-medium text-gray-900">Business Information</h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Business name
+              <input
+                className={inputClass}
+                value={settings.name}
+                onChange={(event) => setSettings({ ...settings, name: event.target.value })}
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Timezone
+              <input
+                className={inputClass}
+                value={settings.timezone}
+                onChange={(event) => setSettings({ ...settings, timezone: event.target.value })}
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Website
+              <input
+                className={inputClass}
+                value={settings.website}
+                onChange={(event) => setSettings({ ...settings, website: event.target.value })}
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Phone
+              <input
+                className={inputClass}
+                value={settings.phone}
+                onChange={(event) => setSettings({ ...settings, phone: event.target.value })}
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Contact email
+              <input
+                className={inputClass}
+                value={settings.email}
+                onChange={(event) => setSettings({ ...settings, email: event.target.value })}
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Address
+              <input
+                className={inputClass}
+                value={settings.address}
+                onChange={(event) => setSettings({ ...settings, address: event.target.value })}
+              />
+            </label>
           </div>
+          <label className="block text-sm font-medium text-gray-700">
+            Description
+            <textarea
+              className={inputClass}
+              rows={3}
+              value={settings.description}
+              onChange={(event) => setSettings({ ...settings, description: event.target.value })}
+            />
+          </label>
+          <Button
+            onClick={() =>
+              void patchSettings(
+                {
+                  name: settings.name,
+                  timezone: settings.timezone,
+                  website: settings.website,
+                  phone: settings.phone,
+                  email: settings.email,
+                  address: settings.address,
+                  description: settings.description,
+                },
+                'Business information saved.',
+              )
+            }
+          >
+            Save business information
+          </Button>
         </div>
       )}
 
       {tab === 'notifications' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Notification Preferences</h3>
-            <div className="space-y-4">
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-500">Email Updates</span>
-                <span className="text-sm font-medium text-gray-500 ml-2">✓ Enabled</span>
-              </div>
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-500">SMS Alerts</span>
-                <span className="text-sm font-medium text-gray-500 ml-2">✗ Disabled</span>
-              </div>
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-500">Push Notifications</span>
-                <span className="text-sm font-medium text-gray-500 ml-2">✓ Enabled</span>
-              </div>
-            </div>
-          </div>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
+          <h3 className="text-lg font-medium text-gray-900">Notification Preferences</h3>
+          {(['email', 'sms', 'push'] as const).map((channel) => (
+            <label key={channel} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <span className="text-sm font-medium text-gray-700 capitalize">{channel} updates</span>
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={settings.notifications[channel]}
+                onChange={(event) =>
+                  setSettings({
+                    ...settings,
+                    notifications: { ...settings.notifications, [channel]: event.target.checked },
+                  })
+                }
+              />
+            </label>
+          ))}
+          <Button onClick={() => void patchSettings({ notifications: settings.notifications }, 'Preferences saved.')}>
+            Save preferences
+          </Button>
         </div>
       )}
 
       {tab === 'security' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Account Security</h3>
-            <div className="space-y-4">
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-500">Password</span>
-                <span className="text-sm font-medium text-gray-500 ml-2">Last changed: Sep 1, 2026</span>
-              </div>
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-500">Two-Factor Auth</span>
-                <span className="text-sm font-medium text-gray-500 ml-2">✗ Disabled</span>
-              </div>
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-500">Active Sessions</span>
-                <span className="text-sm font-medium text-gray-500 ml-2">2 active</span>
-              </div>
-            </div>
-
-            <div className="mt-4 flex gap-3">
-              <Button variant="outline" onClick={() => console.log('Change password')}>
-                Change Password
-              </Button>
-              <Button variant="outline" onClick={() => console.log('Enable 2FA')}>
-                Enable Two-Factor Auth
-              </Button>
-              <Button variant="destructive" onClick={() => console.log('Sign out elsewhere')}>
-                Sign Out Elsewhere
-              </Button>
-            </div>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
+          <h3 className="text-lg font-medium text-gray-900">Account Security</h3>
+          <p className="text-sm text-gray-600">
+            Changing your password signs out every other session on this account.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="block text-sm font-medium text-gray-700">
+              Current password
+              <input
+                type="password"
+                className={inputClass}
+                value={passwords.current}
+                onChange={(event) => setPasswords({ ...passwords, current: event.target.value })}
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              New password
+              <input
+                type="password"
+                className={inputClass}
+                value={passwords.next}
+                onChange={(event) => setPasswords({ ...passwords, next: event.target.value })}
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Confirm new password
+              <input
+                type="password"
+                className={inputClass}
+                value={passwords.confirm}
+                onChange={(event) => setPasswords({ ...passwords, confirm: event.target.value })}
+              />
+            </label>
           </div>
+          <Button
+            onClick={() => {
+              if (passwords.next !== passwords.confirm) {
+                setError('New passwords do not match.');
+                return;
+              }
+              if (passwords.next.length < 8) {
+                setError('The new password must be at least 8 characters.');
+                return;
+              }
+              void save(async () => {
+                const message = await SettingsService.changePassword(passwords.current, passwords.next);
+                setPasswords({ current: '', next: '', confirm: '' });
+                setStatus(message);
+              }, 'Password updated.');
+            }}
+          >
+            Change password
+          </Button>
         </div>
       )}
 
       {tab === 'branding' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Branding & Appearance</h3>
-            <div className="space-y-4">
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-500">Primary Color</span>
-                <input type="color" value="#4f46e5" className="ml-2 w-10 h-10" />
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
+          <h3 className="text-lg font-medium text-gray-900">Branding &amp; Appearance</h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Primary color
+              <div className="mt-1 flex items-center gap-3">
+                <input
+                  type="color"
+                  className="w-10 h-10"
+                  value={settings.primaryColor}
+                  onChange={(event) => setSettings({ ...settings, primaryColor: event.target.value })}
+                />
+                <input
+                  className={inputClass}
+                  value={settings.primaryColor}
+                  onChange={(event) => setSettings({ ...settings, primaryColor: event.target.value })}
+                />
               </div>
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-500">Secondary Color</span>
-                <input type="color" value="#10b981" className="ml-2 w-10 h-10" />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Secondary color
+              <div className="mt-1 flex items-center gap-3">
+                <input
+                  type="color"
+                  className="w-10 h-10"
+                  value={settings.secondaryColor}
+                  onChange={(event) => setSettings({ ...settings, secondaryColor: event.target.value })}
+                />
+                <input
+                  className={inputClass}
+                  value={settings.secondaryColor}
+                  onChange={(event) => setSettings({ ...settings, secondaryColor: event.target.value })}
+                />
               </div>
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-500">Logo</span>
-                <input type="file" accept="image/*" className="ml-2 block w-full" />
-              </div>
-            </div>
+            </label>
           </div>
+          <label className="block text-sm font-medium text-gray-700">
+            Logo URL
+            <input
+              className={inputClass}
+              value={settings.logo}
+              placeholder="https://…"
+              onChange={(event) => setSettings({ ...settings, logo: event.target.value })}
+            />
+          </label>
+          <Button
+            onClick={() =>
+              void patchSettings(
+                {
+                  primaryColor: settings.primaryColor,
+                  secondaryColor: settings.secondaryColor,
+                  logo: settings.logo,
+                },
+                'Branding saved.',
+              )
+            }
+          >
+            Save branding
+          </Button>
         </div>
       )}
 
       {tab === 'integrations' && (
         <div className="space-y-6">
-          {/* Google Maps / Google Business Section */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Enregistrer la configuration Google Maps / Google Business
-            </h3>
-            {loading ? (
-              <p className="text-gray-500">Loading configuration...</p>
-            ) : (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Google Place ID
-                  </label>
-                  <input
-                    type="text"
-                    value={googleMaps.placeId}
-                    onChange={(e) => setGoogleMaps({ ...googleMaps, placeId: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    placeholder="Enter your Google Place ID"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Google API Key
-                  </label>
-                  <input
-                    type="text"
-                    value={googleMaps.apiKey}
-                    onChange={(e) => setGoogleMaps({ ...googleMaps, apiKey: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    placeholder="Enter your Google API Key"
-                  />
-                </div>
-                <Button
-                  variant="default"
-                  onClick={handleSaveGoogleMaps}
-                  className="w-full"
-                >
-                  Save Google Maps Configuration
-                </Button>
-              </div>
-            )}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
+            <h3 className="text-lg font-medium text-gray-900">Google Maps / Google Business</h3>
+            <label className="block text-sm font-medium text-gray-700">
+              Google Maps name
+              <input
+                className={inputClass}
+                value={settings.googleMapsName}
+                placeholder="Beachside Cafe"
+                onChange={(event) => setSettings({ ...settings, googleMapsName: event.target.value })}
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Google Maps / Google Business URL
+              <input
+                className={inputClass}
+                value={settings.googleMapsUrl}
+                placeholder="https://maps.google.com/…"
+                onChange={(event) => setSettings({ ...settings, googleMapsUrl: event.target.value })}
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Google Place ID
+              <input
+                className={inputClass}
+                value={settings.googlePlaceId}
+                placeholder="ChIJN1t_tDeuEmsRUsoyG83frY4"
+                onChange={(event) => setSettings({ ...settings, googlePlaceId: event.target.value })}
+              />
+            </label>
+            <Button onClick={() => void patchSettings(integrationPatch(settings), 'Google configuration saved.')}>
+              Save Google configuration
+            </Button>
           </div>
 
-          {/* Facebook Section - only show if added in database */}
-          {showFacebook && (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mt-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Enregistrer la configuration Facebook
-              </h3>
-              {loading ? (
-                <p className="text-gray-500">Loading configuration...</p>
-              ) : (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Facebook Page ID
-                    </label>
-                    <input
-                      type="text"
-                      value={facebook.pageId}
-                      onChange={(e) => setFacebook({ ...facebook, pageId: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      placeholder="Enter your Facebook Page ID"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Access Token
-                    </label>
-                    <input
-                      type="text"
-                      value={facebook.accessToken}
-                      onChange={(e) => setFacebook({ ...facebook, accessToken: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      placeholder="Enter your Facebook Access Token"
-                    />
-                  </div>
-                  <Button
-                    variant="default"
-                    onClick={handleSaveFacebook}
-                    className="w-full"
-                  >
-                    Save Facebook Configuration
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
+            <h3 className="text-lg font-medium text-gray-900">Facebook</h3>
+            <label className="block text-sm font-medium text-gray-700">
+              Facebook page URL
+              <input
+                className={inputClass}
+                value={settings.facebookUrl}
+                placeholder="https://facebook.com/…"
+                onChange={(event) => setSettings({ ...settings, facebookUrl: event.target.value })}
+              />
+            </label>
+            <Button onClick={() => void patchSettings(integrationPatch(settings), 'Facebook configuration saved.')}>
+              Save Facebook configuration
+            </Button>
+          </div>
 
-          {/* Instagram Section - only show if added in database */}
-          {showInstagram && (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mt-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Enregistrer la configuration Instagram
-              </h3>
-              {loading ? (
-                <p className="text-gray-500">Loading configuration...</p>
-              ) : (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Instagram Business Account ID
-                    </label>
-                    <input
-                      type="text"
-                      value={instagram.instagramAccountId}
-                      onChange={(e) => setInstagram({ ...instagram, instagramAccountId: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      placeholder="Enter your Instagram Business Account ID"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Access Token
-                    </label>
-                    <input
-                      type="text"
-                      value={instagram.accessToken}
-                      onChange={(e) => setInstagram({ ...instagram, accessToken: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      placeholder="Enter your Instagram Access Token"
-                    />
-                  </div>
-                  <Button
-                    variant="default"
-                    onClick={handleSaveInstagram}
-                    className="w-full"
-                  >
-                    Save Instagram Configuration
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
+            <h3 className="text-lg font-medium text-gray-900">Instagram</h3>
+            <label className="block text-sm font-medium text-gray-700">
+              Instagram profile URL
+              <input
+                className={inputClass}
+                value={settings.instagramUrl}
+                placeholder="https://instagram.com/…"
+                onChange={(event) => setSettings({ ...settings, instagramUrl: event.target.value })}
+              />
+            </label>
+            <Button onClick={() => void patchSettings(integrationPatch(settings), 'Instagram configuration saved.')}>
+              Save Instagram configuration
+            </Button>
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+function integrationPatch(settings: BusinessSettings) {
+  return {
+    googleMapsName: settings.googleMapsName,
+    googleMapsUrl: settings.googleMapsUrl,
+    googlePlaceId: settings.googlePlaceId,
+    facebookUrl: settings.facebookUrl,
+    instagramUrl: settings.instagramUrl,
+  };
 }
