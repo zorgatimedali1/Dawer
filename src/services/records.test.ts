@@ -3,6 +3,7 @@ import { CustomerService } from '@/services/customer.service';
 import { CouponService } from '@/services/coupon.service';
 import { RewardService } from '@/services/reward.service';
 import { QrCodeService } from '@/services/qr.service';
+import { PosterService } from '@/services/poster.service';
 import { CampaignService } from '@/services/campaign.service';
 
 const AUTH_KEY = 'campaign-engage-auth';
@@ -299,5 +300,80 @@ describe('campaign service', () => {
   it('returns null when a single campaign is not found', async () => {
     mockFetch(() => jsonResponse({ success: false, message: 'Campaign not found.' }, 404));
     await expect(CampaignService.getCampaignById('missing')).resolves.toBeNull();
+  });
+});
+
+describe('poster service', () => {
+  it('parses the stored configuration and falls back when it is broken', async () => {
+    mockFetch(() =>
+      jsonResponse({
+        success: true,
+        posters: [
+          {
+            id: 'p1',
+            campaign_id: 'ca1',
+            campaign_name: 'Summer',
+            template: 'gradient',
+            title: 'Win big',
+            subtitle: 'Scan me',
+            theme: '#10b981',
+            configuration: '{"hue":120}',
+            updated_at: '2026-01-01T00:00:00.000Z',
+          },
+          {
+            id: 'p2',
+            campaign_id: 'ca1',
+            campaign_name: 'Summer',
+            template: 'minimal',
+            title: 'Plain',
+            subtitle: '',
+            theme: '#4f46e5',
+            configuration: 'not json',
+            updated_at: '2026-01-02T00:00:00.000Z',
+          },
+        ],
+      }),
+    );
+
+    const posters = await PosterService.list({ campaignId: 'ca1' });
+
+    expect(posters[0]?.configuration).toEqual({ hue: 120 });
+    expect(posters[1]?.configuration).toBeNull();
+    expect(posters[0]?.campaignName).toBe('Summer');
+  });
+
+  it('posts the draft payload when creating', async () => {
+    const spy = mockFetch(() =>
+      jsonResponse({
+        success: true,
+        poster: {
+          id: 'p3',
+          campaign_id: 'ca1',
+          campaign_name: 'Summer',
+          template: 'gradient',
+          title: 'New',
+          subtitle: 'Sub',
+          theme: '#ef4444',
+          configuration: null,
+          updated_at: '2026-01-03T00:00:00.000Z',
+        },
+      }),
+    );
+
+    const poster = await PosterService.create({
+      campaignId: 'ca1',
+      title: 'New',
+      subtitle: 'Sub',
+      theme: '#ef4444',
+    });
+
+    expect(spy.mock.calls[0]?.[0]).toBe('/api/business/posters');
+    expect(spy.mock.calls[0]?.[1]?.method).toBe('POST');
+    expect(poster.title).toBe('New');
+  });
+
+  it('throws the server message when saving is refused', async () => {
+    mockFetch(() => jsonResponse({ success: false, message: 'Poster not found.' }, 404));
+    await expect(PosterService.update('missing', { title: 'x' })).rejects.toThrow('Poster not found.');
   });
 });

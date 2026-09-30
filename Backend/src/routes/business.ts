@@ -9,6 +9,7 @@ const RECORD_PREFIXES = [
   '/api/business/coupons',
   '/api/business/rewards',
   '/api/business/qr-codes',
+  '/api/business/posters',
 ];
 
 export async function handleBusinessRoute(request: Request, env: Env): Promise<Response> {

@@ -190,3 +190,23 @@ export const businessSettingsSchema = z.object({
 export const changePlanSchema = z.object({
   planSlug: z.enum(['starter', 'growth', 'scale']),
 });
+
+export const posterCreateSchema = z.object({
+  campaignId: z.string().trim().min(1).max(64),
+  template: z.string().trim().min(1).max(60).default('gradient'),
+  title: z.string().trim().max(140).default(''),
+  subtitle: z.string().trim().max(240).default(''),
+  theme: z.string().trim().max(60).default('#4f46e5'),
+  configuration: z.record(z.unknown()).optional(),
+});
+
+export const posterPatchSchema = z
+  .object({
+    template: z.string().trim().min(1).max(60),
+    title: z.string().trim().max(140),
+    subtitle: z.string().trim().max(240),
+    theme: z.string().trim().max(60),
+    configuration: z.record(z.unknown()),
+  })
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'Provide at least one field to update.');

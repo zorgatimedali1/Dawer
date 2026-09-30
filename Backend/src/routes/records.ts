@@ -4,6 +4,8 @@ import { secureRandomHex } from '../lib/crypto';
 import {
   couponListQuerySchema,
   customerListQuerySchema,
+  posterCreateSchema,
+  posterPatchSchema,
   qrCodeCreateSchema,
   qrCodePatchSchema,
   rewardPatchSchema,
@@ -20,12 +22,14 @@ const CUSTOMERS_PATH = '/api/business/customers';
 const COUPONS_PATH = '/api/business/coupons';
 const REWARDS_PATH = '/api/business/rewards';
 const QR_PATH = '/api/business/qr-codes';
+const POSTERS_PATH = '/api/business/posters';
 
 const CUSTOMER_ITEM = /^\/api\/business\/customers\/([^/]+)$/;
 const COUPON_ITEM = /^\/api\/business\/coupons\/([^/]+)$/;
 const COUPON_REDEEM = /^\/api\/business\/coupons\/([^/]+)\/redeem$/;
 const REWARD_ITEM = /^\/api\/business\/rewards\/([^/]+)$/;
 const QR_ITEM = /^\/api\/business\/qr-codes\/([^/]+)$/;
+const POSTER_ITEM = /^\/api\/business\/posters\/([^/]+)$/;
 
 function placeholders(count: number): string {
   return new Array(count).fill('?').join(', ');
@@ -471,6 +475,134 @@ async function handleQrPatch(request: Request, env: Env, user: AuthenticatedUser
   return jsonResponse({ success: true, qrCode: updated ?? null });
 }
 
+const POSTER_COLUMNS = `p.id, p.campaign_id, ca.name AS campaign_name, ca.public_code AS campaign_public_code,
+  p.template, p.title, p.subtitle, p.theme, p.configuration, p.created_at, p.updated_at`;
+
+async function handlePosterList(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
+  const url = new URL(request.url);
+  const campaignId = url.searchParams.get('campaignId') ?? undefined;
+
+  const businessIds = await getBusinessIds(user.id, env);
+  if (businessIds.length === 0) return jsonResponse({ success: true, posters: [] });
+
+  const params: unknown[] = [...businessIds];
+  const clauses = [`p.business_id IN (${placeholders(businessIds.length)})`];
+
+  if (campaignId) {
+    clauses.push('p.campaign_id = ?');
+    params.push(campaignId);
+  }
+
+  const rows = await env.DB.prepare(
+    `SELECT ${POSTER_COLUMNS}
+     FROM posters p
+     LEFT JOIN campaigns ca ON ca.id = p.campaign_id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY p.updated_at DESC`,
+  )
+    .bind(...params)
+    .all();
+
+  return jsonResponse({ success: true, posters: rows.results ?? [] });
+}
+
+async function handlePosterCreate(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
+  const input = posterCreateSchema.parse(await request.json());
+  const businessIds = await getBusinessIds(user.id, env);
+  const campaign = await findCampaignForUser(input.campaignId, businessIds, env);
+
+  if (!campaign) return errorResponse('Campaign not found.', 404);
+
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+
+  await env.DB.prepare(
+    `INSERT INTO posters (id, business_id, campaign_id, template, title, subtitle, theme, configuration, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      id,
+      campaign.business_id,
+      campaign.id,
+      input.template,
+      input.title,
+      input.subtitle,
+      input.theme,
+      input.configuration ? JSON.stringify(input.configuration) : null,
+      now,
+      now,
+    )
+    .run();
+
+  await writeAuditLog(env, {
+    businessId: campaign.business_id,
+    userId: user.id,
+    action: 'poster.created',
+    entityType: 'poster',
+    entityId: id,
+  });
+
+  const created = await env.DB.prepare(
+    `SELECT ${POSTER_COLUMNS} FROM posters p LEFT JOIN campaigns ca ON ca.id = p.campaign_id WHERE p.id = ? LIMIT 1`,
+  )
+    .bind(id)
+    .first();
+
+  return jsonResponse({ success: true, poster: created ?? null }, 201);
+}
+
+async function handlePosterPatch(request: Request, env: Env, user: AuthenticatedUser, posterId: string): Promise<Response> {
+  const input = posterPatchSchema.parse(await request.json());
+  const businessIds = await getBusinessIds(user.id, env);
+  if (businessIds.length === 0) return errorResponse('Poster not found.', 404);
+
+  const poster = await env.DB.prepare(
+    `SELECT id, business_id FROM posters
+     WHERE id = ? AND business_id IN (${placeholders(businessIds.length)})
+     LIMIT 1`,
+  )
+    .bind(posterId, ...businessIds)
+    .first<{ id: string; business_id: string }>();
+
+  if (!poster) return errorResponse('Poster not found.', 404);
+
+  const updates: string[] = [];
+  const params: unknown[] = [];
+
+  if (input.template !== undefined) { updates.push('template = ?'); params.push(input.template); }
+  if (input.title !== undefined) { updates.push('title = ?'); params.push(input.title); }
+  if (input.subtitle !== undefined) { updates.push('subtitle = ?'); params.push(input.subtitle); }
+  if (input.theme !== undefined) { updates.push('theme = ?'); params.push(input.theme); }
+  if (input.configuration !== undefined) {
+    updates.push('configuration = ?');
+    params.push(JSON.stringify(input.configuration));
+  }
+
+  updates.push('updated_at = ?');
+  params.push(new Date().toISOString());
+
+  await env.DB.prepare(`UPDATE posters SET ${updates.join(', ')} WHERE id = ?`)
+    .bind(...params, posterId)
+    .run();
+
+  await writeAuditLog(env, {
+    businessId: poster.business_id,
+    userId: user.id,
+    action: 'poster.updated',
+    entityType: 'poster',
+    entityId: posterId,
+    metadata: input,
+  });
+
+  const updated = await env.DB.prepare(
+    `SELECT ${POSTER_COLUMNS} FROM posters p LEFT JOIN campaigns ca ON ca.id = p.campaign_id WHERE p.id = ? LIMIT 1`,
+  )
+    .bind(posterId)
+    .first();
+
+  return jsonResponse({ success: true, poster: updated ?? null });
+}
+
 /**
  * Tenant-scoped reads (and small writes) for the records the dashboard needs:
  * customers, coupons, rewards and QR codes.
@@ -513,6 +645,12 @@ export async function handleRecordRoute(
       return errorResponse('Method not allowed.', 405);
     }
 
+    const posterItem = POSTER_ITEM.exec(path);
+    if (posterItem?.[1]) {
+      if (request.method === 'PATCH') return await handlePosterPatch(request, env, user, posterItem[1]);
+      return errorResponse('Method not allowed.', 405);
+    }
+
     if (path === CUSTOMERS_PATH) {
       if (request.method === 'GET') return await handleCustomerList(request, env, user);
       return errorResponse('Method not allowed.', 405);
@@ -531,6 +669,12 @@ export async function handleRecordRoute(
     if (path === QR_PATH) {
       if (request.method === 'GET') return await handleQrList(request, env, user);
       if (request.method === 'POST') return await handleQrCreate(request, env, user);
+      return errorResponse('Method not allowed.', 405);
+    }
+
+    if (path === POSTERS_PATH) {
+      if (request.method === 'GET') return await handlePosterList(request, env, user);
+      if (request.method === 'POST') return await handlePosterCreate(request, env, user);
       return errorResponse('Method not allowed.', 405);
     }
 

@@ -277,6 +277,78 @@ describe('QR codes', () => {
   });
 });
 
+describe('Posters', () => {
+  it('creates and lists posters for an owned campaign', async () => {
+    const created = await handleBusinessRoute(
+      jsonRequest(
+        '/api/business/posters',
+        'POST',
+        { campaignId: aliceCampaign, template: 'gradient', title: 'Win big', subtitle: 'Scan me', theme: '#4f46e5' },
+        alice.token,
+      ),
+      env,
+    );
+    expect(created.status).toBe(201);
+    const poster = (await body(created)).poster;
+    expect(poster).toMatchObject({ title: 'Win big', campaign_name: 'Owned campaign' });
+
+    const list = await body(
+      await handleBusinessRoute(jsonRequest('/api/business/posters', 'GET', undefined, alice.token), env),
+    );
+    expect(list.posters).toHaveLength(1);
+    expect(list.posters[0].template).toBe('gradient');
+  });
+
+  it('refuses to create a poster on a foreign campaign', async () => {
+    const response = await handleBusinessRoute(
+      jsonRequest('/api/business/posters', 'POST', { campaignId: bobCampaign, title: 'Nope' }, alice.token),
+      env,
+    );
+    expect(response.status).toBe(404);
+  });
+
+  it('updates a poster and 404s on a foreign one', async () => {
+    const created = await handleBusinessRoute(
+      jsonRequest('/api/business/posters', 'POST', { campaignId: aliceCampaign, title: 'Before' }, alice.token),
+      env,
+    );
+    const posterId = (await body(created)).poster.id;
+
+    const patched = await handleBusinessRoute(
+      jsonRequest(`/api/business/posters/${posterId}`, 'PATCH', { title: 'After', theme: '#10b981' }, alice.token),
+      env,
+    );
+    expect(patched.status).toBe(200);
+    expect((await body(patched)).poster).toMatchObject({ title: 'After', theme: '#10b981' });
+
+    const foreign = await handleBusinessRoute(
+      jsonRequest('/api/business/posters', 'POST', { campaignId: bobCampaign, title: 'Bob' }, bob.token),
+      env,
+    );
+    const foreignId = (await body(foreign)).poster.id;
+
+    const denied = await handleBusinessRoute(
+      jsonRequest(`/api/business/posters/${foreignId}`, 'PATCH', { title: 'Hacked' }, alice.token),
+      env,
+    );
+    expect(denied.status).toBe(404);
+  });
+
+  it('400s on an empty patch body', async () => {
+    const created = await handleBusinessRoute(
+      jsonRequest('/api/business/posters', 'POST', { campaignId: aliceCampaign }, alice.token),
+      env,
+    );
+    const posterId = (await body(created)).poster.id;
+
+    const response = await handleBusinessRoute(
+      jsonRequest(`/api/business/posters/${posterId}`, 'PATCH', {}, alice.token),
+      env,
+    );
+    expect(response.status).toBe(400);
+  });
+});
+
 describe('route safety', () => {
   it('401s without a token', async () => {
     const response = await handleBusinessRoute(jsonRequest('/api/business/customers', 'GET'), env);
@@ -285,7 +357,7 @@ describe('route safety', () => {
 
   it('404s unknown record paths', async () => {
     const response = await handleBusinessRoute(
-      jsonRequest('/api/business/posters', 'GET', undefined, alice.token),
+      jsonRequest('/api/business/unknown', 'GET', undefined, alice.token),
       env,
     );
     expect(response.status).toBe(404);
