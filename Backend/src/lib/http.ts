@@ -11,6 +11,8 @@ export function errorResponse(message: string, status = 400, details?: unknown):
   const payload: Record<string, unknown> = {
     success: false,
     message,
+    // `error` is kept as an alias so older clients keep working.
+    error: message,
   };
 
   if (details !== undefined) {

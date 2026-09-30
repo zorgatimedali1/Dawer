@@ -64,6 +64,14 @@ export class AuthService {
     return `${this.API_URL}/auth/google`;
   }
 
+  /**
+   * The OAuth handoff parks the session in an HttpOnly cookie and redirects to
+   * `/auth/callback`; this exchanges it for a token the SPA can persist.
+   */
+  static async sessionFromCookie(): Promise<AuthResponse> {
+    return this.request<AuthResponse>('/auth/session', { method: 'GET', credentials: 'same-origin' });
+  }
+
   static async forgotPassword(email: string): Promise<{ success: boolean }> {
     return new Promise((resolve) => {
       setTimeout(() => {

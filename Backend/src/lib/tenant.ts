@@ -3,17 +3,12 @@ import type { Env } from '../types';
 
 export type AuthenticatedUser = { id: string; email: string };
 
-export async function getAuthenticatedUser(request: Request, env: Env): Promise<AuthenticatedUser | null> {
-  const authorizationHeader = request.headers.get('authorization');
-
-  if (!authorizationHeader || !authorizationHeader.startsWith('Bearer ')) {
-    return null;
-  }
-
-  const token = authorizationHeader.slice('Bearer '.length).trim();
-  if (!token) {
-    return null;
-  }
+/**
+ * Resolves a raw session token (bearer header value, or the value of an HttpOnly
+ * cookie) to the owning user. Returns null for expired or unknown tokens.
+ */
+export async function getUserByToken(token: string, env: Env): Promise<AuthenticatedUser | null> {
+  if (!token) return null;
 
   const tokenHash = await sha256Hex(token);
   const now = new Date().toISOString();
@@ -28,6 +23,17 @@ export async function getAuthenticatedUser(request: Request, env: Env): Promise<
     .first<{ id: string; email: string }>();
 
   return session ?? null;
+}
+
+export async function getAuthenticatedUser(request: Request, env: Env): Promise<AuthenticatedUser | null> {
+  const authorizationHeader = request.headers.get('authorization');
+
+  if (!authorizationHeader || !authorizationHeader.startsWith('Bearer ')) {
+    return null;
+  }
+
+  const token = authorizationHeader.slice('Bearer '.length).trim();
+  return getUserByToken(token, env);
 }
 
 export async function getBusinessIds(userId: string, env: Env): Promise<string[]> {

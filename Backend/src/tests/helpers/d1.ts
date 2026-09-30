@@ -112,6 +112,44 @@ function createLockRegistry() {
   };
 }
 
-export function createTestEnv(): { DB: TestDatabase; CAMPAIGN_LOCK: ReturnType<typeof createLockRegistry> } {
-  return { DB: new TestDatabase(), CAMPAIGN_LOCK: createLockRegistry() };
+/**
+ * Minimal stand-in for the `TOKENS` KV namespace used by the OAuth handoff.
+ */
+function createTokenStore() {
+  const store = new Map<string, string>();
+
+  return {
+    async get(key: string): Promise<string | null> {
+      return store.get(key) ?? null;
+    },
+    async put(key: string, value: string): Promise<void> {
+      store.set(key, value);
+    },
+    async delete(key: string): Promise<void> {
+      store.delete(key);
+    },
+    keys(): string[] {
+      return [...store.keys()];
+    },
+  };
+}
+
+export type TestEnv = {
+  DB: TestDatabase;
+  CAMPAIGN_LOCK: ReturnType<typeof createLockRegistry>;
+  TOKENS: ReturnType<typeof createTokenStore>;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REDIRECT_URI?: string;
+};
+
+export function createTestEnv(): TestEnv {
+  return {
+    DB: new TestDatabase(),
+    CAMPAIGN_LOCK: createLockRegistry(),
+    TOKENS: createTokenStore(),
+    GOOGLE_CLIENT_ID: 'client-id.test',
+    GOOGLE_CLIENT_SECRET: 'client-secret',
+    GOOGLE_REDIRECT_URI: 'http://localhost/api/auth/google/callback',
+  };
 }

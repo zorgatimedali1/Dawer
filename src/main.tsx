@@ -11,6 +11,7 @@ import './app/globals.css';
 const LandingPage = lazy(() => import('./app/page'));
 const LoginPage = lazy(() => import('./app/auth/login/page'));
 const RegisterPage = lazy(() => import('./app/auth/register/page'));
+const AuthCallbackPage = lazy(() => import('./app/auth/callback/page'));
 const ForgotPasswordPage = lazy(() => import('./app/auth/forgot-password/page'));
 const ResetPasswordPage = lazy(() => import('./app/auth/reset-password/page'));
 const CustomerPage = lazy(() => import('./app/customer/[campaignId]/page'));
@@ -39,6 +40,7 @@ function App() {
             <Route path="/auth" element={<RedirectIfAuthenticated><AuthLayout /></RedirectIfAuthenticated>}>
               <Route path="login" element={<LoginPage />} />
               <Route path="register" element={<RegisterPage />} />
+              <Route path="callback" element={<AuthCallbackPage />} />
               <Route path="forgot-password" element={<ForgotPasswordPage />} />
               <Route path="reset-password" element={<ResetPasswordPage />} />
             </Route>
