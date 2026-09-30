@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Chrome } from 'lucide-react';
 import { AuthService } from '@/services/auth.service';
 import { useAppContext } from '@/contexts/app-context';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAppContext();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,9 +23,10 @@ export default function LoginPage() {
     try {
       const response = await AuthService.login({ email, password });
       login(response);
-      navigate('/dashboard/overview');
+      const from = (location.state as { from?: string } | null)?.from;
+      navigate(from ?? '/dashboard/overview', { replace: true });
     } catch (err) {
-      setError('Adresse e-mail ou mot de passe invalide.');
+      setError(err instanceof Error ? err.message : 'Adresse e-mail ou mot de passe invalide.');
     } finally {
       setLoading(false);
     }
@@ -37,7 +39,11 @@ export default function LoginPage() {
         <p className="text-sm text-slate-600 dark:text-slate-300">Accédez à votre espace marchand.</p>
       </div>
 
-      <button type="button" className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800">
+      <button
+        type="button"
+        onClick={() => window.location.assign(AuthService.googleSignInUrl())}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800"
+      >
         <Chrome className="h-4 w-4" />
         Continuer avec Google
       </button>

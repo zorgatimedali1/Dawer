@@ -20,66 +20,67 @@ type AppContextValue = {
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
+const THEME_KEY = 'campaign-engage-theme';
+const LOCALE_KEY = 'campaign-engage-locale';
+const AUTH_KEY = 'campaign-engage-auth';
+
+function readStoredTheme(): ThemeMode {
+  const saved = window.localStorage.getItem(THEME_KEY);
+  if (saved === 'light' || saved === 'dark') return saved;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function readStoredLocale(): Locale {
+  const saved = window.localStorage.getItem(LOCALE_KEY);
+  return saved === 'en' || saved === 'fr' ? saved : 'fr';
+}
+
+function readStoredUser(): UserSession | null {
+  const saved = window.localStorage.getItem(AUTH_KEY);
+  if (!saved) return null;
+
+  try {
+    const parsed = JSON.parse(saved) as AuthResponse;
+    return parsed?.user ?? null;
+  } catch {
+    window.localStorage.removeItem(AUTH_KEY);
+    return null;
+  }
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeMode>('light');
-  const [locale, setLocaleState] = useState<Locale>('fr');
-  const [user, setUser] = useState<UserSession | null>(null);
-
-  useEffect(() => {
-    const savedTheme = window.localStorage.getItem('campaign-engage-theme') as ThemeMode | null;
-    const savedLocale = window.localStorage.getItem('campaign-engage-locale') as Locale | null;
-    const savedAuth = window.localStorage.getItem('campaign-engage-auth');
-
-    if (savedTheme === 'light' || savedTheme === 'dark') {
-      setThemeState(savedTheme);
-    } else {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      setThemeState(prefersDark ? 'dark' : 'light');
-    }
-
-    if (savedLocale === 'fr' || savedLocale === 'en') {
-      setLocaleState(savedLocale);
-    }
-
-    if (savedAuth) {
-      try {
-        const parsedAuth = JSON.parse(savedAuth) as AuthResponse;
-        setUser(parsedAuth.user);
-      } catch {
-        window.localStorage.removeItem('campaign-engage-auth');
-      }
-    }
-  }, []);
+  const [theme, setThemeState] = useState<ThemeMode>(readStoredTheme);
+  const [locale, setLocaleState] = useState<Locale>(readStoredLocale);
+  const [user, setUser] = useState<UserSession | null>(readStoredUser);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.style.colorScheme = theme;
-    window.localStorage.setItem('campaign-engage-theme', theme);
+    window.localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
-    window.localStorage.setItem('campaign-engage-locale', locale);
+    window.localStorage.setItem(LOCALE_KEY, locale);
   }, [locale]);
 
   const login = (response: AuthResponse) => {
-    const nextUser = response.user;
-    setUser(nextUser);
-    window.localStorage.setItem('campaign-engage-auth', JSON.stringify(response));
+    setUser(response.user);
+    window.localStorage.setItem(AUTH_KEY, JSON.stringify(response));
   };
 
   const logout = () => {
-    const savedAuth = window.localStorage.getItem('campaign-engage-auth');
+    const savedAuth = window.localStorage.getItem(AUTH_KEY);
     if (savedAuth) {
       try {
         const { token } = JSON.parse(savedAuth) as AuthResponse;
-        void AuthService.logout(token).catch(() => undefined);
+        if (token) void AuthService.logout(token).catch(() => undefined);
       } catch {
-        window.localStorage.removeItem('campaign-engage-auth');
+        // fall through and clear the stale payload
       }
     }
     setUser(null);
-    window.localStorage.removeItem('campaign-engage-auth');
+    window.localStorage.removeItem(AUTH_KEY);
   };
 
   const value = useMemo<AppContextValue>(

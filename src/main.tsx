@@ -5,6 +5,7 @@ import RootLayout from './app/layout';
 import AuthLayout from './app/auth/layout';
 import CustomerLayout from './app/customer/layout';
 import DashboardLayout from './app/dashboard/layout';
+import { RedirectIfAuthenticated, RequireAuth } from './components/route-guards';
 import './app/globals.css';
 
 const LandingPage = lazy(() => import('./app/page'));
@@ -35,7 +36,7 @@ function App() {
         <Suspense fallback={<div className="p-6" role="status">Loading...</div>}>
           <Routes>
             <Route path="/" element={<LandingPage />} />
-            <Route path="/auth" element={<AuthLayout />}>
+            <Route path="/auth" element={<RedirectIfAuthenticated><AuthLayout /></RedirectIfAuthenticated>}>
               <Route path="login" element={<LoginPage />} />
               <Route path="register" element={<RegisterPage />} />
               <Route path="forgot-password" element={<ForgotPasswordPage />} />
@@ -44,7 +45,14 @@ function App() {
             <Route path="/customer" element={<CustomerLayout />}>
               <Route path=":campaignId" element={<CustomerPage />} />
             </Route>
-            <Route path="/dashboard" element={<DashboardLayout />}>
+            <Route
+              path="/dashboard"
+              element={
+                <RequireAuth>
+                  <DashboardLayout />
+                </RequireAuth>
+              }
+            >
               <Route index element={<Navigate to="overview" replace />} />
               <Route path="overview" element={<OverviewPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />

@@ -25,19 +25,24 @@ export interface AuthResponse {
 export class AuthService {
   private static readonly API_URL = import.meta.env.VITE_API_URL ?? '/api';
 
+  private static async request<T>(path: string, init: RequestInit): Promise<T> {
+    const response = await fetch(`${this.API_URL}${path}`, init);
+    const text = await response.text();
+    const result = (text ? JSON.parse(text) : {}) as T & { message?: string; error?: string; details?: unknown };
+
+    if (!response.ok) {
+      throw new Error(result.message ?? result.error ?? 'The request failed.');
+    }
+
+    return result;
+  }
+
   private static async post<T>(path: string, body: unknown): Promise<T> {
-    const response = await fetch(`${this.API_URL}${path}`, {
+    return this.request<T>(path, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const result = await response.json() as T & { error?: string };
-
-    if (!response.ok) {
-      throw new Error(result.error ?? 'The request failed.');
-    }
-
-    return result;
   }
 
   static async login(credentials: LoginCredentials): Promise<AuthResponse> {
@@ -49,14 +54,14 @@ export class AuthService {
   }
 
   static async logout(token: string): Promise<void> {
-    const response = await fetch(`${this.API_URL}/auth/logout`, {
+    await this.request<void>('/auth/logout', {
       method: 'POST',
       headers: { authorization: `Bearer ${token}` },
     });
+  }
 
-    if (!response.ok) {
-      throw new Error('Unable to end the session.');
-    }
+  static googleSignInUrl(): string {
+    return `${this.API_URL}/auth/google`;
   }
 
   static async forgotPassword(email: string): Promise<{ success: boolean }> {

@@ -46,7 +46,7 @@ export default function RegisterPage() {
       setSuccess('Compte créé avec succès. Redirection vers votre tableau de bord...');
       setTimeout(() => navigate('/dashboard/overview'), 800);
     } catch (err) {
-      setError('L’inscription a échoué. Merci de réessayer.');
+      setError(err instanceof Error ? err.message : 'L’inscription a échoué. Merci de réessayer.');
     } finally {
       setLoading(false);
     }
@@ -59,7 +59,11 @@ export default function RegisterPage() {
         <p className="text-sm text-slate-600 dark:text-slate-300">Démarrez votre espace marchand.</p>
       </div>
 
-      <button type="button" className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800">
+      <button
+        type="button"
+        onClick={() => window.location.assign(AuthService.googleSignInUrl())}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800"
+      >
         <Chrome className="h-4 w-4" />
         S’inscrire avec Google
       </button>
