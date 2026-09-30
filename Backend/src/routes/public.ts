@@ -10,23 +10,36 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
   const campaignMatch = /^\/api\/public\/campaigns\/([^/]+)$/.exec(url.pathname);
 
   if (request.method === 'GET' && campaignMatch) {
+    const now = new Date().toISOString();
     const campaign = await env.DB.prepare(
       `SELECT c.id, c.name, c.description, c.public_code, c.status, c.start_at, c.end_at, c.game_type,
-              c.require_action, c.google_maps_name, c.google_maps_url, c.google_place_id, c.facebook_url, c.instagram_url,
+              c.require_action, c.require_customer_information,
+              c.google_maps_name, c.google_maps_url, c.google_place_id, c.facebook_url, c.instagram_url,
               b.name AS business_name
        FROM campaigns c
        LEFT JOIN businesses b ON b.id = c.business_id
        WHERE c.public_code = ? AND c.status = 'ACTIVE'
+         AND (c.start_at IS NULL OR c.start_at <= ?)
+         AND (c.end_at IS NULL OR c.end_at >= ?)
        LIMIT 1`,
     )
-      .bind(campaignMatch[1])
-      .first();
+      .bind(campaignMatch[1], now, now)
+      .first<Record<string, unknown>>();
 
     if (!campaign) {
       return errorResponse('Campaign not found.', 404);
     }
 
-    return jsonResponse({ success: true, campaign });
+    const rewards = await env.DB.prepare(
+      `SELECT id, name, description, type, value, weight, quantity, quantity_initial
+       FROM rewards
+       WHERE campaign_id = ? AND active = 1
+       ORDER BY weight DESC, created_at ASC`,
+    )
+      .bind(campaign.id)
+      .all();
+
+    return jsonResponse({ success: true, campaign, rewards: rewards.results ?? [] });
   }
 
   const match = /^\/api\/public\/campaigns\/([^/]+)\/participate$/.exec(url.pathname);
@@ -42,6 +55,7 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
   try {
     const publicCode = match[1];
     const body = participationSchema.parse(await request.json());
+    const nowIso = new Date().toISOString();
 
     const campaign = await env.DB.prepare(
       `SELECT * FROM campaigns WHERE public_code = ? LIMIT 1`,
@@ -53,7 +67,11 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       return errorResponse('Campaign not found.', 404);
     }
 
-    if (campaign.status !== 'ACTIVE') {
+    const withinWindow =
+      (!campaign.start_at || campaign.start_at <= nowIso) &&
+      (!campaign.end_at || campaign.end_at >= nowIso);
+
+    if (campaign.status !== 'ACTIVE' || !withinWindow) {
       return errorResponse('Campaign is not accepting spins right now.', 409);
     }
 
@@ -95,16 +113,23 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     }
 
     const rewardRows = await env.DB.prepare(
-      `SELECT id, name, weight FROM rewards WHERE campaign_id = ? AND active = 1`,
+      `SELECT id, name, description, type, value, weight, quantity
+       FROM rewards
+       WHERE campaign_id = ? AND active = 1
+       ORDER BY weight DESC, created_at ASC`,
     )
       .bind(campaign.id)
       .all<any>();
 
     const selectedReward = pickWeightedReward(
-      (rewardRows.results ?? []).map((reward: any) => ({
+      (rewardRows.results ?? []).map((reward) => ({
         id: reward.id,
         name: reward.name,
+        description: reward.description,
+        type: reward.type,
+        value: reward.value,
         weight: Number(reward.weight ?? 0),
+        quantity: Number(reward.quantity ?? 0),
       })),
     );
 
@@ -114,7 +139,7 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
 
     const couponCode = `CF-${secureRandomHex(8).toUpperCase()}`;
     const participationId = crypto.randomUUID();
-    const now = new Date().toISOString();
+    const now = nowIso;
 
     await env.DB.prepare(
       `INSERT INTO participations (id, campaign_id, customer_id, reward_id, result, created_at)

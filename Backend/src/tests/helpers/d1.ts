@@ -91,6 +91,27 @@ export class TestDatabase {
   }
 }
 
-export function createTestEnv(): { DB: TestDatabase } {
-  return { DB: new TestDatabase() };
+/**
+ * Minimal stand-in for the `CampaignParticipationLock` Durable Object: one claim
+ * per (campaign, customer) pair, reset for every test.
+ */
+function createLockRegistry() {
+  const claims = new Set<string>();
+
+  return {
+    getByName(_name: string) {
+      return {
+        async claim(campaignId: string, customerKey: string) {
+          const key = `${campaignId}:${customerKey}`;
+          if (claims.has(key)) return { allowed: false as const };
+          claims.add(key);
+          return { allowed: true as const };
+        },
+      };
+    },
+  };
+}
+
+export function createTestEnv(): { DB: TestDatabase; CAMPAIGN_LOCK: ReturnType<typeof createLockRegistry> } {
+  return { DB: new TestDatabase(), CAMPAIGN_LOCK: createLockRegistry() };
 }
