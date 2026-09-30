@@ -14,6 +14,12 @@ export function secureRandomHex(byteLength = 16): string {
     .join('');
 }
 
+/**
+ * Cloudflare Workers' WebCrypto rejects PBKDF2 iteration counts above 100000.
+ * Keep this at the ceiling the runtime allows.
+ */
+const PBKDF2_ITERATIONS = 100000;
+
 export async function hashPassword(password: string): Promise<{ salt: string; hash: string }> {
   const saltBytes = new Uint8Array(16);
   crypto.getRandomValues(saltBytes);
@@ -33,7 +39,7 @@ export async function hashPassword(password: string): Promise<{ salt: string; ha
     {
       name: 'PBKDF2',
       salt: new TextEncoder().encode(salt),
-      iterations: 600000,
+      iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
     key,
@@ -61,7 +67,7 @@ export async function verifyPassword(password: string, salt: string, candidateHa
     {
       name: 'PBKDF2',
       salt: new TextEncoder().encode(salt),
-      iterations: 600000,
+      iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
     key,

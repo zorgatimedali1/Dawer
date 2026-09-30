@@ -31,6 +31,42 @@ const optionalUrl = z.string().trim().max(2048).refine(
   'Enter a valid URL.',
 );
 
+export const campaignStatusSchema = z.enum([
+  'DRAFT',
+  'SCHEDULED',
+  'ACTIVE',
+  'PAUSED',
+  'COMPLETED',
+  'ARCHIVED',
+]);
+
+export const rewardTypeSchema = z.enum([
+  'percentage_discount',
+  'fixed_discount',
+  'free_product',
+  'free_service',
+  'custom_reward',
+  'none',
+]);
+
+export const rewardInputSchema = z.object({
+  id: z.string().trim().min(1).max(64).optional(),
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(500).default(''),
+  type: rewardTypeSchema.default('custom_reward'),
+  value: z.number().finite().min(0).max(1_000_000).default(0),
+  weight: z.number().int().min(0).max(1_000_000),
+  quantity: z.number().int().min(0).max(1_000_000).optional(),
+  active: z.boolean().default(true),
+});
+
+export type RewardInput = z.infer<typeof rewardInputSchema>;
+
+const isoDateTime = z
+  .string()
+  .trim()
+  .refine((value) => value === '' || !Number.isNaN(Date.parse(value)), 'Enter a valid date.');
+
 export const campaignConfigSchema = z.object({
   title: z.string().trim().min(1).max(120),
   description: z.string().trim().max(1000),
@@ -40,4 +76,32 @@ export const campaignConfigSchema = z.object({
   facebookUrl: optionalUrl,
   instagramUrl: optionalUrl,
   action: z.enum(['google-review', 'instagram', 'facebook', 'newsletter', 'purchase', 'none']),
+  campaignId: z.string().trim().min(1).max(64).optional(),
+  status: campaignStatusSchema.optional(),
+  startAt: isoDateTime.optional(),
+  endAt: isoDateTime.optional(),
+  rewards: z.array(rewardInputSchema).min(1).max(20).optional(),
+});
+
+export const campaignCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(1000).default(''),
+});
+
+export const campaignUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(1000),
+    status: campaignStatusSchema,
+    startAt: isoDateTime,
+    endAt: isoDateTime,
+  })
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'Provide at least one field to update.');
+
+export const campaignListQuerySchema = z.object({
+  status: z.string().trim().max(200).optional(),
+  search: z.string().trim().max(120).optional(),
+  page: z.coerce.number().int().min(1).max(1000).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(10),
 });

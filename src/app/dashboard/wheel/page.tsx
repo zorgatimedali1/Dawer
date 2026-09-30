@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpDown, Copy, ExternalLink, Plus, Trash2, UploadCloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getGoogleMapsUrl } from '@/lib/google-maps';
@@ -15,15 +15,18 @@ interface PlaceSuggestion {
 }
 
 const initialRewards = [
-  { id: 1, name: 'Prochaine visite', probability: 20, metadata: '-20% sur votre prochaine visite' },
-  { id: 2, name: 'Café offert', probability: 15, metadata: 'A emporter' },
-  { id: 3, name: '10% aujourd’hui', probability: 10, metadata: 'Code valable aujourd’hui' },
-  { id: 4, name: 'Points x2', probability: 20, metadata: 'Aujourd’hui uniquement' },
-  { id: 5, name: 'Cadeau surprise', probability: 10, metadata: 'À choisir en caisse' },
-  { id: 6, name: 'Retentez votre chance', probability: 25, metadata: 'Bonus de relance' },
+  { id: 'r1', name: 'Prochaine visite', probability: 20, metadata: '-20% sur votre prochaine visite' },
+  { id: 'r2', name: 'Café offert', probability: 15, metadata: 'A emporter' },
+  { id: 'r3', name: '10% aujourd’hui', probability: 10, metadata: 'Code valable aujourd’hui' },
+  { id: 'r4', name: 'Points x2', probability: 20, metadata: 'Aujourd’hui uniquement' },
+  { id: 'r5', name: 'Cadeau surprise', probability: 10, metadata: 'À choisir en caisse' },
+  { id: 'r6', name: 'Retentez votre chance', probability: 25, metadata: 'Bonus de relance' },
 ];
 
 export default function WheelConfigPage() {
+  const [searchParams] = useSearchParams();
+  const selectedCampaignId = searchParams.get('campaign') ?? undefined;
+  const [loadedCampaignId, setLoadedCampaignId] = useState<string | undefined>(undefined);
   const [title, setTitle] = useState('Tentez votre chance 🎉');
   const [description, setDescription] = useState('Tournez la roue et découvrez votre cadeau immédiatement !');
   const [logo, setLogo] = useState<string | null>('https://images.unsplash.com/photo-1556740749-887f6717d7e4?auto=format&fit=crop&w=200&q=80');
@@ -104,7 +107,7 @@ export default function WheelConfigPage() {
 
   useEffect(() => {
     let cancelled = false;
-    CampaignConfigService.load()
+    CampaignConfigService.load(selectedCampaignId)
       .then((saved) => {
         if (!saved || cancelled) return;
         setTitle(saved.title);
@@ -114,7 +117,18 @@ export default function WheelConfigPage() {
         setFacebookUrl(saved.facebookUrl);
         setInstagramUrl(saved.instagramUrl);
         setAction(saved.action);
+        setLoadedCampaignId(saved.id);
         setPublicUrl(`${window.location.origin}/customer/${saved.publicCode}`);
+        if (saved.rewards?.length) {
+          setRewards(
+            saved.rewards.map((reward) => ({
+              id: reward.id ?? crypto.randomUUID(),
+              name: reward.name,
+              probability: Number(reward.weight ?? 0),
+              metadata: reward.description ?? '',
+            })),
+          );
+        }
       })
       .catch((error: unknown) => {
         if (!cancelled) setConfigError(error instanceof Error ? error.message : 'Unable to load campaign settings.');
@@ -126,7 +140,7 @@ export default function WheelConfigPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedCampaignId]);
 
   const choosePlace = (suggestion: PlaceSuggestion) => {
     setGoogleMapsSearch(suggestion.label);
@@ -164,6 +178,7 @@ export default function WheelConfigPage() {
 
     try {
       const saved = await CampaignConfigService.save({
+        campaignId: loadedCampaignId ?? selectedCampaignId,
         title,
         description,
         googleMapsName: googleMapsSearch.trim(),
@@ -172,7 +187,17 @@ export default function WheelConfigPage() {
         facebookUrl: facebookUrl.trim(),
         instagramUrl: instagramUrl.trim(),
         action,
+        rewards: rewards.map((reward) => ({
+          id: reward.id,
+          name: reward.name,
+          description: reward.metadata,
+          type: 'custom_reward' as const,
+          value: 0,
+          weight: Number(reward.probability || 0),
+          active: true,
+        })),
       });
+      setLoadedCampaignId(saved.id);
       setPublicUrl(`${window.location.origin}/customer/${saved.publicCode}`);
       setConfigMessage('Configuration saved. Your public campaign link is ready.');
     } catch (error) {
@@ -193,7 +218,7 @@ export default function WheelConfigPage() {
     window.setTimeout(() => setCopyMessage(''), 2500);
   };
 
-  const updateReward = (id: number, field: 'name' | 'probability' | 'metadata', value: string | number) => {
+  const updateReward = (id: string, field: 'name' | 'probability' | 'metadata', value: string | number) => {
     setRewards((current) =>
       current.map((reward) => (reward.id === id ? { ...reward, [field]: field === 'probability' ? Number(value) : value } : reward)),
     );
@@ -203,7 +228,7 @@ export default function WheelConfigPage() {
     setRewards((current) => [
       ...current,
       {
-        id: Date.now(),
+        id: crypto.randomUUID(),
         name: `Nouveau bonus ${current.length + 1}`,
         probability: 5,
         metadata: 'Nouvelle récompense',
@@ -211,7 +236,7 @@ export default function WheelConfigPage() {
     ]);
   };
 
-  const removeReward = (id: number) => {
+  const removeReward = (id: string) => {
     setRewards((current) => current.filter((reward) => reward.id !== id));
   };
 
@@ -265,7 +290,6 @@ export default function WheelConfigPage() {
     }
 
     const winningIndex = rewards.findIndex((reward) => reward.id === selectedReward.id);
-    const sliceSize = wheelSegments.length ? 360 / wheelSegments.reduce((sum, segment) => sum + (segment.end - segment.start), 0) * 0 : 0;
     const selectedSegment = wheelSegments[winningIndex] ?? wheelSegments[0];
     const segmentCenter = selectedSegment ? (selectedSegment.start + selectedSegment.end) / 2 : 0;
     const targetDegrees = 360 - ((segmentCenter + 90) % 360);

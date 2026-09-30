@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS rewards (
   value TEXT,
   description TEXT,
   quantity INTEGER NOT NULL DEFAULT 0,
+  quantity_initial INTEGER,
   weight INTEGER NOT NULL DEFAULT 0,
   expires_after TEXT,
   active INTEGER NOT NULL DEFAULT 1,

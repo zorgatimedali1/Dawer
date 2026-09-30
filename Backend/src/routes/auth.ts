@@ -8,6 +8,25 @@ function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
+/**
+ * Business slugs are globally unique, so a friendly name can collide with an
+ * existing one. Deterministically suffix with random bytes until it is free.
+ */
+async function uniqueBusinessSlug(name: string, env: Env): Promise<string> {
+  const base = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'business';
+  let slug = base;
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const clash = await env.DB.prepare('SELECT 1 AS taken FROM businesses WHERE slug = ? LIMIT 1')
+      .bind(slug)
+      .first();
+    if (!clash) return slug;
+    slug = `${base}-${secureRandomHex(3)}`;
+  }
+
+  return `${base}-${secureRandomHex(6)}`;
+}
+
 export async function registerUser(request: Request, env: Env): Promise<Response> {
   try {
     const body = registerSchema.parse(await request.json());
@@ -21,49 +40,38 @@ export async function registerUser(request: Request, env: Env): Promise<Response
     const userId = crypto.randomUUID();
     const passwordHash = await hashPassword(body.password);
     const now = new Date().toISOString();
-
-    await env.DB.prepare(
-      `INSERT INTO users (id, email, password_hash, salt, first_name, last_name, email_verified, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-    )
-      .bind(
-        userId,
-        email,
-        passwordHash.hash,
-        passwordHash.salt,
-        body.firstName,
-        body.lastName,
-        now,
-        now,
-      )
-      .run();
-
-    if (body.businessName) {
-      const businessId = crypto.randomUUID();
-      const slug = body.businessName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
-
-      await env.DB.prepare(
-        `INSERT INTO businesses (id, name, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-      )
-        .bind(businessId, body.businessName, slug || 'business', now, now)
-        .run();
-
-      await env.DB.prepare(
-        `INSERT INTO business_members (id, business_id, user_id, role, created_at) VALUES (?, ?, ?, 'OWNER', ?)`,
-      )
-        .bind(crypto.randomUUID(), businessId, userId, now)
-        .run();
-    }
-
     const token = `cf_${secureRandomHex(16)}.${secureRandomHex(16)}`;
     const tokenHash = await sha256Hex(token);
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
 
-    await env.DB.prepare(
-      `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
-    )
-      .bind(crypto.randomUUID(), userId, tokenHash, now, expiresAt)
-      .run();
+    const statements = [
+      env.DB.prepare(
+        `INSERT INTO users (id, email, password_hash, salt, first_name, last_name, email_verified, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      ).bind(userId, email, passwordHash.hash, passwordHash.salt, body.firstName, body.lastName, now, now),
+    ];
+
+    if (body.businessName) {
+      const businessId = crypto.randomUUID();
+      const slug = await uniqueBusinessSlug(body.businessName, env);
+
+      statements.push(
+        env.DB.prepare(
+          `INSERT INTO businesses (id, name, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+        ).bind(businessId, body.businessName, slug, now, now),
+        env.DB.prepare(
+          `INSERT INTO business_members (id, business_id, user_id, role, created_at) VALUES (?, ?, ?, 'OWNER', ?)`,
+        ).bind(crypto.randomUUID(), businessId, userId, now),
+      );
+    }
+
+    statements.push(
+      env.DB.prepare(
+        `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
+      ).bind(crypto.randomUUID(), userId, tokenHash, now, expiresAt),
+    );
+
+    await env.DB.batch(statements);
 
     return jsonResponse({
       success: true,
@@ -82,6 +90,7 @@ export async function registerUser(request: Request, env: Env): Promise<Response
       return errorResponse('Validation failed.', 400, error.flatten());
     }
 
+    console.error('Registration failed.', error);
     return errorResponse('Unable to register user.', 500);
   }
 }
