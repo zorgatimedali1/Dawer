@@ -1,13 +1,39 @@
 "use client";
 
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useCampaign } from '@/hooks/useCampaign';
 import { Button } from '@/components/ui/button';
+import { CampaignService, type CampaignStatusKey } from '@/services/campaign.service';
 
 export default function CampaignsPage() {
   const { campaigns, loading, error, refetch } = useCampaign();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const run = async (id: string | null, action: () => Promise<unknown>) => {
+    setBusyId(id);
+    setActionError(null);
+
+    try {
+      await action();
+      await refetch();
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'The action failed.');
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const handleCreateCampaign = () => {
-    console.log('Create campaign clicked');
+    const name = window.prompt('Campaign name');
+    if (!name || !name.trim()) return;
+    void run(null, () => CampaignService.createCampaign({ name: name.trim() }));
+  };
+
+  const handleToggleStatus = (campaign: { id: string; status: CampaignStatusKey }) => {
+    const next: CampaignStatusKey = campaign.status === 'active' ? 'paused' : 'active';
+    void run(campaign.id, () => CampaignService.updateCampaign(campaign.id, { status: next }));
   };
 
   if (loading) {
@@ -43,9 +69,17 @@ export default function CampaignsPage() {
           <p className="text-sm text-gray-600">Manage your marketing campaigns</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={handleCreateCampaign}>New Campaign</Button>
+          <Button variant="outline" onClick={handleCreateCampaign} disabled={busyId !== null}>
+            New Campaign
+          </Button>
         </div>
       </div>
+
+      {actionError && (
+        <div className="mb-6 rounded-lg border-l-4 border-red-400 bg-red-50 p-4 text-sm text-red-700">
+          {actionError}
+        </div>
+      )}
 
       {campaigns.length === 0 ? (
         <div className="text-center py-12">
@@ -58,41 +92,68 @@ export default function CampaignsPage() {
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h3 className="font-medium text-gray-900">{campaign.name}</h3>
-                  <p className="text-sm text-gray-600 line-clamp-2">{campaign.description}</p>
+                  <p className="text-sm text-gray-600 line-clamp-2">
+                    {campaign.description || 'No description yet.'}
+                  </p>
                 </div>
-                <div className="text-sm space-y-1">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${campaign.status === 'active' ? 'bg-green-100 text-green-800' : campaign.status === 'scheduled' ? 'bg-blue-100 text-blue-800' : campaign.status === 'paused' ? 'bg-yellow-100 text-yellow-800' : campaign.status === 'completed' ? 'bg-gray-100 text-gray-800' : campaign.status === 'archived' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'}`}>
+                <div className="text-sm space-y-1 text-right">
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                      campaign.status === 'active'
+                        ? 'bg-green-100 text-green-800'
+                        : campaign.status === 'scheduled'
+                          ? 'bg-blue-100 text-blue-800'
+                          : campaign.status === 'paused'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : campaign.status === 'archived'
+                              ? 'bg-purple-100 text-purple-800'
+                              : 'bg-gray-100 text-gray-800'
+                    }`}
+                  >
                     {campaign.status.charAt(0).toUpperCase() + campaign.status.slice(1)}
                   </span>
-                  <span className="ml-2">• {campaign.participantCount} participants</span>
+                  <p className="text-gray-500">{campaign.participantCount} participants</p>
                 </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-3 text-sm text-gray-600">
                 <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs text-gray-400">Starts:</span>
-                    <span>{new Date(campaign.startsAt).toLocaleDateString()}</span>
-                  </div>
+                  <span className="text-xs text-gray-400">Starts: </span>
+                  <span>{new Date(campaign.startsAt).toLocaleDateString()}</span>
                 </div>
                 <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs text-gray-400">Ends:</span>
-                    <span>{new Date(campaign.endsAt).toLocaleDateString()}</span>
-                  </div>
+                  <span className="text-xs text-gray-400">Ends: </span>
+                  <span>{new Date(campaign.endsAt).toLocaleDateString()}</span>
                 </div>
                 <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs text-gray-400">Conversion:</span>
-                    <span className="font-medium">{campaign.conversionRate}%</span>
-                  </div>
+                  <span className="text-xs text-gray-400">Conversion: </span>
+                  <span className="font-medium">{campaign.conversionRate}%</span>
                 </div>
               </div>
 
               <div className="mt-4 flex justify-end space-x-3">
-                <Button variant="outline" size="sm">Edit</Button>
-                <Button variant="outline" size="sm">Duplicate</Button>
-                <Button variant="outline" size="sm">{campaign.status === 'active' ? 'Pause' : 'Activate'}</Button>
+                <Link
+                  to={`/dashboard/wheel?campaign=${encodeURIComponent(campaign.id)}`}
+                  className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                >
+                  Edit
+                </Link>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busyId === campaign.id}
+                  onClick={() => run(campaign.id, () => CampaignService.duplicateCampaign(campaign.id))}
+                >
+                  Duplicate
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busyId === campaign.id}
+                  onClick={() => handleToggleStatus(campaign)}
+                >
+                  {campaign.status === 'active' ? 'Pause' : 'Activate'}
+                </Button>
               </div>
             </div>
           ))}

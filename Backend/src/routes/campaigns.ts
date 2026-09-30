@@ -23,6 +23,12 @@ const LIST_PATH = '/api/business/campaigns';
 const ITEM_PATTERN = /^\/api\/business\/campaigns\/([^/]+)$/;
 const DUPLICATE_PATTERN = /^\/api\/business\/campaigns\/([^/]+)\/duplicate$/;
 
+/**
+ * Rewards created without an explicit quantity are stocked at 100 so the
+ * remaining-units loop works out of the box; an explicit 0 means unlimited.
+ */
+const DEFAULT_REWARD_STOCK = 100;
+
 function actionToDb(action: string): string {
   return action === 'none' ? 'NONE' : action.toUpperCase().replace(/-/g, '_');
 }
@@ -86,8 +92,8 @@ async function syncRewards(
           String(reward.value),
           reward.description,
           reward.weight,
-          reward.quantity ?? 0,
-          reward.quantity ?? 0,
+          reward.quantity ?? DEFAULT_REWARD_STOCK,
+          reward.quantity ?? DEFAULT_REWARD_STOCK,
           reward.active ? 1 : 0,
           now,
           id,
@@ -108,8 +114,8 @@ async function syncRewards(
           reward.type,
           String(reward.value),
           reward.description,
-          reward.quantity ?? 0,
-          reward.quantity ?? 0,
+          reward.quantity ?? DEFAULT_REWARD_STOCK,
+          reward.quantity ?? DEFAULT_REWARD_STOCK,
           reward.weight,
           reward.active ? 1 : 0,
           now,
@@ -568,6 +574,39 @@ async function handleCampaignDelete(
   return jsonResponse({ success: true, archived: (participations?.total ?? 0) > 0 });
 }
 
+async function handleCampaignDetail(
+  request: Request,
+  env: Env,
+  user: AuthenticatedUser,
+  campaignId: string,
+): Promise<Response> {
+  const businessIds = await getBusinessIds(user.id, env);
+  const campaign = await findCampaignForUser(campaignId, businessIds, env);
+
+  if (!campaign) return errorResponse('Campaign not found.', 404);
+
+  const [participants, coupons, rewards] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS total FROM participations WHERE campaign_id = ?`)
+      .bind(campaignId)
+      .first<{ total: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS total FROM coupons WHERE campaign_id = ?`)
+      .bind(campaignId)
+      .first<{ total: number }>(),
+    loadRewards(env, campaignId),
+  ]);
+
+  return jsonResponse({
+    success: true,
+    campaign: {
+      ...campaign,
+      participant_count: participants?.total ?? 0,
+      reward_count: rewards.length,
+      redemption_count: coupons?.total ?? 0,
+      rewards,
+    },
+  });
+}
+
 export async function handleCampaignRoute(
   request: Request,
   env: Env,
@@ -597,6 +636,7 @@ export async function handleCampaignRoute(
 
     const itemMatch = ITEM_PATTERN.exec(path);
     if (itemMatch?.[1]) {
+      if (request.method === 'GET') return await handleCampaignDetail(request, env, user, itemMatch[1]);
       if (request.method === 'PATCH') return await handleCampaignPatch(request, env, user, itemMatch[1]);
       if (request.method === 'DELETE') return await handleCampaignDelete(env, user, itemMatch[1]);
       return errorResponse('Method not allowed.', 405);

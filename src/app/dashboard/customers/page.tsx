@@ -1,62 +1,40 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { CustomerService, type Customer } from '@/services/customer.service';
 
 export default function CustomersPage() {
   const [search, setSearch] = useState('');
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const customers = [
-    {
-      id: 'cust_1',
-      name: 'Alex Johnson',
-      email: 'alex.johnson@email.com',
-      phone: '(555) 123-4567',
-      firstVisit: '2026-09-15',
-      lastVisit: '2026-09-25',
-      totalVisits: 8,
-      totalRewards: 3,
-      totalCoupons: 2,
-      status: 'active',
-    },
-    {
-      id: 'cust_2',
-      name: 'Maria Garcia',
-      email: 'maria.garcia@email.com',
-      phone: '(555) 987-6543',
-      firstVisit: '2026-09-10',
-      lastVisit: '2026-09-24',
-      totalVisits: 5,
-      totalRewards: 2,
-      totalCoupons: 1,
-      status: 'active',
-    },
-    {
-      id: 'cust_3',
-      name: 'James Wilson',
-      email: 'james.wilson@email.com',
-      phone: '(555) 456-7890',
-      firstVisit: '2026-09-20',
-      lastVisit: '2026-09-25',
-      totalVisits: 3,
-      totalRewards: 1,
-      totalCoupons: 0,
-      status: 'new',
-    },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setLoading(true);
+      setError(null);
 
-  const filteredCustomers = customers.filter((customer) => {
-    const matchesSearch =
-      customer.name.toLowerCase().includes(search.toLowerCase()) ||
-      customer.email.toLowerCase().includes(search.toLowerCase()) ||
-      customer.phone.includes(search);
+      CustomerService.list({ search: search || undefined, limit: 50 })
+        .then((result) => {
+          if (cancelled) return;
+          setCustomers(result.customers);
+        })
+        .catch((cause: unknown) => {
+          if (cancelled) return;
+          setError(cause instanceof Error ? cause.message : 'Unable to load customers.');
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }, 250);
 
-    return matchesSearch;
-  });
-
-  const handleAddCustomer = () => {
-    console.log('Add customer clicked');
-  };
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [search]);
 
   return (
     <div className="p-6">
@@ -64,9 +42,6 @@ export default function CustomersPage() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Customers</h2>
           <p className="text-sm text-gray-600">Manage your customer relationships and track engagement</p>
-        </div>
-        <div>
-          <Button variant="outline" onClick={handleAddCustomer}>Add Customer</Button>
         </div>
       </div>
 
@@ -87,9 +62,26 @@ export default function CustomersPage() {
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        {filteredCustomers.length === 0 ? (
+        {error ? (
+          <div className="py-12 text-center">
+            <p className="text-sm text-red-700">{error}</p>
+            <div className="mt-4 flex justify-center">
+              <Button variant="outline" onClick={() => setSearch('')}>
+                Retry
+              </Button>
+            </div>
+          </div>
+        ) : loading ? (
+          <div className="py-12 text-center">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-4" />
+            <p className="text-gray-600">Loading customers...</p>
+          </div>
+        ) : customers.length === 0 ? (
           <div className="py-12 text-center">
             <p className="text-gray-500">No customers found.</p>
+            <p className="mt-2 text-sm text-gray-400">
+              Customers appear here as soon as someone takes part in one of your campaigns.
+            </p>
           </div>
         ) : (
           <>
@@ -97,20 +89,20 @@ export default function CustomersPage() {
               <div className="grid grid-cols-6 gap-4 text-sm font-medium text-gray-600">
                 <div>Customer</div>
                 <div>Contact Info</div>
-                <div>First Visit</div>
-                <div>Last Visit</div>
+                <div>Joined</div>
+                <div>Last Activity</div>
                 <div>Engagement</div>
                 <div>Status</div>
               </div>
             </div>
 
             <div className="divide-y divide-gray-200">
-              {filteredCustomers.map((customer) => (
+              {customers.map((customer) => (
                 <div key={customer.id} className="px-6 py-4 hover:bg-gray-50">
                   <div className="grid grid-cols-6 gap-4">
                     <div className="flex items-center space-x-3">
                       <div className="h-10 w-10 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
-                        {customer.name.charAt(0)}
+                        {customer.name.charAt(0).toUpperCase()}
                       </div>
                       <div>
                         <p className="text-sm font-medium text-gray-900">{customer.name}</p>
@@ -118,27 +110,39 @@ export default function CustomersPage() {
                     </div>
 
                     <div className="text-sm text-gray-600 space-y-1">
-                      <p>{customer.email}</p>
-                      <p>{customer.phone}</p>
+                      <p>{customer.email || '—'}</p>
+                      <p>{customer.phone || '—'}</p>
                     </div>
 
-                    <div className="text-sm text-gray-600">{customer.firstVisit}</div>
-                    <div className="text-sm text-gray-600">{customer.lastVisit}</div>
+                    <div className="text-sm text-gray-600">
+                      {new Date(customer.createdAt).toLocaleDateString()}
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      {customer.lastActivityAt
+                        ? new Date(customer.lastActivityAt).toLocaleDateString()
+                        : new Date(customer.createdAt).toLocaleDateString()}
+                    </div>
 
                     <div className="flex items-center space-x-3 text-sm">
                       <div className="flex items-center space-x-2 text-gray-500">
                         <span className="text-xs">🎁</span>
-                        <span>{customer.totalRewards}</span>
+                        <span>{customer.participationCount}</span>
                       </div>
                       <div className="flex items-center space-x-2 text-gray-500">
                         <span className="text-xs">🎟️</span>
-                        <span>{customer.totalCoupons}</span>
+                        <span>{customer.redeemedCount}</span>
                       </div>
                     </div>
 
                     <div>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${customer.status === 'active' ? 'bg-green-100 text-green-800' : customer.status === 'new' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
-                        {customer.status.charAt(0).toUpperCase() + customer.status.slice(1)}
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                          customer.status === 'active'
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-blue-100 text-blue-800'
+                        }`}
+                      >
+                        {customer.status === 'active' ? 'Active' : 'New'}
                       </span>
                     </div>
                   </div>

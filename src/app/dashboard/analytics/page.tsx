@@ -1,22 +1,102 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { AnalyticsService, type AnalyticsTotals } from '@/services/analytics.service';
+import { CampaignService, type Campaign } from '@/services/campaign.service';
+import { RewardService, type RewardSummary } from '@/services/reward.service';
+
+const EVENT_LABELS: Record<string, string> = {
+  PARTICIPATION: 'Campaign participations',
+  REWARD_CLAIMED: 'Rewards won',
+  COUPON_REDEEMED: 'Coupons redeemed',
+  QR_SCANNED: 'QR scans',
+};
+
+interface AnalyticsData {
+  totals: AnalyticsTotals[];
+  campaigns: Campaign[];
+  rewards: RewardSummary[];
+}
 
 export default function AnalyticsPage() {
-  const [dateRange, setDateRange] = useState('last_30_days');
+  const [data, setData] = useState<AnalyticsData | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const overviewStats = {
-    totalScans: 1240,
-    totalParticipants: 892,
-    totalRewardsIssued: 456,
-    totalCouponsRedeemed: 324,
-    averageConversionRate: 68.5,
-  };
+  useEffect(() => {
+    Promise.all([
+      AnalyticsService.overview(),
+      CampaignService.getCampaigns({ limit: 100 }),
+      RewardService.list(),
+    ])
+      .then(([overview, campaigns, rewards]) =>
+        setData({ totals: overview.totals, campaigns, rewards }),
+      )
+      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Unable to load analytics.'));
+  }, []);
+
+  const stats = useMemo(() => {
+    if (!data) return [];
+    const count = (type: string) =>
+      data.totals.find((row) => row.event_type === type)?.count ?? 0;
+
+    const participants = count('PARTICIPATION');
+    const rewardsWon = count('REWARD_CLAIMED');
+    const redeemed = count('COUPON_REDEEMED');
+    const scans = count('QR_SCANNED');
+    const conversion = participants > 0 ? Math.round((redeemed / participants) * 1000) / 10 : 0;
+
+    return [
+      { label: 'Total scans', value: scans },
+      { label: 'Total participants', value: participants },
+      { label: 'Rewards issued', value: rewardsWon },
+      { label: 'Coupons redeemed', value: redeemed },
+      { label: 'Conversion rate', value: `${conversion}%` },
+    ];
+  }, [data]);
+
+  const rewardDistribution = useMemo(() => {
+    if (!data) return [];
+    const totalWeight = data.rewards.reduce((sum, reward) => sum + (reward.active ? reward.weight : 0), 0);
+    return data.rewards
+      .filter((reward) => reward.active)
+      .map((reward) => ({
+        id: reward.id,
+        name: reward.name,
+        percent: totalWeight > 0 ? Math.round((reward.weight / totalWeight) * 100) : 0,
+      }));
+  }, [data]);
 
   const handleExport = () => {
-    console.log('Export analytics clicked');
+    if (!data) return;
+    const rows = [
+      ['campaign', 'status', 'participants', 'rewards', 'redemptions', 'conversion_rate'],
+      ...data.campaigns.map((campaign) => [
+        campaign.name,
+        campaign.status,
+        String(campaign.participantCount),
+        String(campaign.rewardCount),
+        String(campaign.redemptionCount),
+        String(campaign.conversionRate),
+      ]),
+    ];
+    const csv = rows.map((row) => row.map((cell) => `"${cell}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'campaign-analytics.csv';
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="rounded-lg border-l-4 border-red-400 bg-red-50 p-6 text-sm text-red-700">{error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6">
@@ -28,120 +108,96 @@ export default function AnalyticsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={handleExport}>Export Report</Button>
+          <Button variant="outline" onClick={handleExport} disabled={!data}>
+            Export Report
+          </Button>
         </div>
       </div>
 
-      <div className="mb-6">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-500 mb-2">Total Scans</h3>
-            <p className="text-2xl font-bold text-gray-900">{overviewStats.totalScans}</p>
-            <p className="text-xs text-indigo-600 flex items-center">
-              <span className="mr-1">+</span>12.5% vs last period
-            </p>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-500 mb-2">Total Participants</h3>
-            <p className="text-2xl font-bold text-gray-900">{overviewStats.totalParticipants}</p>
-            <p className="text-xs text-indigo-600 flex items-center">
-              <span className="mr-1">+</span>8.3% vs last period
-            </p>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-500 mb-2">Rewards Issued</h3>
-            <p className="text-2xl font-bold text-gray-900">{overviewStats.totalRewardsIssued}</p>
-            <p className="text-xs text-indigo-600 flex items-center">
-              <span className="mr-1">+</span>15.7% vs last period
-            </p>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-500 mb-2">Coupons Redeemed</h3>
-            <p className="text-2xl font-bold text-gray-900">{overviewStats.totalCouponsRedeemed}</p>
-            <p className="text-xs text-indigo-600 flex items-center">
-              <span className="mr-1">+</span>22.1% vs last period
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="mb-6">
-        <label htmlFor="date-range" className="block text-sm font-medium text-gray-700 mb-1">
-          Date Range
-        </label>
-        <select
-          id="date-range"
-          value={dateRange}
-          onChange={(e) => setDateRange(e.target.value)}
-          className="block w-full rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-        >
-          <option value="last_7_days">Last 7 Days</option>
-          <option value="last_30_days">Last 30 Days</option>
-          <option value="last_90_days">Last 90 Days</option>
-          <option value="this_year">This Year</option>
-        </select>
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {!data
+          ? Array.from({ length: 5 }).map((_, idx) => (
+              <div key={idx} className="animate-pulse rounded-lg border border-gray-200 bg-white p-6">
+                <div className="mb-2 h-4 w-24 rounded bg-gray-200" />
+                <div className="h-8 w-16 rounded bg-gray-200" />
+              </div>
+            ))
+          : stats.map((stat) => (
+              <div key={stat.label} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <h3 className="text-sm font-medium text-gray-500 mb-2">{stat.label}</h3>
+                <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+              </div>
+            ))}
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Performance Trends</h3>
-          <div className="h-48 bg-gray-100 rounded-lg">
-            <div className="flex h-full items-center justify-center text-gray-400">Performance Chart</div>
-          </div>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Campaign performance</h3>
+          {!data || data.campaigns.length === 0 ? (
+            <div className="flex h-48 items-center justify-center rounded-lg bg-gray-100 text-sm text-gray-400">
+              No campaigns yet
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {data.campaigns.map((campaign) => (
+                <div key={campaign.id}>
+                  <div className="mb-2 flex items-center justify-between text-sm text-gray-600">
+                    <span className="truncate pr-3">{campaign.name}</span>
+                    <span className="font-medium text-gray-900">{campaign.conversionRate}%</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                    <div
+                      className="h-full rounded-full bg-indigo-500"
+                      style={{ width: `${Math.max(campaign.conversionRate, 2)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Conversion Funnel</h3>
-          <div className="h-48 bg-gray-100 rounded-lg">
-            <div className="flex h-full items-center justify-center text-gray-400">Conversion Funnel Chart</div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Reward Distribution</h3>
-          <div className="h-48 bg-gray-100 rounded-lg">
-            <div className="flex h-full items-center justify-center text-gray-400">Reward Distribution Chart</div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Geographic Distribution</h3>
-          <div className="h-48 bg-gray-100 rounded-lg">
-            <div className="flex h-full items-center justify-center text-gray-400">Geographic Chart</div>
-          </div>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Reward distribution</h3>
+          {!data || rewardDistribution.length === 0 ? (
+            <div className="flex h-48 items-center justify-center rounded-lg bg-gray-100 text-sm text-gray-400">
+              No rewards configured
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {rewardDistribution.map((reward) => (
+                <div key={reward.id}>
+                  <div className="mb-2 flex items-center justify-between text-sm text-gray-600">
+                    <span className="truncate pr-3">{reward.name}</span>
+                    <span className="font-medium text-gray-900">{reward.percent}%</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                    <div
+                      className="h-full rounded-full bg-emerald-500"
+                      style={{ width: `${Math.max(reward.percent, 2)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="mt-6">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Key Insights</h3>
-          <div className="space-y-4">
-            <div className="flex items-start space-x-3">
-              <div className="h-8 w-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">💡</div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-900">Highest Engagement Days</p>
-                <p className="text-gray-600">Wednesdays and Fridays show 23% higher engagement</p>
+      <div className="mt-6 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Event totals</h3>
+        {!data || data.totals.length === 0 ? (
+          <p className="text-sm text-gray-500">No activity recorded yet. Share a campaign link to get started.</p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {data.totals.map((row) => (
+              <div key={row.event_type} className="rounded-lg bg-slate-50 p-4">
+                <p className="text-sm text-gray-500">{EVENT_LABELS[row.event_type] ?? row.event_type}</p>
+                <p className="mt-2 text-2xl font-semibold text-gray-900">{row.count}</p>
               </div>
-            </div>
-            <div className="flex items-start space-x-3">
-              <div className="h-8 w-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">🎯</div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-900">Top Performing Reward</p>
-                <p className="text-gray-600">Free Drink rewards have highest redemption rate</p>
-              </div>
-            </div>
-            <div className="flex items-start space-x-3">
-              <div className="h-8 w-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">📈</div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-900">Growth Trend</p>
-                <p className="text-gray-600">Month-over-month customer acquisition increased by 34%</p>
-              </div>
-            </div>
+            ))}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -150,7 +150,11 @@ describe('POST /api/public/campaigns/:code/participate', () => {
 
     expect(db.query(`SELECT id FROM participations`)).toHaveLength(1);
     expect(db.query(`SELECT status FROM coupons`)).toEqual([{ status: 'ISSUED' }]);
-    expect(db.query(`SELECT event_type FROM analytics_events`)).toEqual([{ event_type: 'PARTICIPATION' }]);
+    expect(
+      db
+        .query<{ event_type: string }>(`SELECT event_type FROM analytics_events ORDER BY event_type`)
+        .map((row) => row.event_type),
+    ).toEqual(['PARTICIPATION', 'REWARD_CLAIMED']);
     expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'ada@example.test')).toHaveLength(1);
   });
 
@@ -201,5 +205,56 @@ describe('POST /api/public/campaigns/:code/participate', () => {
 
     expect(response.status).toBe(400);
     expect((await body(response)).message).toBe('No reward available for this campaign.');
+  });
+});
+
+describe('reward stock loop', () => {
+  async function spin(code: string, email: string) {
+    return handlePublicCampaignRoute(
+      jsonRequest(publicPath(code, '/participate'), 'POST', { firstName: 'Spin', lastName: 'Ner', email }),
+      env,
+    );
+  }
+
+  it('burns one unit of stock per win and reports what is left', async () => {
+    const code = await createCampaign({ rewards: [{ name: 'Free coffee', weight: 100, quantity: 2 }] });
+
+    const payload = await body(await spin(code, 'stock-one@example.test'));
+
+    expect(payload.participation.reward.quantity).toBe(1);
+    expect(payload.participation.reward.quantityInitial).toBe(2);
+    expect(db.query(`SELECT quantity, quantity_initial FROM rewards`)).toEqual([
+      { quantity: 1, quantity_initial: 2 },
+    ]);
+  });
+
+  it('stops offering a reward once its stock runs out', async () => {
+    const code = await createCampaign({ rewards: [{ name: 'Rare', weight: 100, quantity: 1 }] });
+
+    await spin(code, 'burn-one@example.test');
+    const second = await spin(code, 'burn-two@example.test');
+
+    expect(second.status).toBe(400);
+    expect((await body(second)).message).toBe('No reward available for this campaign.');
+    expect(db.query(`SELECT quantity FROM rewards`)).toEqual([{ quantity: 0 }]);
+    expect(db.query(`SELECT id FROM participations`)).toHaveLength(1);
+  });
+
+  it('hides a sold-out reward from the public campaign payload', async () => {
+    const code = await createCampaign({ rewards: [{ name: 'Rare', weight: 100, quantity: 1 }] });
+    await spin(code, 'hide-one@example.test');
+
+    const payload = await body(await handlePublicCampaignRoute(jsonRequest(publicPath(code), 'GET'), env));
+    expect(payload.rewards).toHaveLength(0);
+  });
+
+  it('treats a reward configured without a cap as unlimited', async () => {
+    const code = await createCampaign({ rewards: [{ name: 'Always on', weight: 100 }] });
+    db.prepare(`UPDATE rewards SET quantity = 0, quantity_initial = 0`).run();
+
+    const payload = await body(await spin(code, 'unlimited@example.test'));
+
+    expect(payload.participation.reward.quantity).toBe(0);
+    expect(db.query(`SELECT quantity FROM rewards`)).toEqual([{ quantity: 0 }]);
   });
 });

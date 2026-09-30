@@ -18,12 +18,12 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
               b.name AS business_name
        FROM campaigns c
        LEFT JOIN businesses b ON b.id = c.business_id
-       WHERE c.public_code = ? AND c.status = 'ACTIVE'
+       WHERE (c.public_code = ? OR c.id = ?) AND c.status = 'ACTIVE'
          AND (c.start_at IS NULL OR c.start_at <= ?)
          AND (c.end_at IS NULL OR c.end_at >= ?)
        LIMIT 1`,
     )
-      .bind(campaignMatch[1], now, now)
+      .bind(campaignMatch[1], campaignMatch[1], now, now)
       .first<Record<string, unknown>>();
 
     if (!campaign) {
@@ -34,6 +34,7 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       `SELECT id, name, description, type, value, weight, quantity, quantity_initial
        FROM rewards
        WHERE campaign_id = ? AND active = 1
+         AND (quantity_initial IS NULL OR quantity_initial = 0 OR quantity > 0)
        ORDER BY weight DESC, created_at ASC`,
     )
       .bind(campaign.id)
@@ -113,9 +114,10 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     }
 
     const rewardRows = await env.DB.prepare(
-      `SELECT id, name, description, type, value, weight, quantity
+      `SELECT id, name, description, type, value, weight, quantity, quantity_initial
        FROM rewards
        WHERE campaign_id = ? AND active = 1
+         AND (quantity_initial IS NULL OR quantity_initial = 0 OR quantity > 0)
        ORDER BY weight DESC, created_at ASC`,
     )
       .bind(campaign.id)
@@ -130,11 +132,23 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
         value: reward.value,
         weight: Number(reward.weight ?? 0),
         quantity: Number(reward.quantity ?? 0),
+        quantityInitial: Number(reward.quantity_initial ?? 0),
       })),
     );
 
     if (!selectedReward) {
       return errorResponse('No reward available for this campaign.', 400);
+    }
+
+    // Only rewards that were capped at creation time burn stock; an
+    // unconfigured quantity means unlimited availability.
+    if (selectedReward.quantityInitial > 0) {
+      await env.DB.prepare(
+        `UPDATE rewards SET quantity = MAX(quantity - 1, 0), updated_at = ?
+         WHERE id = ? AND quantity > 0`,
+      )
+        .bind(nowIso, selectedReward.id)
+        .run();
     }
 
     const couponCode = `CF-${secureRandomHex(8).toUpperCase()}`;
@@ -161,6 +175,22 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     )
       .bind(crypto.randomUUID(), campaign.business_id, campaign.id, JSON.stringify({ rewardId: selectedReward.id, customerKey }), now)
       .run();
+
+    if (selectedReward.type !== 'none') {
+      await env.DB.prepare(
+        `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
+         VALUES (?, ?, ?, 'REWARD_CLAIMED', ?, ?)`,
+      )
+        .bind(crypto.randomUUID(), campaign.business_id, campaign.id, JSON.stringify({ rewardId: selectedReward.id, couponCode }), now)
+        .run();
+    }
+
+    if (selectedReward.quantityInitial > 0) {
+      const refreshed = await env.DB.prepare(`SELECT quantity FROM rewards WHERE id = ? LIMIT 1`)
+        .bind(selectedReward.id)
+        .first<{ quantity: number }>();
+      selectedReward.quantity = Number(refreshed?.quantity ?? 0);
+    }
 
     return jsonResponse({
       success: true,

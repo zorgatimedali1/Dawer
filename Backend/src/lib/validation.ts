@@ -105,3 +105,46 @@ export const campaignListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(1000).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(10),
 });
+
+const pageQuery = {
+  search: z.string().trim().max(120).optional(),
+  campaignId: z.string().trim().max(64).optional(),
+  page: z.coerce.number().int().min(1).max(1000).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+};
+
+export const customerListQuerySchema = z.object(pageQuery);
+
+export const couponListQuerySchema = z
+  .object({
+    status: z.enum(['ISSUED', 'REDEEMED', 'EXPIRED', 'ALL']).default('ALL'),
+  })
+  .extend(pageQuery);
+
+export const rewardPatchSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(500),
+    active: z.boolean(),
+    quantity: z.number().int().min(0).max(1_000_000),
+    weight: z.number().int().min(0).max(1_000_000),
+  })
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'Provide at least one field to update.');
+
+export const qrCodeCreateSchema = z.object({
+  campaignId: z.string().trim().min(1).max(64),
+  name: z.string().trim().max(120).default(''),
+  location: z.string().trim().max(120).default(''),
+});
+
+export const qrCodePatchSchema = z
+  .object({
+    name: z.string().trim().max(120),
+    location: z.string().trim().max(120),
+    active: z.boolean(),
+  })
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'Provide at least one field to update.');
+
+export type CouponListQuery = z.infer<typeof couponListQuerySchema>;

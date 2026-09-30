@@ -1,7 +1,15 @@
 import { getAuthenticatedUser } from '../lib/tenant';
 import { errorResponse, jsonResponse } from '../lib/http';
 import { handleCampaignRoute } from './campaigns';
+import { handleRecordRoute } from './records';
 import type { Env } from '../types';
+
+const RECORD_PREFIXES = [
+  '/api/business/customers',
+  '/api/business/coupons',
+  '/api/business/rewards',
+  '/api/business/qr-codes',
+];
 
 export async function handleBusinessRoute(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -30,6 +38,10 @@ export async function handleBusinessRoute(request: Request, env: Env): Promise<R
         .all();
 
       return jsonResponse({ success: true, businesses: businesses.results });
+    }
+
+    if (RECORD_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
+      return handleRecordRoute(request, env, user);
     }
 
     return handleCampaignRoute(request, env, user);

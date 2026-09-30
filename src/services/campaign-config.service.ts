@@ -1,3 +1,5 @@
+import { apiRequest } from './http';
+
 export type RewardType =
   | 'percentage_discount'
   | 'fixed_discount'
@@ -68,38 +70,7 @@ interface RewardRecord {
   active: number;
 }
 
-export function getSessionToken(): string {
-  const session = window.localStorage.getItem('campaign-engage-auth');
-  if (!session) throw new Error('Sign in to save campaign settings.');
-
-  try {
-    const token = (JSON.parse(session) as { token?: unknown }).token;
-    if (typeof token === 'string' && token) return token;
-  } catch {
-    window.localStorage.removeItem('campaign-engage-auth');
-  }
-
-  throw new Error('Your session has expired. Sign in again.');
-}
-
-async function request<T>(method: 'GET' | 'PUT' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method,
-    headers: {
-      authorization: `Bearer ${getSessionToken()}`,
-      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  const text = await response.text();
-  const result = (text ? JSON.parse(text) : {}) as T & { message?: string; error?: string };
-
-  if (!response.ok) {
-    throw new Error(result.message ?? result.error ?? 'Unable to load campaign settings.');
-  }
-
-  return result;
-}
+export { getSessionToken } from './http';
 
 function mapReward(record: RewardRecord): RewardConfiguration {
   return {
@@ -117,9 +88,8 @@ function mapReward(record: RewardRecord): RewardConfiguration {
 export class CampaignConfigService {
   static async load(campaignId?: string): Promise<SavedCampaignConfiguration | null> {
     const query = campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : '';
-    const result = await request<{ success: boolean; campaign: CampaignRecord | null; rewards?: RewardRecord[] }>(
-      'GET',
-      `/api/business/campaign-config${query}`,
+    const result = await apiRequest<{ success: boolean; campaign: CampaignRecord | null; rewards?: RewardRecord[] }>(
+      'GET', `/api/business/campaign-config${query}`,
     );
     if (!result.campaign) return null;
 
@@ -144,7 +114,7 @@ export class CampaignConfigService {
   }
 
   static async save(config: CampaignConfigurationInput): Promise<SavedCampaignConfiguration> {
-    const result = await request<{ success: boolean; campaign: { id: string; publicCode: string } }>(
+    const result = await apiRequest<{ success: boolean; campaign: { id: string; publicCode: string } }>(
       'PUT',
       '/api/business/campaign-config',
       config,
