@@ -1,0 +1,64 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "campaignflow-backend",
+	"main": "./Backend/src/index.ts",
+	"compatibility_date": "2026-09-30",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"assets": {
+		"binding": "STATIC_ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": [
+			"/api/*",
+			"/health"
+		]
+	},
+	"vars": {
+		"APP_ENV": "development",
+		"GOOGLE_CLIENT_ID": "",
+		"GOOGLE_CLIENT_SECRET": "",
+		"GOOGLE_REDIRECT_URI": "http://localhost:8787/api/auth/google/callback"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "campaignflow",
+			"database_id": "beb8dee4-de63-4ea8-815d-11120c54c44d",
+			"migrations_dir": "Backend/migrations",
+			"remote": true
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "CAMPAIGN_LOCK",
+				"class_name": "CampaignParticipationLock"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"CampaignParticipationLock"
+			]
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "TOKENS",
+			"id": "153a28536daa4d529584f355474d27a1"
+		}
+	],
+	"ratelimits": [
+		{
+			"name": "API_RATE_LIMITER",
+			"namespace_id": "92609301",
+			"simple": {
+				"limit": 120,
+				"period": 60
+			}
+		}
+	]
+}

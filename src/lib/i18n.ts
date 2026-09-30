@@ -1,0 +1,76 @@
+export type Locale = 'fr' | 'en';
+
+export const translations = {
+  fr: {
+    app: {
+      title: 'Tableau de bord',
+      save: 'Enregistrer la configuration',
+      preview: 'Aperçu',
+      publicUrl: 'URL publique',
+      home: 'Accueil',
+      wheelConfiguration: 'Configuration de la roue',
+      merchantPortal: 'Portail marchand',
+      myCustomers: 'Mes clients',
+      posterEditor: 'Éditeur d’affiches',
+      pricing: 'Tarification',
+      overview: 'Vue d’ensemble',
+      settings: 'Paramètres',
+      logout: 'Se déconnecter',
+      myAccount: 'Mon compte',
+      businessSettings: 'Paramètres business',
+      billing: 'Facturation',
+      theme: 'Thème',
+      language: 'Langue',
+      analytics: 'Analytique',
+      dashboard: 'Dashboard',
+    },
+    auth: {
+      signIn: 'Se connecter',
+      signUp: 'Créer un compte',
+      email: 'Adresse e-mail',
+      password: 'Mot de passe',
+      forgotPassword: 'Mot de passe oublié ?',
+      google: 'Continuer avec Google',
+      register: 'Inscription',
+      welcome: 'Bienvenue',
+    },
+  },
+  en: {
+    app: {
+      title: 'Dashboard',
+      save: 'Save configuration',
+      preview: 'Preview',
+      publicUrl: 'Public URL',
+      home: 'Home',
+      wheelConfiguration: 'Wheel configuration',
+      merchantPortal: 'Merchant portal',
+      myCustomers: 'My customers',
+      posterEditor: 'Poster editor',
+      pricing: 'Pricing',
+      overview: 'Overview',
+      settings: 'Settings',
+      logout: 'Log out',
+      myAccount: 'My account',
+      businessSettings: 'Business settings',
+      billing: 'Billing',
+      theme: 'Theme',
+      language: 'Language',
+      analytics: 'Analytics',
+      dashboard: 'Dashboard',
+    },
+    auth: {
+      signIn: 'Sign in',
+      signUp: 'Sign up',
+      email: 'Email address',
+      password: 'Password',
+      forgotPassword: 'Forgot password?',
+      google: 'Continue with Google',
+      register: 'Register',
+      welcome: 'Welcome',
+    },
+  },
+} as const;
+
+export function getDictionary(locale: Locale) {
+  return translations[locale];
+}
