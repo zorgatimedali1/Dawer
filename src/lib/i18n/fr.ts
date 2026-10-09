@@ -36,6 +36,7 @@ export const nav = {
   whatsappMarketing: 'Diffusion WhatsApp',
   emailMarketing: 'Marketing e-mail',
   myCustomers: 'Mes clients',
+  coupons: 'Coupons',
   settings: 'Paramètres',
   billing: 'Facturation',
   demo: 'Démonstration',
@@ -1211,5 +1212,12 @@ export const email = {
   testRecipientPlaceholder: 'vous@exemple.com',
   testRecipientInvalid: 'Saisissez une adresse e-mail valide.',
   loadError: 'Impossible de charger les campagnes e-mail.',
+} as const;
+
+export const boundary = {
+  title: 'Une erreur est survenue',
+  description: 'Cette page n’a pas pu être chargée. Réessayez ou revenez à l’accueil.',
+  retry: 'Réessayer',
+  home: 'Retour à l’accueil',
 } as const;
 

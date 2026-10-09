@@ -92,7 +92,7 @@ export function Modal({
 
   return (
     createPortal(
-      <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4">
+      <div className="fixed inset-0 z-[100] flex items-end justify-center pb-[env(safe-area-inset-bottom)] sm:items-center sm:p-4">
         <div
           className={cn(
             'absolute inset-0 bg-[#0D120B]/45 backdrop-blur-[3px] transition-opacity duration-240 ease-swift',

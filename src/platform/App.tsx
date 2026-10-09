@@ -6,6 +6,7 @@ import {
   RequireOperator,
 } from './auth/operator-context';
 import { BrandLoader } from '@/components/brand/brand-loader';
+import { RouteBoundary } from '@/components/route-error-boundary';
 import PlatformLayout from './app/layout';
 
 const LoginPage = lazy(() => import('./pages/login/page'));
@@ -21,7 +22,8 @@ export default function PlatformApp() {
   return (
     <OperatorProvider>
       <BrowserRouter>
-        <Suspense fallback={<BrandLoader />}>
+        <RouteBoundary>
+          <Suspense fallback={<BrandLoader />}>
           <Routes>
             <Route
               path="/login"
@@ -51,6 +53,7 @@ export default function PlatformApp() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
+        </RouteBoundary>
       </BrowserRouter>
     </OperatorProvider>
   );

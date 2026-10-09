@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -6,7 +6,9 @@ import {
   Check,
   Gift,
   LayoutDashboard,
+  Menu,
   Workflow,
+  X,
 } from 'lucide-react';
 import { getHomepagePlans, formatPlanInterval, formatPlanPrice } from '@/lib/plan-catalog';
 import { DEMO_VIDEO_EMBED_URL } from '@/lib/demo-video';
@@ -34,6 +36,7 @@ export default function Home() {
   const t = useT();
   const locale = useLocale();
   const weekDays = locale === 'fr' ? weekDaysFr : weekDaysEn;
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Arriving with a #demo hash (e.g. right after sign-out): the browser's own
   // fragment scroll fires before this SPA renders, so re-run it once the
@@ -45,6 +48,16 @@ export default function Home() {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
   }, []);
+
+  // Escape closes the mobile nav (same pattern as the dashboard drawer).
+  useEffect(() => {
+    if (!mobileNavOpen) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileNavOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mobileNavOpen]);
 
   const features = [
     { title: t.landing.featureOrchestrationTitle, description: t.landing.featureOrchestrationBody, icon: Workflow },
@@ -95,8 +108,58 @@ export default function Home() {
             <Button asChild variant="ghost" size="sm">
               <Link to="/auth/login">{t.auth.signIn}</Link>
             </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="md:hidden"
+              aria-expanded={mobileNavOpen}
+              aria-controls="landing-mobile-nav"
+              aria-label={mobileNavOpen ? t.layout.closeSidebar : t.layout.openSidebar}
+              onClick={() => setMobileNavOpen((open) => !open)}
+            >
+              {mobileNavOpen ? <X className="h-4 w-4" aria-hidden /> : <Menu className="h-4 w-4" aria-hidden />}
+            </Button>
           </div>
         </div>
+
+        {mobileNavOpen ? (
+          <nav
+            id="landing-mobile-nav"
+            aria-label={t.layout.mainNav}
+            className="border-t border-line px-5 pb-4 pt-2 md:hidden"
+          >
+            <div className="flex flex-col gap-0.5">
+              <a
+                href="#features"
+                onClick={() => setMobileNavOpen(false)}
+                className="block rounded-md px-3 py-2.5 text-[15px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:bg-ink/[0.04] hover:text-ink"
+              >
+                {t.landing.navFeatures}
+              </a>
+              <a
+                href="#workflow"
+                onClick={() => setMobileNavOpen(false)}
+                className="block rounded-md px-3 py-2.5 text-[15px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:bg-ink/[0.04] hover:text-ink"
+              >
+                {t.landing.navWorkflow}
+              </a>
+              <a
+                href="#pricing"
+                onClick={() => setMobileNavOpen(false)}
+                className="block rounded-md px-3 py-2.5 text-[15px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:bg-ink/[0.04] hover:text-ink"
+              >
+                {t.landing.navPricing}
+              </a>
+              <Link
+                to="/privacy"
+                onClick={() => setMobileNavOpen(false)}
+                className="block rounded-md px-3 py-2.5 text-[15px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:bg-ink/[0.04] hover:text-ink"
+              >
+                {t.landing.navPrivacy}
+              </Link>
+            </div>
+          </nav>
+        ) : null}
       </header>
 
       <section className="relative">

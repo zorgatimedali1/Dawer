@@ -7,6 +7,7 @@ import CustomerLayout from './app/customer/layout';
 import CustomerRedirect from './app/customer/customer-redirect';
 import DashboardLayout from './app/dashboard/layout';
 import { RedirectIfAuthenticated, RequireAuth } from './components/route-guards';
+import { RouteBoundary } from './components/route-error-boundary';
 import { BrandLoader } from './components/brand/brand-loader';
 import './app/globals.css';
 
@@ -22,6 +23,7 @@ const OverviewPage = lazy(() => import('./app/dashboard/overview/page'));
 const AnalyticsPage = lazy(() => import('./app/dashboard/analytics/page'));
 const BillingPage = lazy(() => import('./app/dashboard/billing/page'));
 const CampaignsPage = lazy(() => import('./app/dashboard/campaigns/page'));
+const CouponsPage = lazy(() => import('./app/dashboard/coupons/page'));
 const CustomersPage = lazy(() => import('./app/dashboard/customers/page'));
 const DemoPage = lazy(() => import('./app/dashboard/demo/page'));
 const EmailPage = lazy(() => import('./app/dashboard/email/page'));
@@ -36,7 +38,8 @@ function App() {
   return (
     <RootLayout>
       <BrowserRouter>
-        <Suspense fallback={<BrandLoader />}>
+        <RouteBoundary>
+          <Suspense fallback={<BrandLoader />}>
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
@@ -66,6 +69,7 @@ function App() {
               <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="billing" element={<BillingPage />} />
               <Route path="campaigns" element={<CampaignsPage />} />
+              <Route path="coupons" element={<CouponsPage />} />
               <Route path="customers" element={<CustomersPage />} />
               <Route path="demo" element={<DemoPage />} />
               <Route path="email" element={<EmailPage />} />
@@ -81,6 +85,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
+        </RouteBoundary>
       </BrowserRouter>
     </RootLayout>
   );

@@ -378,3 +378,18 @@ p {
     -webkit-print-color-adjust: exact;
   }
 }
+
+/* ==========================================================================
+   iOS-safe form controls: below lg the viewport is phone/tablet territory
+   where Safari auto-zooms on focus for any font-size under 16px.
+   !important outranks the text-sm utility classes; desktop keeps the
+   compact design.
+   ========================================================================== */
+
+@media (max-width: 1023px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Home from '@/app/page';
@@ -87,5 +87,34 @@ describe('home demo section', () => {
       delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
       window.location.hash = '';
     }
+  });
+});
+
+describe('home mobile navigation', () => {
+  it('reveals the section links behind the hamburger', () => {
+    renderHome();
+
+    const toggle = screen.getByRole('button', { name: 'Ouvrir le menu' });
+    expect(screen.queryByRole('navigation', { name: 'Navigation principale' })).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+
+    const panel = screen.getByRole('navigation', { name: 'Navigation principale' });
+    expect(panel).toHaveAttribute('id', 'landing-mobile-nav');
+    expect(within(panel).getByRole('link', { name: 'Confidentialité' })).toBeInTheDocument();
+    expect(within(panel).getByRole('link', { name: 'Tarifs' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fermer le menu' })).toBeInTheDocument();
+  });
+
+  it('closes the mobile nav on Escape', () => {
+    renderHome();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ouvrir le menu' }));
+    expect(screen.getByRole('navigation', { name: 'Navigation principale' })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('navigation', { name: 'Navigation principale' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ouvrir le menu' })).toBeInTheDocument();
   });
 });

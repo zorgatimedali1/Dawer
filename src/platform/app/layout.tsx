@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   BarChart3,
   ChevronRight,
@@ -63,6 +63,9 @@ export default function PlatformLayout() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const hamburgerRef = useRef<HTMLButtonElement | null>(null);
+  const drawerWasOpen = useRef(false);
 
   const handleLogout = async () => {
     await logout();
@@ -77,6 +80,17 @@ export default function PlatformLayout() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
+  }, [sidebarOpen]);
+
+  // Move keyboard focus into the drawer on open and back to the opener on close.
+  useEffect(() => {
+    if (sidebarOpen) {
+      drawerWasOpen.current = true;
+      drawerRef.current?.focus();
+    } else if (drawerWasOpen.current) {
+      drawerWasOpen.current = false;
+      hamburgerRef.current?.focus();
+    }
   }, [sidebarOpen]);
 
   const displayName =
@@ -197,8 +211,10 @@ export default function PlatformLayout() {
               )}
             />
             <aside
+              ref={drawerRef}
+              tabIndex={-1}
               className={cn(
-                'absolute inset-y-0 left-0 w-[17rem] border-r border-line shadow-pop',
+                'absolute inset-y-0 left-0 w-[17rem] border-r border-line shadow-pop focus:outline-none',
                 'transition-transform duration-320 ease-swift motion-reduce:transition-none',
                 sidebarOpen ? 'translate-x-0' : '-translate-x-full',
               )}
@@ -215,6 +231,7 @@ export default function PlatformLayout() {
               <div className="flex h-16 items-center justify-between gap-3 px-4 sm:px-6">
                 <div className="flex min-w-0 items-center gap-3">
                   <button
+                    ref={hamburgerRef}
                     type="button"
                     onClick={() => setSidebarOpen(true)}
                     className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line text-ink-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink lg:hidden"

@@ -14,11 +14,12 @@ import {
   Send,
   Settings,
   Sparkles,
+  Ticket,
   UserRound,
   Wand2,
   X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { DawerLogo } from '@/components/brand/dawer-logo';
@@ -38,6 +39,9 @@ export default function DashboardLayout() {
   const { user, logout } = useAppContext();
   const t = useT();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const hamburgerRef = useRef<HTMLButtonElement | null>(null);
+  const drawerWasOpen = useRef(false);
   const [access, setAccess] = useState<BillingAccess | null>(null);
   // Platform switches from the operator console; null until billing loads.
   const [features, setFeatures] = useState<MarketingFeatures | null>(null);
@@ -63,7 +67,10 @@ export default function DashboardLayout() {
     },
     {
       label: t.nav.audience,
-      items: [{ name: t.nav.myCustomers, href: '/dashboard/customers', icon: UserRound }],
+      items: [
+        { name: t.nav.myCustomers, href: '/dashboard/customers', icon: UserRound },
+        { name: t.nav.coupons, href: '/dashboard/coupons', icon: Ticket },
+      ],
     },
     {
       label: t.nav.marketing,
@@ -114,6 +121,17 @@ export default function DashboardLayout() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
+  }, [sidebarOpen]);
+
+  // Move keyboard focus into the drawer on open and back to the opener on close.
+  useEffect(() => {
+    if (sidebarOpen) {
+      drawerWasOpen.current = true;
+      drawerRef.current?.focus();
+    } else if (drawerWasOpen.current) {
+      drawerWasOpen.current = false;
+      hamburgerRef.current?.focus();
+    }
   }, [sidebarOpen]);
 
   const displayName = user
@@ -308,8 +326,10 @@ export default function DashboardLayout() {
             )}
           />
           <aside
+            ref={drawerRef}
+            tabIndex={-1}
             className={cn(
-              'absolute inset-y-0 left-0 w-[17rem] border-r border-line shadow-pop',
+              'absolute inset-y-0 left-0 w-[17rem] border-r border-line shadow-pop focus:outline-none',
               'transition-transform duration-280 ease-swift motion-reduce:transition-none',
               sidebarOpen ? 'translate-x-0' : '-translate-x-full',
             )}
@@ -326,6 +346,7 @@ export default function DashboardLayout() {
             <div className="flex h-16 items-center justify-between gap-3 px-4 sm:px-6">
               <div className="flex min-w-0 items-center gap-3">
                 <button
+                  ref={hamburgerRef}
                   type="button"
                   onClick={() => setSidebarOpen(true)}
                   className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line text-ink-muted transition-colors duration-150 hover:bg-surface-2 hover:text-ink lg:hidden"

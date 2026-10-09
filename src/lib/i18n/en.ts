@@ -40,6 +40,7 @@ export const nav: D<typeof frDict.nav> = {
   whatsappMarketing: 'WhatsApp broadcast',
   emailMarketing: 'Email marketing',
   myCustomers: 'My customers',
+  coupons: 'Coupons',
   settings: 'Settings',
   billing: 'Billing',
   demo: 'Demo',
@@ -1207,4 +1208,11 @@ export const email: D<typeof frDict.email> = {
   testRecipientPlaceholder: 'you@example.com',
   testRecipientInvalid: 'Enter a valid email address.',
   loadError: 'Unable to load email campaigns.',
+};
+
+export const boundary: D<typeof frDict.boundary> = {
+  title: 'Something went wrong',
+  description: 'This page could not be loaded. Try again or go back home.',
+  retry: 'Try again',
+  home: 'Back to home',
 };
