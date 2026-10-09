@@ -2,211 +2,457 @@
 
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import {
+  ArrowRight,
+  Award,
+  Megaphone,
+  Sparkles,
+  Ticket,
+  TrendingUp,
+  UserRound,
+  Users,
+} from 'lucide-react';
 import { AnalyticsService, type AnalyticsSummary } from '@/services/analytics.service';
-import { CampaignService, type Campaign } from '@/services/campaign.service';
+import { CampaignService, type Campaign, type CampaignStatusKey } from '@/services/campaign.service';
 import { RewardService, type RewardSummary } from '@/services/reward.service';
+import { BillingService, type BillingAccess } from '@/services/billing.service';
+import { Badge, type BadgeTone } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
+import { PageHeader, Section } from '@/components/ui/page-header';
+import { Progress } from '@/components/ui/toast';
+import { Skeleton, SkeletonCard } from '@/components/ui/skeleton';
+import { StatCard } from '@/components/ui/stat-card';
+import { EntityTile } from '@/components/ui/avatar';
+import { interpolate, msg, type Dictionary } from '@/lib/i18n';
+import { useLocale, useT } from '@/hooks/use-t';
 
 interface OverviewData {
-  summary: AnalyticsSummary;
+  summary: AnalyticsSummary | null;
   campaigns: Campaign[];
   rewards: RewardSummary[];
+  access: BillingAccess;
+  hasAnalytics: boolean;
+  daysLeft: number | null;
 }
 
-function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString();
+function formatDate(value: string, fallback: string): string {
+  return value ? new Date(value).toLocaleDateString() : fallback;
+}
+
+const STATUS_TONES: Record<string, BadgeTone> = {
+  active: 'success',
+  draft: 'warning',
+  paused: 'neutral',
+  archived: 'neutral',
+  scheduled: 'info',
+};
+
+function statusLabel(t: Dictionary, status: CampaignStatusKey): string {
+  const labels: Record<CampaignStatusKey, string> = {
+    draft: t.campaigns.statusDraft,
+    scheduled: t.campaigns.statusScheduled,
+    active: t.campaigns.statusActive,
+    paused: t.campaigns.statusPaused,
+    completed: t.campaigns.statusCompleted,
+    archived: t.campaigns.statusArchived,
+  };
+  return labels[status] ?? status;
 }
 
 export default function OverviewPage() {
+  const t = useT();
+  const locale = useLocale();
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([AnalyticsService.overview(), CampaignService.getCampaigns({ limit: 20 }), RewardService.list()])
-      .then(([overview, campaigns, rewards]) =>
-        setData({ summary: overview.summary, campaigns, rewards }),
-      )
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Unable to load the overview.'));
-  }, []);
+    Promise.all([
+      CampaignService.getCampaigns({ limit: 20 }),
+      RewardService.list(),
+      BillingService.get(),
+    ])
+      .then(async ([campaigns, rewards, billing]) => {
+        const hasAnalytics = billing.access.plan.features.features.some((feature) => /analytics/i.test(feature));
+        const overview = hasAnalytics ? await AnalyticsService.overview() : null;
+        setData({
+          summary: overview?.summary ?? null,
+          campaigns,
+          rewards,
+          access: billing.access,
+          hasAnalytics,
+          daysLeft: billing.access.endsAt
+            ? Math.max(0, Math.ceil((new Date(billing.access.endsAt).getTime() - Date.now()) / 86_400_000))
+            : null,
+        });
+      })
+      .catch((cause: unknown) =>
+        setError(msg(t, cause instanceof Error ? cause.message : 'Unable to load the overview.')),
+      );
+  }, [t]);
 
   if (error) {
     return (
-      <div className="space-y-6">
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">{error}</div>
+      <div role="alert" className="flex items-start gap-3 rounded-xl border border-danger-300/60 bg-danger-50 p-5 text-sm text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200">
+        <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-danger-500" aria-hidden />
+        {error}
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-3 w-32" />
+          <Skeleton className="h-7 w-48" />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, idx) => (
-            <div key={idx} className="animate-pulse rounded-2xl border border-slate-200 bg-white p-5">
-              <div className="mb-4 h-3 w-20 rounded bg-slate-200" />
-              <div className="mb-2 h-8 w-24 rounded bg-slate-200" />
-              <div className="h-3 w-14 rounded bg-slate-200" />
-            </div>
+            <SkeletonCard key={idx} />
           ))}
         </div>
+        <Skeleton className="h-40 w-full rounded-xl" />
       </div>
     );
   }
 
-  const { summary, campaigns, rewards } = data;
+  const { summary, campaigns, rewards, access, hasAnalytics } = data;
   const activeCampaigns = campaigns.filter((campaign) => campaign.status !== 'archived').slice(0, 5);
   const topRewards = [...rewards].sort((a, b) => b.issuedCount - a.issuedCount).slice(0, 5);
   const maxParticipants = Math.max(1, ...campaigns.map((campaign) => campaign.participantCount));
 
-  const cards = [
-    { label: 'Total customers', value: summary.customers.toLocaleString() },
-    { label: 'Campaign participants', value: summary.participations.toLocaleString() },
-    { label: 'Rewards issued', value: summary.coupons.toLocaleString() },
-    { label: 'Coupons redeemed', value: summary.coupons.toLocaleString() },
-  ];
+  const cards = summary
+    ? [
+        { label: t.overview.statCustomers, value: summary.customers.toLocaleString(), icon: UserRound },
+        {
+          label: t.overview.statParticipants,
+          value: summary.participations.toLocaleString(),
+          icon: Users,
+          featured: true,
+        },
+        { label: t.overview.statRewardsIssued, value: summary.coupons.toLocaleString(), icon: Award },
+        { label: t.overview.statCouponsRedeemed, value: summary.coupons.toLocaleString(), icon: Ticket },
+      ]
+    : [];
+
+  const planState =
+    access.state === 'active'
+      ? t.overview.planActive
+      : access.state === 'trial'
+        ? t.overview.planTrial
+        : t.overview.planReadOnly;
+
+  const formatSubDate = (value: string | null): string =>
+    value
+      ? new Date(value).toLocaleDateString(locale === 'fr' ? 'fr-FR' : 'en-GB', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })
+      : '—';
+  const daysLeft = data.daysLeft;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Performance snapshot</p>
-          <h2 className="mt-1 text-2xl font-semibold text-slate-900">Overview</h2>
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        eyebrow={hasAnalytics ? t.overview.eyebrowPerformance : t.nav.workspace}
+        title={t.overview.title}
+        description={t.overview.description}
+        actions={
+          hasAnalytics ? (
+            <Button asChild variant="outline" size="sm">
+              <Link to="/dashboard/analytics">
+                {t.overview.openAnalytics}
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+              </Link>
+            </Button>
+          ) : null
+        }
+      />
+
+      {cards.length > 0 ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {cards.map((card) => (
+            <StatCard
+              key={card.label}
+              label={card.label}
+              value={card.value}
+              icon={card.icon}
+              featured={card.featured}
+            />
+          ))}
         </div>
-        <Link
-          to="/dashboard/analytics"
-          className="rounded-xl bg-indigo-600 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-indigo-500"
-        >
-          Open analytics
-        </Link>
-      </div>
+      ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {cards.map((card) => (
-          <div key={card.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">{card.label}</p>
-            <p className="mt-3 text-3xl font-semibold text-slate-900">{card.value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.4fr_0.6fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-500">Conversion performance</p>
-              <h3 className="mt-1 text-xl font-semibold text-slate-900">Campaign health</h3>
+      <Section>
+        <Card aria-labelledby="current-plan-title">
+          <CardHeader className="flex-row flex-wrap items-start justify-between gap-4 space-y-0">
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                {t.overview.yourSubscription}
+              </p>
+              <CardTitle id="current-plan-title" className="text-lg">
+                {access.plan.name} · {planState}
+              </CardTitle>
             </div>
-          </div>
-
-          {campaigns.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              No campaigns yet. Create your first campaign to start collecting participants.
-            </p>
-          ) : (
-            <div className="space-y-5">
-              {campaigns.slice(0, 5).map((campaign) => (
-                <div key={campaign.id}>
-                  <div className="mb-2 flex items-center justify-between text-sm text-slate-600">
-                    <span>{campaign.name}</span>
-                    <span className="font-medium text-slate-900">{campaign.conversionRate}%</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-cyan-500"
-                      style={{ width: `${Math.max(campaign.conversionRate, 2)}%` }}
-                    />
-                  </div>
-                </div>
+            <Badge tone={access.state === 'active' ? 'success' : 'warning'} dot size="sm">
+              {planState}
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <ul className="grid gap-x-6 gap-y-2 text-[13.5px] text-ink-muted sm:grid-cols-2 lg:grid-cols-3">
+              {access.plan.features.features.map((feature) => (
+                <li key={feature} className="flex items-start gap-2">
+                  <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-accent" aria-hidden />
+                  <span>{`• ${feature}`}</span>
+                </li>
               ))}
+              <li className="flex items-start gap-2">
+                <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-accent" aria-hidden />
+                <span>
+                  •{' '}
+                  {access.plan.features.limits.customers < 0
+                    ? t.overview.unlimited
+                    : access.plan.features.limits.customers.toLocaleString()}{' '}
+                  {t.overview.customersLabel}
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-accent" aria-hidden />
+                <span>
+                  •{' '}
+                  {access.plan.features.limits.campaigns < 0
+                    ? t.overview.unlimited
+                    : access.plan.features.limits.campaigns.toLocaleString()}{' '}
+                  {t.overview.campaignsLabel}
+                </span>
+              </li>
+            </ul>
+            <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 rounded-lg border border-line bg-elevated/60 p-4 lg:grid-cols-4">
+              <div>
+                <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.overview.startedLabel}</dt>
+                <dd className="mt-1 text-[13.5px] font-medium text-ink">{formatSubDate(access.startsAt)}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.overview.periodEndLabel}</dt>
+                <dd className="mt-1 text-[13.5px] font-medium text-ink">{formatSubDate(access.endsAt)}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.overview.daysLeftLabel}</dt>
+                <dd className="mt-1 text-[13.5px] font-medium text-ink">{daysLeft === null ? '—' : daysLeft}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.overview.channelLabel}</dt>
+                <dd className="mt-1 text-[13.5px] font-medium text-ink">{t.overview.channelValue}</dd>
+              </div>
+            </dl>
+            <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+              <Button asChild size="sm" variant="subtle">
+                <Link to="/dashboard/billing">{t.overview.managePlan}</Link>
+              </Button>
+              <p className="text-[12.5px] text-ink-subtle">{t.overview.planNote}</p>
             </div>
-          )}
-        </div>
+          </CardContent>
+        </Card>
+      </Section>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-5">
-            <p className="text-sm text-slate-500">Participation</p>
-            <h3 className="mt-1 text-xl font-semibold text-slate-900">Total entrants</h3>
-          </div>
+      {hasAnalytics && summary ? (
+        <div className="grid gap-6 xl:grid-cols-[1.4fr_0.6fr]">
+          <Card>
+            <CardHeader>
+              <p className="text-[13px] text-ink-subtle">{t.overview.conversionPerformance}</p>
+              <CardTitle className="text-lg">{t.overview.campaignHealth}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {campaigns.length === 0 ? (
+                <EmptyState
+                  size="sm"
+                  icon={Megaphone}
+                  title={t.overview.noCampaignsTitle}
+                  description={t.overview.noCampaignsDescription}
+                />
+              ) : (
+                <ul className="flex flex-col gap-5">
+                  {campaigns.slice(0, 5).map((campaign) => (
+                    <li key={campaign.id}>
+                      <div className="mb-2 flex items-center justify-between gap-3 text-[13.5px]">
+                        <span className="truncate text-ink">{campaign.name}</span>
+                        <span className="numeric shrink-0 font-semibold text-ink">
+                          {campaign.conversionRate}%
+                        </span>
+                      </div>
+                      <Progress
+                        value={campaign.conversionRate}
+                        label={interpolate(t.overview.campaignConversion, { name: campaign.name })}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
 
-          <div className="space-y-4">
-            <div className="rounded-2xl bg-indigo-50 p-4">
-              <p className="text-3xl font-semibold text-slate-900">{summary.participations}</p>
-              <p className="mt-1 text-sm text-indigo-700">Campaign participations</p>
-            </div>
-            <div className="rounded-2xl bg-emerald-50 p-4">
-              <p className="text-3xl font-semibold text-slate-900">{summary.customers}</p>
-              <p className="mt-1 text-sm text-emerald-700">Known customers</p>
-            </div>
-          </div>
+          <Card>
+            <CardHeader>
+              <p className="text-[13px] text-ink-subtle">{t.overview.participation}</p>
+              <CardTitle className="text-lg">{t.overview.totalEntrants}</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <div className="rounded-xl border border-accent/30 bg-accent-soft/60 p-4 dark:border-accent/25 dark:bg-accent-soft">
+                <p className="numeric text-[26px] font-semibold leading-none tracking-[-0.03em] text-ink">
+                  {summary.participations}
+                </p>
+                <p className="mt-1.5 flex items-center gap-1.5 text-[13px] font-medium text-brand-800 dark:text-accent-bright">
+                  <TrendingUp className="h-3.5 w-3.5" aria-hidden />
+                  {t.overview.campaignParticipations}
+                </p>
+              </div>
+              <div className="rounded-xl border border-line bg-surface-2/60 p-4">
+                <p className="numeric text-[26px] font-semibold leading-none tracking-[-0.03em] text-ink">
+                  {summary.customers}
+                </p>
+                <p className="mt-1.5 text-[13px] font-medium text-ink-muted">{t.overview.knownCustomers}</p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
-      </div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-xl font-semibold text-slate-900">Campaigns</h3>
-            <Link to="/dashboard/campaigns" className="text-sm font-medium text-indigo-600">
-              Manage all
-            </Link>
-          </div>
-
-          <div className="space-y-4">
+        <Card>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardTitle>{t.overview.campaignsTitle}</CardTitle>
+            <Button asChild variant="ghost" size="xs">
+              <Link to="/dashboard/campaigns">
+                {t.overview.manageAll}
+                <ArrowRight className="h-3 w-3" aria-hidden />
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
             {activeCampaigns.length === 0 ? (
-              <p className="text-sm text-slate-500">Nothing here yet.</p>
+              <EmptyState
+                size="sm"
+                icon={Megaphone}
+                title={t.overview.emptyCampaignsTitle}
+                description={t.overview.emptyCampaignsDescription}
+                action={
+                  <Button asChild size="sm">
+                    <Link to="/dashboard/campaigns">{t.overview.createCampaign}</Link>
+                  </Button>
+                }
+              />
             ) : (
-              activeCampaigns.map((campaign) => (
-                <div key={campaign.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h4 className="font-medium text-slate-900">{campaign.name}</h4>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {campaign.participantCount} participants · ends {formatDate(campaign.endsAt)}
-                      </p>
+              <ul className="flex flex-col gap-3">
+                {activeCampaigns.map((campaign) => (
+                  <li
+                    key={campaign.id}
+                    className="group rounded-xl border border-line bg-surface-2/50 p-4 transition-[border-color,background-color] duration-180 hover:border-accent/40 hover:bg-accent-soft/30"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <h4 className="truncate text-[14px] font-semibold text-ink">{campaign.name}</h4>
+                        <p className="mt-1 text-[12.5px] text-ink-subtle">
+                          {hasAnalytics
+                            ? interpolate(t.overview.participantsSuffix, {
+                                count: campaign.participantCount,
+                              })
+                            : ''}
+                          {interpolate(t.overview.endsOn, {
+                            date: formatDate(campaign.endsAt, t.overview.noEndDate),
+                          })}
+                        </p>
+                      </div>
+                      <Badge tone={STATUS_TONES[campaign.status] ?? 'neutral'} size="sm" dot>
+                        {statusLabel(t, campaign.status)}
+                      </Badge>
                     </div>
-                    <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">
-                      {campaign.status}
-                    </span>
-                  </div>
-                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200">
-                    <div
-                      className="h-full rounded-full bg-indigo-500"
-                      style={{ width: `${Math.max((campaign.participantCount / maxParticipants) * 100, 2)}%` }}
-                    />
-                  </div>
-                </div>
-              ))
+                    {hasAnalytics ? (
+                      <Progress
+                        className="mt-3.5"
+                        value={(campaign.participantCount / maxParticipants) * 100}
+                        label={interpolate(t.overview.participantsRelative, { name: campaign.name })}
+                      />
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
             )}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-xl font-semibold text-slate-900">Top rewards</h3>
-            <Link to="/dashboard/rewards" className="text-sm font-medium text-indigo-600">
-              View all
-            </Link>
-          </div>
-
-          <div className="space-y-4">
-            {topRewards.length === 0 ? (
-              <p className="text-sm text-slate-500">Add rewards to a campaign to see them here.</p>
-            ) : (
-              topRewards.map((reward) => (
-                <div key={reward.id} className="flex items-start gap-3 rounded-2xl border border-slate-200 p-3">
-                  <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-700">
-                    {reward.issuedCount}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-slate-900">
-                      <span className="font-medium">{reward.name}</span> issued {reward.issuedCount} time
-                      {reward.issuedCount === 1 ? '' : 's'}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">{reward.campaignName}</p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        {hasAnalytics ? (
+          <Card>
+            <CardHeader className="flex-row items-center justify-between space-y-0">
+              <CardTitle>{t.overview.topRewards}</CardTitle>
+              <Button asChild variant="ghost" size="xs">
+                <Link to="/dashboard/rewards">
+                  {t.overview.viewAll}
+                  <ArrowRight className="h-3 w-3" aria-hidden />
+                </Link>
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {topRewards.length === 0 ? (
+                <EmptyState
+                  size="sm"
+                  icon={Award}
+                  title={t.overview.noRewardsTitle}
+                  description={t.overview.noRewardsDescription}
+                />
+              ) : (
+                <ul className="flex flex-col gap-2.5">
+                  {topRewards.map((reward) => (
+                    <li
+                      key={reward.id}
+                      className="flex items-start gap-3 rounded-xl border border-line p-3 transition-colors duration-180 hover:border-accent/40"
+                    >
+                      <EntityTile>{reward.issuedCount}</EntityTile>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13.5px] text-ink">
+                          <span className="font-semibold">{reward.name}</span>{' '}
+                          {interpolate(t.overview.rewardIssued, {
+                            count: reward.issuedCount,
+                            s: reward.issuedCount === 1 ? '' : 's',
+                          })}
+                        </p>
+                        <p className="mt-0.5 truncate text-[12px] text-ink-subtle">{reward.campaignName}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>{t.overview.nextSteps}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="flex flex-col gap-2.5">
+                {[
+                  { to: '/dashboard/campaigns', label: t.overview.stepCampaign, icon: Megaphone },
+                  { to: '/dashboard/wheel', label: t.overview.stepWheel, icon: Sparkles },
+                  { to: '/dashboard/qr-codes', label: t.overview.stepQr, icon: Ticket },
+                ].map((item) => (
+                  <li key={item.to}>
+                    <Link
+                      to={item.to}
+                      className="flex items-center gap-3 rounded-lg border border-line px-3.5 py-3 text-[13.5px] font-medium text-ink transition-colors duration-180 hover:border-accent/40 hover:bg-accent-soft/30"
+                    >
+                      <item.icon className="h-4 w-4 shrink-0 text-brand-600 dark:text-accent-bright" aria-hidden />
+                      {item.label}
+                      <ArrowRight className="ml-auto h-3.5 w-3.5 text-ink-subtle" aria-hidden />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

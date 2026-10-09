@@ -3,6 +3,7 @@ import { errorResponse, jsonResponse } from '../lib/http';
 import { secureRandomHex } from '../lib/crypto';
 import {
   couponListQuerySchema,
+  couponUpdateSchema,
   customerListQuerySchema,
   posterCreateSchema,
   posterPatchSchema,
@@ -27,6 +28,7 @@ const POSTERS_PATH = '/api/business/posters';
 const CUSTOMER_ITEM = /^\/api\/business\/customers\/([^/]+)$/;
 const COUPON_ITEM = /^\/api\/business\/coupons\/([^/]+)$/;
 const COUPON_REDEEM = /^\/api\/business\/coupons\/([^/]+)\/redeem$/;
+const COUPON_DELETE = /^\/api\/business\/coupons\/([^/]+)$/;
 const REWARD_ITEM = /^\/api\/business\/rewards\/([^/]+)$/;
 const QR_ITEM = /^\/api\/business\/qr-codes\/([^/]+)$/;
 const POSTER_ITEM = /^\/api\/business\/posters\/([^/]+)$/;
@@ -50,7 +52,11 @@ async function handleCustomerList(request: Request, env: Env, user: Authenticate
   }
 
   const params: unknown[] = [...businessIds];
-  const clauses = [`c.business_id IN (${placeholders(businessIds.length)})`];
+  const clauses = [
+    `c.business_id IN (${placeholders(businessIds.length)})`,
+    `TRIM(COALESCE(c.first_name, '')) <> ''`,
+    `TRIM(COALESCE(c.phone, '')) <> ''`,
+  ];
 
   if (query.search) {
     clauses.push(`(
@@ -78,7 +84,7 @@ async function handleCustomerList(request: Request, env: Env, user: Authenticate
     `SELECT c.id, c.first_name, c.last_name, c.email, c.phone, c.birthday,
             c.marketing_consent, c.created_at, c.updated_at, c.last_activity_at,
             (SELECT COUNT(*) FROM participations p WHERE p.customer_id = c.id) AS participation_count,
-            (SELECT COUNT(*) FROM coupons cp WHERE cp.customer_id = c.id) AS coupon_count,
+            (SELECT COUNT(*) FROM coupons cp WHERE cp.customer_id = c.id AND cp.status <> 'DELETED') AS coupon_count,
             (SELECT COUNT(*) FROM coupons cp WHERE cp.customer_id = c.id AND cp.status = 'REDEEMED') AS redeemed_count
      FROM customers c
      WHERE ${where}
@@ -127,10 +133,13 @@ async function handleCustomerDetail(request: Request, env: Env, user: Authentica
       .bind(customerId)
       .all(),
     env.DB.prepare(
-      `SELECT id, campaign_id, reward_id, code, status, issued_at, expires_at, redeemed_at
-       FROM coupons
-       WHERE customer_id = ?
-       ORDER BY issued_at DESC
+      `SELECT cp.id, cp.campaign_id, cp.reward_id, r.name AS reward_name,
+          ca.name AS campaign_name, cp.code, cp.status, cp.issued_at, cp.expires_at, cp.redeemed_at
+       FROM coupons cp
+       LEFT JOIN rewards r ON r.id = cp.reward_id
+       LEFT JOIN campaigns ca ON ca.id = cp.campaign_id
+      WHERE cp.customer_id = ? AND cp.status <> 'DELETED'
+       ORDER BY cp.issued_at DESC
        LIMIT 50`,
     )
       .bind(customerId)
@@ -162,7 +171,10 @@ async function handleCouponList(request: Request, env: Env, user: AuthenticatedU
 
   const now = new Date().toISOString();
   const params: unknown[] = [...businessIds];
-  const clauses = [`cp.business_id IN (${placeholders(businessIds.length)})`];
+  const clauses = [
+    `cp.business_id IN (${placeholders(businessIds.length)})`,
+    `cp.status <> 'DELETED'`,
+  ];
 
   if (query.status === 'EXPIRED') {
     clauses.push(`cp.status = 'ISSUED' AND cp.expires_at IS NOT NULL AND cp.expires_at < ?`);
@@ -237,6 +249,7 @@ async function handleCouponRedeem(request: Request, env: Env, user: Authenticate
     .first<Record<string, unknown>>();
 
   if (!coupon) return errorResponse('Coupon not found.', 404);
+  if (coupon.status === 'DELETED') return errorResponse('Coupon not found.', 404);
   if (coupon.status === 'REDEEMED') {
     return errorResponse('This coupon has already been redeemed.', 409);
   }
@@ -245,9 +258,24 @@ async function handleCouponRedeem(request: Request, env: Env, user: Authenticate
   }
 
   const now = new Date().toISOString();
-  await env.DB.prepare(`UPDATE coupons SET status = 'REDEEMED', redeemed_at = ? WHERE id = ?`)
-    .bind(now, couponId)
+  // Compare-and-swap: only the request that flips ISSUED → REDEEMED records
+  // the redemption, so concurrent clicks can't double-count or double-stamp.
+  const updated = await env.DB.prepare(
+    `UPDATE coupons SET status = 'REDEEMED', redeemed_at = ?
+     WHERE id = ? AND status = 'ISSUED' AND (expires_at IS NULL OR expires_at >= ?)`,
+  )
+    .bind(now, couponId, now)
     .run();
+
+  if (Number(updated.meta.changes ?? 0) === 0) {
+    const latest = await env.DB.prepare(`SELECT status, expires_at FROM coupons WHERE id = ? LIMIT 1`)
+      .bind(couponId)
+      .first<{ status: string; expires_at: string | null }>();
+    if (!latest || latest.status === 'DELETED') return errorResponse('Coupon not found.', 404);
+    if (latest.status === 'REDEEMED') return errorResponse('This coupon has already been redeemed.', 409);
+    if (latest.expires_at && latest.expires_at < now) return errorResponse('This coupon has expired.', 410);
+    return errorResponse('This coupon has already been redeemed.', 409);
+  }
 
   await env.DB.prepare(
     `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
@@ -268,6 +296,96 @@ async function handleCouponRedeem(request: Request, env: Env, user: Authenticate
     success: true,
     coupon: { ...coupon, status: 'REDEEMED', redeemed_at: now },
   });
+}
+
+async function handleCouponUpdate(request: Request, env: Env, user: AuthenticatedUser, couponId: string): Promise<Response> {
+  const input = couponUpdateSchema.parse(await request.json());
+  const businessIds = await getBusinessIds(user.id, env);
+  if (businessIds.length === 0) return errorResponse('Coupon not found.', 404);
+
+  const coupon = await env.DB.prepare(
+    `SELECT id, status, expires_at, redeemed_at, business_id, campaign_id
+     FROM coupons
+     WHERE id = ? AND business_id IN (${placeholders(businessIds.length)})
+     LIMIT 1`,
+  )
+    .bind(couponId, ...businessIds)
+    .first<{ id: string; status: string; expires_at: string | null; redeemed_at: string | null; business_id: string; campaign_id: string }>();
+
+  if (!coupon) return errorResponse('Coupon not found.', 404);
+  if (coupon.status === 'DELETED') return errorResponse('Coupon not found.', 404);
+
+  const now = new Date().toISOString();
+  if (input.expiresAt && Date.parse(input.expiresAt) <= Date.now()) {
+    return errorResponse('The new deadline must be in the future.', 400);
+  }
+
+  const nextStatus = input.status ?? coupon.status;
+  const redeemedAt = nextStatus === 'REDEEMED'
+    ? coupon.status === 'REDEEMED' ? coupon.redeemed_at : now
+    : null;
+  const expiresAt = input.expiresAt ?? coupon.expires_at;
+
+  await env.DB.prepare(
+    `UPDATE coupons SET status = ?, redeemed_at = ?, expires_at = ? WHERE id = ?`,
+  )
+    .bind(nextStatus, redeemedAt, expiresAt, couponId)
+    .run();
+
+  if (coupon.status !== 'REDEEMED' && nextStatus === 'REDEEMED') {
+    await env.DB.prepare(
+      `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
+       VALUES (?, ?, ?, 'COUPON_REDEEMED', ?, ?)`,
+    )
+      .bind(crypto.randomUUID(), coupon.business_id, coupon.campaign_id, JSON.stringify({ couponId }), now)
+      .run();
+  }
+
+  await writeAuditLog(env, {
+    businessId: String(coupon.business_id),
+    userId: user.id,
+    action: 'coupon.updated',
+    entityType: 'coupon',
+    entityId: couponId,
+    metadata: input,
+  });
+
+  return jsonResponse({
+    success: true,
+    coupon: { ...coupon, status: nextStatus, redeemed_at: redeemedAt, expires_at: expiresAt },
+  });
+}
+
+async function handleCouponDelete(env: Env, user: AuthenticatedUser, couponId: string): Promise<Response> {
+  const businessIds = await getBusinessIds(user.id, env);
+  if (businessIds.length === 0) return errorResponse('Coupon not found.', 404);
+
+  const coupon = await env.DB.prepare(
+    `SELECT id, status, business_id FROM coupons
+     WHERE id = ? AND business_id IN (${placeholders(businessIds.length)})
+     LIMIT 1`,
+  )
+    .bind(couponId, ...businessIds)
+    .first<{ id: string; status: string; business_id: string }>();
+
+  if (!coupon || coupon.status === 'DELETED') return errorResponse('Coupon not found.', 404);
+  if (coupon.status !== 'REDEEMED') {
+    return errorResponse('Only prizes given to the customer can be deleted.', 409);
+  }
+
+  await env.DB.prepare(`UPDATE coupons SET status = 'DELETED' WHERE id = ? AND status = 'REDEEMED'`)
+    .bind(couponId)
+    .run();
+
+  await writeAuditLog(env, {
+    businessId: coupon.business_id,
+    userId: user.id,
+    action: 'coupon.deleted',
+    entityType: 'coupon',
+    entityId: couponId,
+  });
+
+  return jsonResponse({ success: true });
 }
 
 async function handleRewardList(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
@@ -305,7 +423,8 @@ async function handleRewardList(request: Request, env: Env, user: AuthenticatedU
      FROM rewards r
      LEFT JOIN campaigns ca ON ca.id = r.campaign_id
      WHERE ${clauses.join(' AND ')}
-     ORDER BY r.weight DESC, r.created_at ASC`,
+     ORDER BY r.weight DESC, r.created_at ASC
+     LIMIT 500`,
   )
     .bind(...params)
     .all();
@@ -367,6 +486,33 @@ async function handleRewardPatch(request: Request, env: Env, user: Authenticated
   return jsonResponse({ success: true, reward: updated ?? null });
 }
 
+async function handleRewardDelete(env: Env, user: AuthenticatedUser, rewardId: string): Promise<Response> {
+  const businessIds = await getBusinessIds(user.id, env);
+  if (businessIds.length === 0) return errorResponse('Reward not found.', 404);
+
+  const reward = await env.DB.prepare(
+    `SELECT id, business_id FROM rewards
+     WHERE id = ? AND business_id IN (${placeholders(businessIds.length)})
+     LIMIT 1`,
+  )
+    .bind(rewardId, ...businessIds)
+    .first<{ id: string; business_id: string }>();
+
+  if (!reward) return errorResponse('Reward not found.', 404);
+
+  await env.DB.prepare('DELETE FROM rewards WHERE id = ?').bind(rewardId).run();
+
+  await writeAuditLog(env, {
+    businessId: reward.business_id,
+    userId: user.id,
+    action: 'reward.deleted',
+    entityType: 'reward',
+    entityId: rewardId,
+  });
+
+  return jsonResponse({ success: true, id: rewardId });
+}
+
 async function handleQrList(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
   const url = new URL(request.url);
   const campaignId = url.searchParams.get('campaignId') ?? undefined;
@@ -389,7 +535,8 @@ async function handleQrList(request: Request, env: Env, user: AuthenticatedUser)
      FROM qr_codes q
      LEFT JOIN campaigns ca ON ca.id = q.campaign_id
      WHERE ${clauses.join(' AND ')}
-     ORDER BY q.created_at DESC`,
+     ORDER BY q.created_at DESC
+     LIMIT 500`,
   )
     .bind(...params)
     .all();
@@ -498,7 +645,8 @@ async function handlePosterList(request: Request, env: Env, user: AuthenticatedU
      FROM posters p
      LEFT JOIN campaigns ca ON ca.id = p.campaign_id
      WHERE ${clauses.join(' AND ')}
-     ORDER BY p.updated_at DESC`,
+     ORDER BY p.updated_at DESC
+     LIMIT 500`,
   )
     .bind(...params)
     .all();
@@ -622,6 +770,11 @@ export async function handleRecordRoute(
       return errorResponse('Method not allowed.', 405);
     }
 
+    const couponDelete = COUPON_DELETE.exec(path);
+    if (couponDelete?.[1] && request.method === 'DELETE') {
+      return await handleCouponDelete(env, user, couponDelete[1]);
+    }
+
     const customerItem = CUSTOMER_ITEM.exec(path);
     if (customerItem?.[1]) {
       if (request.method === 'GET') return await handleCustomerDetail(request, env, user, customerItem[1]);
@@ -630,12 +783,14 @@ export async function handleRecordRoute(
 
     const couponItem = COUPON_ITEM.exec(path);
     if (couponItem?.[1]) {
+      if (request.method === 'PATCH') return await handleCouponUpdate(request, env, user, couponItem[1]);
       return errorResponse('Method not allowed.', 405);
     }
 
     const rewardItem = REWARD_ITEM.exec(path);
     if (rewardItem?.[1]) {
       if (request.method === 'PATCH') return await handleRewardPatch(request, env, user, rewardItem[1]);
+      if (request.method === 'DELETE') return await handleRewardDelete(env, user, rewardItem[1]);
       return errorResponse('Method not allowed.', 405);
     }
 

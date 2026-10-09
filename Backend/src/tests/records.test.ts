@@ -34,8 +34,8 @@ function seedCustomer(businessId: string, email: string): string {
   const now = new Date().toISOString();
 
   db.prepare(
-    `INSERT INTO customers (id, business_id, first_name, last_name, email, created_at, updated_at)
-     VALUES (?, ?, 'Ada', 'Lovelace', ?, ?, ?)`,
+    `INSERT INTO customers (id, business_id, first_name, last_name, email, phone, created_at, updated_at)
+     VALUES (?, ?, 'Ada', 'Lovelace', ?, '+21622111222', ?, ?)`,
   )
     .bind(id, businessId, email, now, now)
     .run();
@@ -75,8 +75,8 @@ beforeEach(async () => {
   db = testEnv.DB;
   env = testEnv as unknown as Env;
 
-  alice = await seedMerchant(db, { email: 'alice@example.test', businessName: 'Alice Shop' });
-  bob = await seedMerchant(db, { email: 'bob@example.test', businessName: 'Bob Shop' });
+  alice = await seedMerchant(db, { email: 'alice@example.test', businessName: 'Alice Shop', withActiveSubscription: true });
+  bob = await seedMerchant(db, { email: 'bob@example.test', businessName: 'Bob Shop', withActiveSubscription: true });
   aliceCampaign = seedCampaign(alice.businessId);
   bobCampaign = seedCampaign(bob.businessId);
 });
@@ -116,6 +116,14 @@ describe('GET /api/business/customers', () => {
   it('only lists the callers own customers and supports search', async () => {
     seedCustomer(alice.businessId, 'alice-customer@example.test');
     seedCustomer(bob.businessId, 'bob-customer@example.test');
+    const anonymousId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO customers (id, business_id, first_name, phone, created_at, updated_at)
+       VALUES (?, ?, '', '', ?, ?)`,
+    )
+      .bind(anonymousId, alice.businessId, now, now)
+      .run();
 
     const all = await body(
       await handleBusinessRoute(jsonRequest('/api/business/customers', 'GET', undefined, alice.token), env),
@@ -131,6 +139,24 @@ describe('GET /api/business/customers', () => {
       ),
     );
     expect(search.total).toBe(0);
+  });
+
+  it('includes campaign and reward names in a customer prize history', async () => {
+    const customerId = seedCustomer(alice.businessId, 'prize-owner@example.test');
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    seedCoupon(alice.businessId, aliceCampaign, customerId, rewardId);
+
+    const response = await handleBusinessRoute(
+      jsonRequest(`/api/business/customers/${customerId}`, 'GET', undefined, alice.token),
+      env,
+    );
+    const payload = await body(response);
+
+    expect(response.status).toBe(200);
+    expect(payload.coupons[0]).toMatchObject({
+      reward_name: 'Free coffee',
+      campaign_name: 'Owned campaign',
+    });
   });
 
   it('404s on a customer detail owned by someone else', async () => {
@@ -179,6 +205,26 @@ describe('GET /api/business/coupons and redeem', () => {
     expect(second.status).toBe(409);
   });
 
+  it('records exactly one redemption when two clicks race', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const customerId = seedCustomer(alice.businessId, 'c@example.test');
+    const couponId = seedCoupon(alice.businessId, aliceCampaign, customerId, rewardId);
+
+    const redeem = () =>
+      handleBusinessRoute(
+        jsonRequest(`/api/business/coupons/${couponId}/redeem`, 'POST', {}, alice.token),
+        env,
+      );
+
+    const statuses = (await Promise.all([redeem(), redeem()])).map((response) => response.status).sort();
+
+    expect(statuses).toEqual([200, 409]);
+    expect(db.query(`SELECT status FROM coupons WHERE id = ?`, couponId)).toEqual([{ status: 'REDEEMED' }]);
+    expect(
+      db.query(`SELECT id FROM analytics_events WHERE event_type = 'COUPON_REDEEMED'`),
+    ).toHaveLength(1);
+  });
+
   it('404s when redeeming a coupon belonging to another business', async () => {
     const foreignCoupon = seedCoupon(
       bob.businessId,
@@ -192,6 +238,111 @@ describe('GET /api/business/coupons and redeem', () => {
       env,
     );
     expect(response.status).toBe(404);
+  });
+
+  it('lets a merchant update whether a prize is given and extend its deadline', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const customerId = seedCustomer(alice.businessId, 'manage@example.test');
+    const couponId = seedCoupon(alice.businessId, aliceCampaign, customerId, rewardId);
+    const expiresAt = new Date(Date.now() + 30 * 86400_000).toISOString();
+
+    const extended = await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${couponId}`, 'PATCH', { expiresAt }, alice.token),
+      env,
+    );
+    expect(extended.status).toBe(200);
+    expect((await body(extended)).coupon.expires_at).toBe(expiresAt);
+
+    const given = await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${couponId}`, 'PATCH', { status: 'REDEEMED' }, alice.token),
+      env,
+    );
+    expect((await body(given)).coupon.status).toBe('REDEEMED');
+
+    const stillOwed = await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${couponId}`, 'PATCH', { status: 'ISSUED' }, alice.token),
+      env,
+    );
+    expect((await body(stillOwed)).coupon).toMatchObject({ status: 'ISSUED', redeemed_at: null });
+  });
+
+  it('rejects a deadline in the past and prevents updates to another business coupon', async () => {
+    const foreignCoupon = seedCoupon(
+      bob.businessId,
+      bobCampaign,
+      seedCustomer(bob.businessId, 'b@example.test'),
+      seedReward(bob.businessId, bobCampaign),
+    );
+
+    const foreignUpdate = await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${foreignCoupon}`, 'PATCH', { status: 'REDEEMED' }, alice.token),
+      env,
+    );
+    expect(foreignUpdate.status).toBe(404);
+
+    const ownCoupon = seedCoupon(
+      alice.businessId,
+      aliceCampaign,
+      seedCustomer(alice.businessId, 'a@example.test'),
+      seedReward(alice.businessId, aliceCampaign),
+    );
+    const pastDeadline = await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${ownCoupon}`, 'PATCH', { expiresAt: '2020-01-01T00:00:00.000Z' }, alice.token),
+      env,
+    );
+    expect(pastDeadline.status).toBe(400);
+  });
+
+  it('deletes a given prize from customer and coupon listings while retaining its row', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const customerId = seedCustomer(alice.businessId, 'given-prize@example.test');
+    const couponId = seedCoupon(alice.businessId, aliceCampaign, customerId, rewardId);
+
+    await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${couponId}`, 'PATCH', { status: 'REDEEMED' }, alice.token),
+      env,
+    );
+    const deleted = await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${couponId}`, 'DELETE', undefined, alice.token),
+      env,
+    );
+
+    expect(deleted.status).toBe(200);
+    expect(db.query(`SELECT status FROM coupons WHERE id = ?`, couponId)).toEqual([{ status: 'DELETED' }]);
+
+    const customer = await body(
+      await handleBusinessRoute(
+        jsonRequest(`/api/business/customers/${customerId}`, 'GET', undefined, alice.token),
+        env,
+      ),
+    );
+    const coupons = await body(
+      await handleBusinessRoute(jsonRequest('/api/business/coupons', 'GET', undefined, alice.token), env),
+    );
+    expect(customer.coupons).toHaveLength(0);
+    expect(coupons.total).toBe(0);
+  });
+
+  it('refuses to delete an owed prize and hides coupons owned by another business', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const issuedId = seedCoupon(alice.businessId, aliceCampaign, seedCustomer(alice.businessId, 'owed@example.test'), rewardId);
+    const owed = await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${issuedId}`, 'DELETE', undefined, alice.token),
+      env,
+    );
+    expect(owed.status).toBe(409);
+
+    const foreignId = seedCoupon(
+      bob.businessId,
+      bobCampaign,
+      seedCustomer(bob.businessId, 'foreign-prize@example.test'),
+      seedReward(bob.businessId, bobCampaign),
+    );
+    const foreign = await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${foreignId}`, 'DELETE', undefined, alice.token),
+      env,
+    );
+    expect(foreign.status).toBe(404);
   });
 });
 
@@ -233,6 +384,42 @@ describe('GET /api/business/rewards', () => {
       env,
     );
     expect(response.status).toBe(400);
+  });
+
+  it('deletes a reward immediately and 404s foreign or unknown ids', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+
+    const deleted = await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'DELETE', undefined, alice.token),
+      env,
+    );
+    expect(deleted.status).toBe(200);
+    expect((await body(deleted)).id).toBe(rewardId);
+
+    expect(db.query<{ id: string }>(`SELECT id FROM rewards WHERE id = ?`, rewardId)).toHaveLength(0);
+
+    const list = await body(
+      await handleBusinessRoute(jsonRequest('/api/business/rewards', 'GET', undefined, alice.token), env),
+    );
+    expect(list.rewards).toHaveLength(0);
+
+    expect(
+      db.query<{ id: string }>(`SELECT id FROM audit_logs WHERE action = 'reward.deleted' AND entity_id = ?`, rewardId),
+    ).toHaveLength(1);
+
+    const foreign = seedReward(bob.businessId, bobCampaign);
+    const denied = await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${foreign}`, 'DELETE', undefined, alice.token),
+      env,
+    );
+    expect(denied.status).toBe(404);
+    expect(db.query<{ id: string }>(`SELECT id FROM rewards WHERE id = ?`, foreign)).toHaveLength(1);
+
+    const missing = await handleBusinessRoute(
+      jsonRequest('/api/business/rewards/does-not-exist', 'DELETE', undefined, alice.token),
+      env,
+    );
+    expect(missing.status).toBe(404);
   });
 });
 

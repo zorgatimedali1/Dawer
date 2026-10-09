@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../types';
 import { handleBusinessRoute } from '../routes/business';
 import { createTestEnv, type TestDatabase } from './helpers/d1';
@@ -34,11 +34,12 @@ beforeEach(async () => {
   const testEnv = createTestEnv();
   db = testEnv.DB;
   env = testEnv as unknown as Env;
-  owner = await seedMerchant(db, { businessName: 'Owner Shop' });
-  outsider = await seedMerchant(db, { email: 'outsider@example.test', businessName: 'Other Shop' });
+  owner = await seedMerchant(db, { businessName: 'Owner Shop', withActiveSubscription: true });
+  outsider = await seedMerchant(db, { email: 'outsider@example.test', businessName: 'Other Shop', withActiveSubscription: true });
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   db.close();
 });
 
@@ -112,6 +113,27 @@ describe('GET /api/business/campaign-config', () => {
     expect(payload.rewards).toEqual([]);
   });
 
+  it('defaults to the last edited live campaign, never an archived one', async () => {
+    const live = await body(
+      await handleBusinessRoute(jsonRequest(CONFIG, 'PUT', baseConfig({ title: 'Live One' }), owner.token), env),
+    );
+
+    const archived = await body(
+      await handleBusinessRoute(jsonRequest(LIST, 'POST', { name: 'Archived One', description: 'old' }, owner.token), env),
+    );
+    // Archiving bumps updated_at; hand the archived row the newest stamp so
+    // it would win a plain "most recently updated" pick.
+    db.prepare(`UPDATE campaigns SET status = 'ARCHIVED', updated_at = ? WHERE id = ?`)
+      .bind('2099-01-01T00:00:00.000Z', archived.campaign.id)
+      .run();
+
+    const response = await handleBusinessRoute(jsonRequest(CONFIG, 'GET', undefined, owner.token), env);
+    const payload = await body(response);
+
+    expect(payload.campaign.id).toBe(live.campaign.id);
+    expect(payload.campaign.name).toBe('Live One');
+  });
+
   it('404s for a campaign owned by someone else', async () => {
     const response = await handleBusinessRoute(
       jsonRequest(`${CONFIG}?campaignId=not-yours`, 'GET', undefined, outsider.token),
@@ -136,6 +158,28 @@ describe('PUT /api/business/campaign-config', () => {
     const rows = db.query<{ id: string; name: string }>(`SELECT id, name FROM campaigns`);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.name).toBe('Renamed');
+  });
+
+  it('never writes into an archived campaign when no id is given', async () => {
+    const live = await body(
+      await handleBusinessRoute(jsonRequest(CONFIG, 'PUT', baseConfig({ title: 'Live One' }), owner.token), env),
+    );
+    const doomed = await body(
+      await handleBusinessRoute(jsonRequest(LIST, 'POST', { name: 'Doomed', description: 'old' }, owner.token), env),
+    );
+    db.prepare(`UPDATE campaigns SET status = 'ARCHIVED', updated_at = ? WHERE id = ?`)
+      .bind('2099-01-01T00:00:00.000Z', doomed.campaign.id)
+      .run();
+
+    const saved = await body(
+      await handleBusinessRoute(jsonRequest(CONFIG, 'PUT', baseConfig({ title: 'Live Renamed' }), owner.token), env),
+    );
+
+    expect(saved.campaign.id).toBe(live.campaign.id);
+    expect(
+      db.query<{ name: string }>(`SELECT name FROM campaigns WHERE id = ?`, doomed.campaign.id)[0]!.name,
+    ).toBe('Doomed');
+    expect(db.query<{ name: string }>(`SELECT name FROM campaigns WHERE name = 'Live Renamed'`)).toHaveLength(1);
   });
 
   it('upserts rewards in place, preserving ids and deleting removed ones', async () => {
@@ -191,10 +235,43 @@ describe('PUT /api/business/campaign-config', () => {
     expect((await body(response)).message).toBe('Validation failed.');
   });
 
+  it('clears every reward when saved with an empty list', async () => {
+    const created = await body(
+      await handleBusinessRoute(
+        jsonRequest(CONFIG, 'PUT', baseConfig({
+          rewards: [{ name: 'A', type: 'custom_reward', value: 1, weight: 60, quantity: 3 }],
+        }), owner.token),
+        env,
+      ),
+    );
+
+    const cleared = await handleBusinessRoute(
+      jsonRequest(CONFIG, 'PUT', baseConfig({ rewards: [] }), owner.token),
+      env,
+    );
+    expect(cleared.status).toBe(200);
+
+    const rows = db.query<{ id: string }>(`SELECT id FROM rewards WHERE campaign_id = ?`, created.campaign.id);
+    expect(rows).toHaveLength(0);
+  });
+
   it('requires a business before saving', async () => {
     const lone = await seedMerchant(db, { email: 'lone@example.test', withBusiness: false });
     const response = await handleBusinessRoute(jsonRequest(CONFIG, 'PUT', baseConfig(), lone.token), env);
     expect(response.status).toBe(404);
+  });
+
+  it('allows trial users to read campaigns but blocks campaign writes', async () => {
+    const trial = await seedMerchant(db, { email: 'trial@example.test', businessName: 'Trial Shop' });
+    const list = await handleBusinessRoute(jsonRequest(LIST, 'GET', undefined, trial.token), env);
+    expect(list.status).toBe(200);
+
+    const create = await handleBusinessRoute(
+      jsonRequest(LIST, 'POST', { name: 'Blocked campaign' }, trial.token),
+      env,
+    );
+    expect(create.status).toBe(403);
+    expect((await body(create)).message).toContain('read-only');
   });
 });
 
@@ -210,6 +287,29 @@ describe('campaign CRUD', () => {
 
     const row = db.query<{ status: string }>(`SELECT status FROM campaigns WHERE id = ?`, payload.campaign.id);
     expect(row[0]?.status).toBe('DRAFT');
+  });
+
+  it('creates a campaign with its scheduled duration and status', async () => {
+    const startAt = '2026-10-10T00:00:00.000Z';
+    const endAt = '2026-10-20T23:59:59.999Z';
+    const response = await handleBusinessRoute(
+      jsonRequest(LIST, 'POST', {
+        name: 'Autumn promotion',
+        description: 'October campaign',
+        status: 'SCHEDULED',
+        startAt,
+        endAt,
+      }, owner.token),
+      env,
+    );
+    const payload = await body(response);
+    const row = db.query<{ status: string; start_at: string; end_at: string }>(
+      `SELECT status, start_at, end_at FROM campaigns WHERE id = ?`,
+      payload.campaign.id,
+    );
+
+    expect(response.status).toBe(201);
+    expect(row[0]).toEqual({ status: 'SCHEDULED', start_at: startAt, end_at: endAt });
   });
 
   it('lists only the caller campaigns with counts', async () => {
@@ -267,17 +367,60 @@ describe('campaign CRUD', () => {
 
     const payload = await body(
       await handleBusinessRoute(
-        jsonRequest(`${LIST}/${existing.id}`, 'PATCH', { name: 'Updated', status: 'PAUSED' }, owner.token),
+        jsonRequest(`${LIST}/${existing.id}`, 'PATCH', {
+          name: 'Updated',
+          status: 'PAUSED',
+          startAt: '2026-10-10T00:00:00.000Z',
+          endAt: '2026-10-20T23:59:59.999Z',
+        }, owner.token),
         env,
       ),
     );
     expect(payload.success).toBe(true);
 
-    const row = db.query<{ name: string; status: string }>(
-      `SELECT name, status FROM campaigns WHERE id = ?`,
+    const row = db.query<{ name: string; status: string; start_at: string; end_at: string }>(
+      `SELECT name, status, start_at, end_at FROM campaigns WHERE id = ?`,
       existing.id,
     );
-    expect(row[0]).toEqual({ name: 'Updated', status: 'PAUSED' });
+    expect(row[0]).toEqual({
+      name: 'Updated',
+      status: 'PAUSED',
+      start_at: '2026-10-10T00:00:00.000Z',
+      end_at: '2026-10-20T23:59:59.999Z',
+    });
+  });
+
+  it('rejects campaign periods where the end is before the start', async () => {
+    const response = await handleBusinessRoute(
+      jsonRequest(LIST, 'POST', {
+        name: 'Invalid period',
+        startAt: '2026-10-20T00:00:00.000Z',
+        endAt: '2026-10-10T23:59:59.999Z',
+      }, owner.token),
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    expect((await body(response)).message).toBe('Validation failed.');
+  });
+
+  it('rejects moving a campaign start past its saved end date', async () => {
+    const startAt = '2026-10-10T00:00:00.000Z';
+    const endAt = '2026-10-20T23:59:59.999Z';
+    const created = await body(
+      await handleBusinessRoute(
+        jsonRequest(LIST, 'POST', { name: 'Bounded campaign', startAt, endAt }, owner.token),
+        env,
+      ),
+    );
+
+    const response = await handleBusinessRoute(
+      jsonRequest(`${LIST}/${created.campaign.id}`, 'PATCH', { startAt: '2026-10-21T00:00:00.000Z' }, owner.token),
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    expect((await body(response)).message).toBe('End date must be on or after the start date.');
   });
 
   it('duplicates a campaign together with its rewards as a draft', async () => {
@@ -357,5 +500,201 @@ describe('campaign CRUD', () => {
     }
 
     expect(db.query<{ name: string }>(`SELECT name FROM campaigns`)[0]?.name).toBe('Summer Spin');
+  });
+});
+
+describe('campaign limit', () => {
+  async function createDrafts(count: number): Promise<void> {
+    for (let i = 1; i <= count; i++) {
+      const response = await handleBusinessRoute(
+        jsonRequest(LIST, 'POST', { name: `Campaign ${i}`, description: '' }, owner.token),
+        env,
+      );
+      expect(response.status, `draft ${i}`).toBe(201);
+    }
+  }
+
+  it('creates up to four campaigns and refuses the fifth', async () => {
+    await createDrafts(4);
+
+    const blocked = await handleBusinessRoute(
+      jsonRequest(LIST, 'POST', { name: 'Campaign 5', description: '' }, owner.token),
+      env,
+    );
+    expect(blocked.status).toBe(409);
+    expect((await body(blocked)).message).toContain('at most 4 campaigns');
+    expect(db.query(`SELECT id FROM campaigns`)).toHaveLength(4);
+  });
+
+  it('blocks duplicating a campaign once the cap is reached', async () => {
+    await createDrafts(4);
+    const source = db.query<{ id: string }>(`SELECT id FROM campaigns ORDER BY created_at ASC`)[0]!;
+
+    const duplicate = await handleBusinessRoute(
+      jsonRequest(`${LIST}/${source.id}/duplicate`, 'POST', undefined, owner.token),
+      env,
+    );
+    expect(duplicate.status).toBe(409);
+    expect(db.query(`SELECT id FROM campaigns`)).toHaveLength(4);
+  });
+
+  it('does not count archived campaigns against the cap', async () => {
+    await createDrafts(4);
+    const archived = db.query<{ id: string }>(`SELECT id FROM campaigns ORDER BY created_at ASC`)[0]!;
+    db.prepare(`UPDATE campaigns SET status = 'ARCHIVED' WHERE id = ?`).bind(archived.id).run();
+
+    const response = await handleBusinessRoute(
+      jsonRequest(LIST, 'POST', { name: 'Campaign 5', description: '' }, owner.token),
+      env,
+    );
+    expect(response.status).toBe(201);
+    expect(db.query(`SELECT id FROM campaigns WHERE status <> 'ARCHIVED'`)).toHaveLength(4);
+  });
+});
+
+describe('campaign coordinates (P2-7)', () => {
+  it('resolves the selected place to coordinates on save and returns them', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string>;
+      return new Response(JSON.stringify({ location: { latitude: 36.8065, longitude: 10.1815 } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    env = { ...env, GOOGLE_MAPS_API_KEY: 'places-key.test' };
+
+    const saved = await body(
+      await handleBusinessRoute(jsonRequest(CONFIG, 'PUT', baseConfig(), owner.token), env),
+    );
+    expect(saved.success).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [requestUrl, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(requestUrl).toBe('https://places.googleapis.com/v1/places/ChIJtest');
+    expect((requestInit.headers as Record<string, string>)['x-goog-api-key']).toBe('places-key.test');
+
+    expect(db.query('SELECT latitude, longitude FROM campaigns')).toEqual([
+      { latitude: 36.8065, longitude: 10.1815 },
+    ]);
+
+    const config = await body(
+      await handleBusinessRoute(jsonRequest(CONFIG, 'GET', undefined, owner.token), env),
+    );
+    expect(config.campaign.latitude).toBe(36.8065);
+    expect(config.campaign.longitude).toBe(10.1815);
+  });
+
+  it('never blocks the save when the lookup fails or no key is configured', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('boom', { status: 500 })));
+    env = { ...env, GOOGLE_MAPS_API_KEY: 'places-key.test' };
+
+    const first = await body(
+      await handleBusinessRoute(jsonRequest(CONFIG, 'PUT', baseConfig(), owner.token), env),
+    );
+    expect(first.success).toBe(true);
+    expect(db.query('SELECT latitude, longitude FROM campaigns')).toEqual([
+      { latitude: null, longitude: null },
+    ]);
+
+    // Without a key no call is attempted at all.
+    const keylessFetch = vi.fn();
+    vi.stubGlobal('fetch', keylessFetch);
+    const keyless = { ...env } as { GOOGLE_MAPS_API_KEY?: string };
+    delete keyless.GOOGLE_MAPS_API_KEY;
+    const second = await body(
+      await handleBusinessRoute(jsonRequest(CONFIG, 'PUT', baseConfig({ title: 'Renamed' }), owner.token), keyless as Env),
+    );
+    expect(second.success).toBe(true);
+    expect(keylessFetch).not.toHaveBeenCalled();
+    expect(db.query('SELECT latitude, longitude FROM campaigns')).toEqual([
+      { latitude: null, longitude: null },
+    ]);
+  });
+});
+
+describe('POST /api/business/campaigns/:id/claims-expire', () => {
+  async function createCampaignAndGetId(): Promise<string> {
+    const created = await body(
+      await handleBusinessRoute(
+        jsonRequest(LIST, 'POST', { name: 'Claims test', description: 'claims expire' }, owner.token),
+        env,
+      ),
+    );
+    return created.campaign.id as string;
+  }
+
+  function insertClaim(campaignId: string, visitorKey: string, createdAt: string): void {
+    db.prepare(
+      `INSERT INTO spin_claims (id, campaign_id, visitor_key, created_at) VALUES (?, ?, ?, ?)`,
+    )
+      .bind(crypto.randomUUID(), campaignId, visitorKey, createdAt)
+      .run();
+  }
+
+  it('deletes claims older than the cutoff and audits the action', async () => {
+    const campaignId = await createCampaignAndGetId();
+    insertClaim(campaignId, 'contact:old@example.test', '2020-01-01T00:00:00.000Z');
+    insertClaim(campaignId, 'contact:new@example.test', '2999-01-01T00:00:00.000Z');
+
+    const response = await handleBusinessRoute(
+      jsonRequest(
+        `${LIST}/${campaignId}/claims-expire`,
+        'POST',
+        { before: '2021-01-01T00:00:00.000Z' },
+        owner.token,
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await body(response)).toMatchObject({ success: true, expired: 1 });
+    expect(db.query('SELECT visitor_key FROM spin_claims')).toEqual([
+      { visitor_key: 'contact:new@example.test' },
+    ]);
+    expect(
+      db.query('SELECT action, entity_id FROM audit_logs WHERE action = ?', 'campaign.claims_expired'),
+    ).toEqual([{ action: 'campaign.claims_expired', entity_id: campaignId }]);
+  });
+
+  it('defaults to expiring every claim written before now', async () => {
+    const campaignId = await createCampaignAndGetId();
+    insertClaim(campaignId, 'contact:old@example.test', '2020-01-01T00:00:00.000Z');
+    insertClaim(campaignId, 'visitor:still-fresh', new Date(Date.now() + 60_000).toISOString());
+
+    const response = await handleBusinessRoute(
+      jsonRequest(`${LIST}/${campaignId}/claims-expire`, 'POST', {}, owner.token),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect((await body(response)).expired).toBe(1);
+    expect(db.query('SELECT visitor_key FROM spin_claims')).toEqual([
+      { visitor_key: 'visitor:still-fresh' },
+    ]);
+  });
+
+  it('cannot expire another business campaign claims', async () => {
+    const campaignId = await createCampaignAndGetId();
+    insertClaim(campaignId, 'contact:old@example.test', '2020-01-01T00:00:00.000Z');
+
+    const response = await handleBusinessRoute(
+      jsonRequest(`${LIST}/${campaignId}/claims-expire`, 'POST', {}, outsider.token),
+      env,
+    );
+
+    expect(response.status).toBe(404);
+    expect(db.query('SELECT id FROM spin_claims')).toHaveLength(1);
+  });
+
+  it('rejects a malformed before value', async () => {
+    const campaignId = await createCampaignAndGetId();
+
+    const response = await handleBusinessRoute(
+      jsonRequest(`${LIST}/${campaignId}/claims-expire`, 'POST', { before: 'yesterday' }, owner.token),
+      env,
+    );
+
+    expect(response.status).toBe(400);
+    expect((await body(response)).message).toBe('Validation failed.');
   });
 });

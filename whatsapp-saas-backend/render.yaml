@@ -1,0 +1,27 @@
+# Render blueprint: WhatsApp Web gateway (free tier).
+# NOTE: the free plan has no persistent disk, so the WhatsApp session is lost
+# on redeploy and you must re-scan the QR (see README). Uncomment the disk
+# block on a paid plan to keep the session between deploys.
+services:
+  - type: web
+    runtime: docker
+    name: whatsapp-saas-backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GATEWAY_SECRET
+        sync: false
+      - key: WORKER_URL
+        sync: false
+      - key: WHATSAPP_WEB_CALLBACK_SECRET
+        sync: false
+  # - type: web
+  #   runtime: docker
+  #   name: whatsapp-saas-backend
+  #   plan: starter
+  #   disk:
+  #     name: wweb-session
+  #     mountPath: /app/data
+  #     sizeGB: 1

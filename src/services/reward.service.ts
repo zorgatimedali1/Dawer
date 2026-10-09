@@ -83,4 +83,13 @@ export class RewardService {
 
     return mapReward(result.reward);
   }
+
+  static async delete(rewardId: string): Promise<void> {
+    await apiRequest<{ success: boolean; id: string }>(
+      'DELETE',
+      `/api/business/rewards/${encodeURIComponent(rewardId)}`,
+      undefined,
+      'Unable to delete the reward.',
+    );
+  }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getGoogleMapsUrl } from '@/lib/google-maps';
+import { getGoogleMapsUrl, getGoogleReviewUrl } from '@/lib/google-maps';
 
 describe('getGoogleMapsUrl', () => {
   it('passes through allowed https Google hostnames', () => {
@@ -30,6 +30,38 @@ describe('getGoogleMapsUrl', () => {
   it('appends query_place_id when a place id is provided', () => {
     expect(getGoogleMapsUrl('Cafe du Centre', 'ChIJN1t_tDeuEmsRUsoyG83frY4')).toBe(
       'https://www.google.com/maps/search/?api=1&query=Cafe+du+Centre&query_place_id=ChIJN1t_tDeuEmsRUsoyG83frY4',
+    );
+  });
+});
+
+describe('getGoogleReviewUrl', () => {
+  it('opens the write-review dialog directly when a place id is known', () => {
+    expect(getGoogleReviewUrl('Carrefour market Chotana', 'ChIJN1t_tDeuEmsRUsoyG83frY4')).toBe(
+      'https://search.google.com/local/writereview?placeid=ChIJN1t_tDeuEmsRUsoyG83frY4',
+    );
+  });
+
+  it('prefers an explicit review short link over the place id', () => {
+    expect(getGoogleReviewUrl('https://g.page/r/abc/review', 'ChIJN1t_tDeuEmsRUsoyG83frY4')).toBe(
+      'https://g.page/r/abc/review',
+    );
+  });
+
+  it('falls back to a Google search that shows the knowledge panel', () => {
+    expect(getGoogleReviewUrl('Carrefour market Chotana, Al Hayat')).toBe(
+      'https://www.google.com/search?q=Carrefour+market+Chotana%2C+Al+Hayat',
+    );
+  });
+
+  it('passes through a Google place URL when there is no place id', () => {
+    expect(getGoogleReviewUrl('https://www.google.com/maps/place/Cafe+du+Centre')).toBe(
+      'https://www.google.com/maps/place/Cafe+du+Centre',
+    );
+  });
+
+  it('never sends visitors to a non-Google host', () => {
+    expect(getGoogleReviewUrl('https://evil.example.com/review')).toBe(
+      'https://www.google.com/search?q=https%3A%2F%2Fevil.example.com%2Freview',
     );
   });
 });

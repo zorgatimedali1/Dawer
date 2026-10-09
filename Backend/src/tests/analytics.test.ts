@@ -15,12 +15,12 @@ async function body(response: Response) {
   return (await response.json()) as Record<string, any>;
 }
 
-function seedEvent(businessId: string, campaignId: string, eventType: string) {
+function seedEvent(businessId: string, campaignId: string, eventType: string, ageMs = 0) {
   db.prepare(
     `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
      VALUES (?, ?, ?, ?, '{}', ?)`,
   )
-    .bind(crypto.randomUUID(), businessId, campaignId, eventType, new Date().toISOString())
+    .bind(crypto.randomUUID(), businessId, campaignId, eventType, new Date(Date.now() - ageMs).toISOString())
     .run();
 }
 
@@ -43,8 +43,8 @@ beforeEach(async () => {
   db = testEnv.DB;
   env = testEnv as unknown as Env;
 
-  alice = await seedMerchant(db, { email: 'alice@example.test', businessName: 'Alice Shop' });
-  bob = await seedMerchant(db, { email: 'bob@example.test', businessName: 'Bob Shop' });
+  alice = await seedMerchant(db, { email: 'alice@example.test', businessName: 'Alice Shop', withActiveSubscription: true, planId: 'plan_growth' });
+  bob = await seedMerchant(db, { email: 'bob@example.test', businessName: 'Bob Shop', withActiveSubscription: true, planId: 'plan_growth' });
   aliceCampaign = seedCampaign(alice.businessId);
   bobCampaign = seedCampaign(bob.businessId);
 
@@ -63,9 +63,10 @@ beforeEach(async () => {
     .bind(crypto.randomUUID(), aliceCampaign, db.query<{ id: string }>(`SELECT id FROM customers`)[0]!.id, now)
     .run();
 
-  seedEvent(alice.businessId, aliceCampaign, 'PARTICIPATION');
-  seedEvent(alice.businessId, aliceCampaign, 'REWARD_CLAIMED');
-  seedEvent(bob.businessId, bobCampaign, 'PARTICIPATION');
+  // Distinct ages so `ORDER BY created_at DESC` has a defined order.
+  seedEvent(alice.businessId, aliceCampaign, 'PARTICIPATION', 1_000);
+  seedEvent(alice.businessId, aliceCampaign, 'REWARD_CLAIMED', 2_000);
+  seedEvent(bob.businessId, bobCampaign, 'PARTICIPATION', 3_000);
 });
 
 afterEach(() => {
@@ -109,6 +110,165 @@ describe('GET /api/analytics/overview', () => {
 
     expect(payload.totals).toEqual([]);
     expect(payload.summary).toEqual({ participations: 0, coupons: 0, customers: 0 });
+  });
+});
+
+describe('GET /api/analytics/timeseries', () => {
+    it('blocks analytics for a paid Starter plan without an analytics entitlement', async () => {
+      const starter = await seedMerchant(db, {
+        email: 'starter-analytics@example.test',
+        businessName: 'Starter Shop',
+        withActiveSubscription: true,
+        planId: 'plan_starter',
+      });
+
+      const response = await handleAnalyticsRoute(
+        jsonRequest('/api/analytics/timeseries?range=7', 'GET', undefined, starter.token),
+        env,
+      );
+
+      expect(response.status).toBe(403);
+      expect((await body(response)).message).toContain('not included');
+
+      const overview = await handleAnalyticsRoute(
+        jsonRequest('/api/analytics/overview', 'GET', undefined, starter.token),
+        env,
+      );
+      expect(overview.status).toBe(403);
+    });
+
+  it('fills every day bucket for the requested window', async () => {
+    const payload = await body(
+      await handleAnalyticsRoute(
+        jsonRequest('/api/analytics/timeseries?days=7', 'GET', undefined, alice.token),
+        env,
+      ),
+    );
+
+    expect(payload.success).toBe(true);
+    expect(payload.days).toBe(7);
+    expect(payload.series).toHaveLength(7);
+
+    const today = payload.series[payload.series.length - 1];
+    expect(today.participations).toBe(1);
+    expect(today.rewardsClaimed).toBe(1);
+    expect(today.couponsRedeemed).toBe(0);
+    expect(payload.series.slice(0, 6).every((day: { total: number }) => day.total === 0)).toBe(true);
+  });
+
+  it('defaults to 30 days for an unknown window', async () => {
+    const payload = await body(
+      await handleAnalyticsRoute(
+        jsonRequest('/api/analytics/timeseries?days=999', 'GET', undefined, alice.token),
+        env,
+      ),
+    );
+    expect(payload.days).toBe(30);
+    expect(payload.series).toHaveLength(30);
+  });
+
+  it('excludes other tenants', async () => {
+    const payload = await body(
+      await handleAnalyticsRoute(
+        jsonRequest('/api/analytics/timeseries?days=7', 'GET', undefined, alice.token),
+        env,
+      ),
+    );
+    const totals = payload.series.reduce(
+      (sum: number, day: { total: number }) => sum + day.total,
+      0,
+    );
+    expect(totals).toBe(2);
+  });
+
+  it('returns zero-filled buckets for a user with no business', async () => {
+    const stranger = await seedMerchant(db, { email: 'no-biz@example.test', withBusiness: false });
+    const payload = await body(
+      await handleAnalyticsRoute(
+        jsonRequest('/api/analytics/timeseries?days=7', 'GET', undefined, stranger.token),
+        env,
+      ),
+    );
+    expect(payload.series).toHaveLength(7);
+    expect(payload.series.every((day: { total: number }) => day.total === 0)).toBe(true);
+  });
+});
+
+describe('GET /api/analytics/funnel', () => {
+  it('reports stage counts and conversion rates', async () => {
+    db.prepare(
+      `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
+       VALUES (?, ?, ?, 'COUPON_REDEEMED', '{}', ?)`,
+    ).bind(crypto.randomUUID(), alice.businessId, aliceCampaign, new Date().toISOString()).run();
+
+    const payload = await body(
+      await handleAnalyticsRoute(
+        jsonRequest('/api/analytics/funnel?days=7', 'GET', undefined, alice.token),
+        env,
+      ),
+    );
+
+    expect(payload.stages).toHaveLength(3);
+    expect(payload.stages[0]).toMatchObject({ key: 'participations', value: 1, rateFromPrevious: 100 });
+    expect(payload.stages[1]).toMatchObject({ key: 'rewardsClaimed', value: 1, rateFromPrevious: 100 });
+    expect(payload.stages[2]).toMatchObject({ key: 'couponsRedeemed', value: 1 });
+    expect(payload.conversion).toMatchObject({
+      participations: 1,
+      rewardsClaimed: 1,
+      couponsRedeemed: 1,
+      uniqueCustomers: 1,
+      rewardRate: 100,
+      redemptionRate: 100,
+      overallRate: 100,
+    });
+  });
+
+  it('reports zero rates instead of dividing by zero', async () => {
+    const stranger = await seedMerchant(db, { email: 'empty@example.test', withBusiness: false });
+    const payload = await body(
+      await handleAnalyticsRoute(
+        jsonRequest('/api/analytics/funnel', 'GET', undefined, stranger.token),
+        env,
+      ),
+    );
+    expect(payload.conversion).toMatchObject({ rewardRate: 0, redemptionRate: 0, overallRate: 0 });
+  });
+});
+
+describe('GET /api/analytics/rankings', () => {
+  it('ranks campaigns and rewards by activity', async () => {
+    const rewardId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO rewards (id, business_id, campaign_id, name, type, value, created_at, updated_at)
+       VALUES (?, ?, ?, 'Free coffee', 'discount', '100', ?, ?)`,
+    )
+      .bind(rewardId, alice.businessId, aliceCampaign, now, now)
+      .run();
+
+    db.prepare(
+      `UPDATE participations SET reward_id = ? WHERE campaign_id = ?`,
+    ).bind(rewardId, aliceCampaign).run();
+
+    const payload = await body(
+      await handleAnalyticsRoute(
+        jsonRequest('/api/analytics/rankings?days=30', 'GET', undefined, alice.token),
+        env,
+      ),
+    );
+
+    expect(payload.campaigns[0]).toMatchObject({ id: aliceCampaign, participations: 1, customers: 1 });
+    expect(payload.rewards[0]).toMatchObject({ id: rewardId, claims: 1, value: 100 });
+  });
+
+  it('excludes another tenant campaign', async () => {
+    const payload = await body(
+      await handleAnalyticsRoute(
+        jsonRequest('/api/analytics/rankings?days=30', 'GET', undefined, alice.token),
+        env,
+      ),
+    );
+    expect(payload.campaigns.map((row: { id: string }) => row.id)).not.toContain(bobCampaign);
   });
 });
 

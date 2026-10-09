@@ -2,14 +2,19 @@
 
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Chrome } from 'lucide-react';
+import { Chrome, LockKeyhole, Mail } from 'lucide-react';
 import { AuthService } from '@/services/auth.service';
 import { useAppContext } from '@/contexts/app-context';
+import { Button } from '@/components/ui/button';
+import { Field } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { useT } from '@/hooks/use-t';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAppContext();
+  const t = useT();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -26,7 +31,7 @@ export default function LoginPage() {
       const from = (location.state as { from?: string } | null)?.from;
       navigate(from ?? '/dashboard/overview', { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Adresse e-mail ou mot de passe invalide.');
+      setError(err instanceof Error ? err.message : t.auth.invalidCredentials);
     } finally {
       setLoading(false);
     }
@@ -34,70 +39,89 @@ export default function LoginPage() {
 
   return (
     <div className="space-y-5">
-      <div className="space-y-2 text-center">
-        <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">Connexion</h2>
-        <p className="text-sm text-slate-600 dark:text-slate-300">Accédez à votre espace marchand.</p>
+      <div className="space-y-1.5 text-center">
+        <h2 className="text-[22px] font-semibold tracking-[-0.02em] text-ink">{t.auth.signInTitle}</h2>
+        <p className="text-[13.5px] leading-relaxed text-ink-muted">{t.auth.signInSubtitle}</p>
       </div>
 
-      <button
+      <Button
         type="button"
+        variant="outline"
+        className="w-full"
         onClick={() => window.location.assign(AuthService.googleSignInUrl())}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800"
       >
-        <Chrome className="h-4 w-4" />
-        Continuer avec Google
-      </button>
+        <Chrome aria-hidden className="h-4 w-4" />
+        {t.auth.googleSignIn}
+      </Button>
 
-      <div className="flex items-center gap-3 text-xs uppercase tracking-[0.2em] text-slate-400">
-        <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-        ou
-        <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+      <div className="flex items-center gap-3">
+        <span aria-hidden className="h-px flex-1 bg-line" />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.auth.or}</span>
+        <span aria-hidden className="h-px flex-1 bg-line" />
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <div>
-          <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Adresse e-mail</label>
-          <input
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Field label={t.auth.email} htmlFor="email">
+          <Input
             id="email"
             type="email"
             autoComplete="email"
             required
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-indigo-900"
+            inputSize="lg"
+            iconStart={<Mail />}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
-        </div>
+        </Field>
 
-        <div>
-          <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Mot de passe</label>
-          <input
+        <Field label={t.auth.password} htmlFor="password">
+          <Input
             id="password"
             type="password"
             autoComplete="current-password"
             required
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-indigo-900"
+            inputSize="lg"
+            iconStart={<LockKeyhole />}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-        </div>
+        </Field>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && (
+          <p className="rounded-lg border border-danger-300/60 bg-danger-50 px-3 py-2.5 text-[13px] leading-relaxed text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200">
+            {error}
+          </p>
+        )}
 
-        <div className="flex items-center justify-between text-sm">
-          <label className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300">
-            <input type="checkbox" className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
-            Se souvenir de moi
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <label className="inline-flex items-center gap-2 text-[13px] text-ink-muted">
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0 rounded border-line-strong accent-brand-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-elevated"
+            />
+            {t.auth.rememberMe}
           </label>
-          <a href="/auth/forgot-password" className="font-medium text-indigo-600 hover:text-indigo-500">Mot de passe oublié ?</a>
+          <a
+            href="/auth/forgot-password"
+            className="text-[13px] font-medium text-brand-700 transition-colors duration-180 ease-swift hover:text-brand-800 dark:text-accent-bright dark:hover:text-brand-300"
+          >
+            {t.auth.forgotPassword}
+          </a>
         </div>
 
-        <button type="submit" disabled={loading} className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">
-          {loading ? 'Connexion…' : 'Se connecter'}
-        </button>
+        <Button type="submit" size="lg" className="w-full" loading={loading}>
+          {loading ? t.auth.signingIn : t.auth.signIn}
+        </Button>
       </form>
 
-      <p className="text-center text-sm text-slate-600 dark:text-slate-300">
-        Pas encore inscrit ? <a href="/auth/register" className="font-medium text-indigo-600 hover:text-indigo-500">Créer un compte</a>
+      <p className="text-center text-[13px] text-ink-muted">
+        {t.auth.noAccount}{' '}
+        <a
+          href="/auth/register"
+          className="font-medium text-brand-700 transition-colors duration-180 ease-swift hover:text-brand-800 dark:text-accent-bright dark:hover:text-brand-300"
+        >
+          {t.auth.createAccount}
+        </a>
       </p>
     </div>
   );

@@ -1,4 +1,15 @@
 import { apiRequest } from './http';
+import type { WheelTheme } from '@/lib/wheel-theme';
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i] as number);
+  }
+  return btoa(binary);
+}
+
 
 export interface NotificationPreferences {
   email: boolean;
@@ -20,6 +31,11 @@ export interface BusinessSettings {
   googlePlaceId: string;
   facebookUrl: string;
   instagramUrl: string;
+  twitterUrl: string;
+  linkedinUrl: string;
+  tiktokUrl: string;
+  youtubeUrl: string;
+  xUrl?: string;
   primaryColor: string;
   secondaryColor: string;
   notifications: NotificationPreferences;
@@ -39,9 +55,14 @@ export interface SettingsPatch {
   googlePlaceId?: string;
   facebookUrl?: string;
   instagramUrl?: string;
+  twitterUrl?: string;
+  linkedinUrl?: string;
+  tiktokUrl?: string;
+  youtubeUrl?: string;
+  xUrl?: string;
   primaryColor?: string;
   secondaryColor?: string;
-  notifications?: NotificationPreferences;
+  notifications?: Partial<NotificationPreferences>;
 }
 
 export interface ProfileBusiness {
@@ -58,8 +79,24 @@ export interface Profile {
   lastName: string;
   avatarUrl: string;
   emailVerified: boolean;
+  hasPassword: boolean;
   createdAt: string;
   businesses: ProfileBusiness[];
+}
+
+/** Response of `GET /api/settings/wheel-theme`. */
+export interface WheelThemeState {
+  success: boolean;
+  /** Plan flag: colors/motion edits (and the merchant theme on the wheel). */
+  designAllowed: boolean;
+  /** Plan flag: the merchant logo at the wheel hub. */
+  centerLogoAllowed: boolean;
+  planSlug: string;
+  planName: string;
+  theme: WheelTheme | null;
+  override: WheelTheme | null;
+  effective: WheelTheme;
+  centerLogo: string;
 }
 
 export class SettingsService {
@@ -103,7 +140,7 @@ export class SettingsService {
     return result.settings;
   }
 
-  static async updateSettings(changes: SettingsPatch): Promise<BusinessSettings> {
+static async updateSettings(changes: SettingsPatch): Promise<BusinessSettings> {
     const result = await apiRequest<{ success: boolean; settings: BusinessSettings }>(
       'PUT',
       '/api/settings',
@@ -111,5 +148,68 @@ export class SettingsService {
       'Unable to save settings.',
     );
     return result.settings;
+  }
+
+  static async uploadLogo(file: File): Promise<string> {
+    const dataBase64 = await fileToBase64(file);
+    const result = await apiRequest<{ success: boolean; logo: string }>(
+      'POST',
+      '/api/settings/logo',
+      { mimeType: file.type, dataBase64 },
+      'Unable to upload the logo.',
+    );
+
+    return result.logo;
+  }
+
+  static async deleteLogo(): Promise<string> {
+    const result = await apiRequest<{ success: boolean; logo: string }>(
+      'DELETE',
+      '/api/settings/logo',
+      undefined,
+      'Unable to remove the logo.',
+    );
+
+    return result.logo;
+  }
+
+  static async getWheelTheme(): Promise<WheelThemeState> {
+    return apiRequest<WheelThemeState>(
+      'GET',
+      '/api/settings/wheel-theme',
+      undefined,
+      'Unable to load the wheel design.',
+    );
+  }
+
+  static async saveWheelTheme(theme: WheelTheme): Promise<WheelTheme> {
+    const result = await apiRequest<{ success: boolean; theme: WheelTheme }>(
+      'PUT',
+      '/api/settings/wheel-theme',
+      theme,
+      'Unable to save the wheel design.',
+    );
+    return result.theme;
+  }
+
+  static async uploadWheelLogo(file: File): Promise<string> {
+    const dataBase64 = await fileToBase64(file);
+    const result = await apiRequest<{ success: boolean; logo: string }>(
+      'POST',
+      '/api/settings/wheel-logo',
+      { mimeType: file.type, dataBase64 },
+      'Unable to upload the wheel logo.',
+    );
+
+    return result.logo;
+  }
+
+  static async deleteWheelLogo(): Promise<{ success: boolean }> {
+    return apiRequest<{ success: boolean }>(
+      'DELETE',
+      '/api/settings/wheel-logo',
+      undefined,
+      'Unable to remove the wheel logo.',
+    );
   }
 }

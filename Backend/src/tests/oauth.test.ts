@@ -89,7 +89,7 @@ describe('GET /api/auth/google', () => {
     expect(state).toBeTruthy();
     expect(cookies.find((cookie) => cookie.startsWith('cf_oauth_state='))).toMatch(/HttpOnly/);
     expect(new URL(location).searchParams.get('state')).toBe(state);
-    expect(raw.TOKENS.keys()).toHaveLength(1);
+    expect(raw.DB.query('SELECT state FROM oauth_states')).toHaveLength(1);
   });
 
   it('returns 501 when OAuth is not configured', async () => {
@@ -131,13 +131,13 @@ describe('GET /api/auth/google/callback', () => {
     );
 
     expect(response.status).toBe(302);
-    expect(response.headers.get('location')).toBe('https://example.test/auth/callback');
+    expect(response.headers.get('location')).toBe('/auth/callback');
 
     const responseCookies = setCookies(response);
-    const session = cookieNamed(responseCookies, 'cf_session');
+    const session = cookieNamed(responseCookies, '__Host-cf_session');
     expect(session).toMatch(/^cf_[0-9a-f]{32}\.[0-9a-f]{32}$/);
-    expect(responseCookies.find((cookie) => cookie.startsWith('cf_session='))).toMatch(/HttpOnly/);
-    expect(raw.TOKENS.keys()).toHaveLength(0);
+    expect(responseCookies.find((cookie) => cookie.startsWith('__Host-cf_session='))).toMatch(/HttpOnly/);
+    expect(raw.DB.query('SELECT state FROM oauth_states')).toHaveLength(0);
 
     // The session is persisted, and the SPA can now exchange the cookie.
     const exchange = await handleAuthRoute(
@@ -145,9 +145,56 @@ describe('GET /api/auth/google/callback', () => {
       env,
     );
     expect(exchange.status).toBe(200);
-    const payload = (await exchange.json()) as { token: string; user: { email: string } };
-    expect(payload.token).toBe(session);
+    const payload = (await exchange.json()) as { token?: string; user: { email: string } };
+    // P1-1: the profile is returned without the token — the cookie is HttpOnly.
+    expect(payload.token).toBeUndefined();
     expect(payload.user.email).toBe('ada@example.test');
+  });
+
+  it('seeds a business so a fresh Google account can use the dashboard', async () => {
+    stubGoogleFetch();
+    const { cookies, state } = await startFlow();
+
+    const response = await handleAuthRoute(
+      new Request(`https://example.test${callbackUrl(state)}`, { headers: { cookie: cookieHeader(cookies) } }),
+      env,
+    );
+    expect(response.status).toBe(302);
+
+    const businesses = raw.DB.query<{ name: string; slug: string }>(`SELECT name, slug FROM businesses`);
+    expect(businesses).toEqual([{ name: 'Ada Lovelace', slug: 'ada-lovelace' }]);
+    expect(raw.DB.query(`SELECT plan_id, status FROM subscriptions`)).toEqual([
+      { plan_id: 'plan_starter', status: 'trialing' },
+    ]);
+
+    const members = raw.DB.query<{ role: string }>(`SELECT role FROM business_members`);
+    expect(members).toEqual([{ role: 'OWNER' }]);
+
+    // The account can now reach a business-scoped route (the legacy cookie
+    // name still authenticates through the dual-read fallback).
+    const session = cookieNamed(setCookies(response), '__Host-cf_session');
+    const exchange = await handleAuthRoute(
+      new Request('https://example.test/api/auth/session', {
+        headers: { cookie: `cf_session=${encodeURIComponent(session ?? '')}` },
+      }),
+      env,
+    );
+    expect(exchange.status).toBe(200);
+  });
+
+  it('does not add a second business when the account already has one', async () => {
+    stubGoogleFetch();
+    await seedMerchant(raw.DB, { email: 'ada@example.test', businessName: 'Existing Shop' });
+    const { cookies, state } = await startFlow();
+
+    const response = await handleAuthRoute(
+      new Request(`https://example.test${callbackUrl(state)}`, { headers: { cookie: cookieHeader(cookies) } }),
+      env,
+    );
+    expect(response.status).toBe(302);
+
+    expect(raw.DB.query(`SELECT id FROM businesses`)).toHaveLength(1);
+    expect(raw.DB.query<{ name: string }>(`SELECT name FROM businesses`)).toEqual([{ name: 'Existing Shop' }]);
   });
 
   it('cannot be replayed once the state has been consumed', async () => {
@@ -186,28 +233,29 @@ describe('GET /api/auth/session', () => {
   });
 
   it('returns the profile for a live session created by registration', async () => {
-    const registration = (await (
-      await handleAuthRoute(
-        jsonRequest('/api/auth/register', 'POST', {
-          email: 'ada@example.test',
-          password: 'Sup3rSecret!',
-          firstName: 'Ada',
-          lastName: 'Lovelace',
-        }),
-        env,
-      )
-    ).json()) as { token: string };
+    const registered = await handleAuthRoute(
+      jsonRequest('/api/auth/register', 'POST', {
+        email: 'ada@example.test',
+        password: 'Sup3rSecret!',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+      }),
+      env,
+    );
+    const sessionValue = decodeURIComponent(
+      (registered.headers.get('set-cookie') ?? '').split(';')[0]!.split('=').slice(1).join('='),
+    );
 
     const response = await handleAuthRoute(
       new Request('https://example.test/api/auth/session', {
-        headers: { cookie: `cf_session=${encodeURIComponent(registration.token)}` },
+        headers: { cookie: `cf_session=${encodeURIComponent(sessionValue)}` },
       }),
       env,
     );
 
     expect(response.status).toBe(200);
-    const payload = (await response.json()) as { token: string; user: { firstName: string; lastName: string } };
-    expect(payload.token).toBe(registration.token);
+    const payload = (await response.json()) as { token?: string; user: { firstName: string; lastName: string } };
+    expect(payload.token).toBeUndefined();
     expect(payload.user).toMatchObject({ firstName: 'Ada', lastName: 'Lovelace' });
   });
 });

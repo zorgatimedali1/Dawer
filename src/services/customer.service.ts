@@ -32,6 +32,8 @@ export interface CustomerDetail {
     id: string;
     campaign_id: string;
     reward_id: string | null;
+    reward_name: string | null;
+    campaign_name: string | null;
     code: string;
     status: string;
     issued_at: string;

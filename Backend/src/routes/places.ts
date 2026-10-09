@@ -1,4 +1,5 @@
 import { jsonResponse } from '../lib/http';
+import { getAuthenticatedUser } from '../lib/tenant';
 import type { Env } from '../types';
 
 interface GooglePlacePrediction {
@@ -15,6 +16,13 @@ interface GoogleAutocompleteResponse {
 }
 
 export async function handlePlacesAutocomplete(request: Request, env: Env): Promise<Response> {
+  // The server-side Places key must never be reachable without a session:
+  // an open proxy would burn quota and expose the key to anonymous callers.
+  const user = await getAuthenticatedUser(request, env);
+  if (!user) {
+    return jsonResponse({ success: false, error: 'Authentication required.' }, 401);
+  }
+
   const input = new URL(request.url).searchParams.get('input')?.trim() ?? '';
 
   if (input.length < 3 || input.length > 120) {

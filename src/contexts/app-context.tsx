@@ -15,19 +15,23 @@ type AppContextValue = {
   setTheme: (theme: ThemeMode) => void;
   setLocale: (locale: Locale) => void;
   login: (response: AuthResponse) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
 };
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
-const THEME_KEY = 'campaign-engage-theme';
+// v2 invalidates legacy values: the old key was auto-written from the OS
+// colour scheme on first load, which locked dark-OS users into dark mode
+// without them ever choosing it. Fresh state is always light now — dark is
+// only persisted once the user explicitly switches.
+const THEME_KEY = 'campaign-engage-theme-v2';
 const LOCALE_KEY = 'campaign-engage-locale';
 const AUTH_KEY = 'campaign-engage-auth';
 
 function readStoredTheme(): ThemeMode {
   const saved = window.localStorage.getItem(THEME_KEY);
   if (saved === 'light' || saved === 'dark') return saved;
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  return 'light';
 }
 
 function readStoredLocale(): Locale {
@@ -66,21 +70,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const login = (response: AuthResponse) => {
     setUser(response.user);
-    window.localStorage.setItem(AUTH_KEY, JSON.stringify(response));
+    // Only the profile is cached for guards — the session token stays inside
+    // the HttpOnly cookie and is never written to storage (P1-1).
+    window.localStorage.setItem(AUTH_KEY, JSON.stringify({ user: response.user }));
   };
 
-  const logout = () => {
-    const savedAuth = window.localStorage.getItem(AUTH_KEY);
-    if (savedAuth) {
-      try {
-        const { token } = JSON.parse(savedAuth) as AuthResponse;
-        if (token) void AuthService.logout(token).catch(() => undefined);
-      } catch {
-        // fall through and clear the stale payload
-      }
-    }
+  const logout = async () => {
+    // Local state clears immediately; the caller can await the server-side
+    // session revocation before navigating away (e.g. after sign-out).
     setUser(null);
     window.localStorage.removeItem(AUTH_KEY);
+    await AuthService.logout().catch(() => undefined);
   };
 
   const value = useMemo<AppContextValue>(
@@ -98,6 +98,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+}
+
+export function useOptionalAppContext(): AppContextValue | undefined {
+  return useContext(AppContext);
 }
 
 export function useAppContext() {

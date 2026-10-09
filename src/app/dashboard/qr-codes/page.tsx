@@ -1,11 +1,115 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from 'react';
+import {
+  Copy,
+  Download,
+  Link2,
+  Plus,
+  QrCode as QrCodeGlyph,
+  Search,
+  Users,
+  X,
+} from 'lucide-react';
+import QRCode from 'qrcode';
+import { EntityTile } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Field } from '@/components/ui/field';
+import { Input, Select } from '@/components/ui/input';
+import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonCard, Spinner } from '@/components/ui/skeleton';
 import { CampaignService, type Campaign } from '@/services/campaign.service';
 import { QrCodeService, type QrCode } from '@/services/qr.service';
+import { interpolate, msg } from '@/lib/i18n';
+import { useT } from '@/hooks/use-t';
+
+function fileSlug(value: string): string {
+  const slug = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'qr-code';
+}
+
+function QrPreview({ qrCode }: { qrCode: QrCode }) {
+  const t = useT();
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDataUrl(null);
+    setFailed(false);
+
+    QRCode.toDataURL(qrCode.url, {
+      errorCorrectionLevel: 'H',
+      margin: 2,
+      width: 512,
+      color: { dark: '#173344', light: '#ffffff' },
+    })
+      .then((url) => {
+        if (!cancelled) setDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [qrCode.url]);
+
+  const handleDownload = () => {
+    if (!dataUrl) return;
+
+    const anchor = document.createElement('a');
+    anchor.href = dataUrl;
+    anchor.download = `${fileSlug(qrCode.name)}-qr-code.png`;
+    anchor.click();
+  };
+
+  return (
+    <div className="w-40 shrink-0">
+      <div className="grid aspect-square w-40 place-items-center rounded-xl border border-line bg-white p-3 shadow-xs">
+        {dataUrl ? (
+          <img
+            className="h-full w-full object-contain"
+            src={dataUrl}
+            alt={interpolate(t.qrcodes.qrAlt, { name: qrCode.name })}
+          />
+        ) : failed ? (
+          <span className="px-2 text-center text-[12px] text-danger-700 dark:text-danger-300">
+            {t.qrcodes.qrUnavailable}
+          </span>
+        ) : (
+          <span role="status" aria-label={t.qrcodes.generatingAria} className="inline-flex">
+            <Spinner className="h-6 w-6" />
+          </span>
+        )}
+      </div>
+
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-2 w-full"
+        onClick={handleDownload}
+        disabled={!dataUrl}
+        aria-label={interpolate(t.qrcodes.downloadAria, { name: qrCode.name })}
+      >
+        <Download className="h-4 w-4" aria-hidden />
+        {dataUrl ? t.qrcodes.downloadPng : t.qrcodes.generating}
+      </Button>
+    </div>
+  );
+}
 
 export default function QRCodesPage() {
+  const t = useT();
   const [search, setSearch] = useState('');
   const [qrCodes, setQrCodes] = useState<QrCode[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -26,9 +130,11 @@ export default function QRCodesPage() {
         setCampaigns(campaignList);
         setFormCampaignId(campaignList[0]?.id ?? '');
       })
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Unable to load QR codes.'))
+      .catch((cause: unknown) =>
+        setError(msg(t, cause instanceof Error ? cause.message : 'Unable to load QR codes.')),
+      )
       .finally(() => setLoading(false));
-  }, []);
+  }, [t]);
 
   const filteredQRCodes = qrCodes.filter(
     (qrCode) =>
@@ -55,7 +161,7 @@ export default function QRCodesPage() {
       setFormLocation('');
       setShowForm(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to create the QR code.');
+      setError(msg(t, cause instanceof Error ? cause.message : 'Unable to create the QR code.'));
     } finally {
       setSaving(false);
     }
@@ -68,7 +174,7 @@ export default function QRCodesPage() {
       const updated = await QrCodeService.update(qrCode.id, { active: !qrCode.active });
       setQrCodes((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to update the QR code.');
+      setError(msg(t, cause instanceof Error ? cause.message : 'Unable to update the QR code.'));
     }
   };
 
@@ -78,176 +184,188 @@ export default function QRCodesPage() {
       setCopiedId(qrCode.id);
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
-      setError('Clipboard access was denied.');
+      setError(t.qrcodes.clipboardDenied);
     }
   };
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex justify-between items-start">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">QR Codes</h2>
-          <p className="text-sm text-gray-600">Track and manage QR codes for your campaigns</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={() => setShowForm((value) => !value)}>
-            {showForm ? 'Close' : 'Create QR Code'}
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        eyebrow={t.qrcodes.eyebrow}
+        title={t.qrcodes.title}
+        description={t.qrcodes.description}
+        actions={
+          <Button variant="outline" size="sm" onClick={() => setShowForm((value) => !value)}>
+            {showForm ? (
+              <X className="h-4 w-4" aria-hidden />
+            ) : (
+              <Plus className="h-4 w-4" aria-hidden />
+            )}
+            {showForm ? t.common.close : t.qrcodes.createButton}
           </Button>
-        </div>
-      </div>
+        }
+        toolbar={
+          <Field
+            label={
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                {t.qrcodes.searchLabel}
+              </span>
+            }
+            htmlFor="qr-search"
+            className="w-full max-w-md"
+          >
+            <Input
+              id="qr-search"
+              inputSize="sm"
+              iconStart={<Search />}
+              type="text"
+              placeholder={t.qrcodes.searchPlaceholder}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </Field>
+        }
+      />
 
       {error && (
-        <div className="mb-6 rounded-lg border-l-4 border-red-400 bg-red-50 p-4 text-sm text-red-700">
+        <div
+          role="alert"
+          className="rounded-xl border border-danger-300/60 bg-danger-50 p-4 text-sm text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200"
+        >
           {error}
         </div>
       )}
 
       {showForm && (
-        <form onSubmit={handleCreate} className="mb-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label htmlFor="qr-campaign" className="block text-sm font-medium text-gray-700 mb-1">
-                Campaign
-              </label>
-              <select
-                id="qr-campaign"
-                value={formCampaignId}
-                onChange={(e) => setFormCampaignId(e.target.value)}
-                required
-                className="block w-full rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm"
-              >
-                <option value="">Select a campaign</option>
-                {campaigns.map((campaign) => (
-                  <option key={campaign.id} value={campaign.id}>
-                    {campaign.name}
-                  </option>
-                ))}
-              </select>
+        <Card>
+          <form onSubmit={handleCreate} className="flex flex-col gap-5 p-5 sm:p-6">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <Field label={t.qrcodes.campaignLabel} htmlFor="qr-campaign">
+                <Select
+                  id="qr-campaign"
+                  value={formCampaignId}
+                  onChange={(e) => setFormCampaignId(e.target.value)}
+                  required
+                >
+                  <option value="">{t.qrcodes.selectCampaign}</option>
+                  {campaigns.map((campaign) => (
+                    <option key={campaign.id} value={campaign.id}>
+                      {campaign.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+
+              <Field label={t.qrcodes.nameLabel} htmlFor="qr-name">
+                <Input
+                  id="qr-name"
+                  type="text"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  placeholder={t.qrcodes.namePlaceholder}
+                />
+              </Field>
+
+              <Field label={t.qrcodes.locationLabel} htmlFor="qr-location">
+                <Input
+                  id="qr-location"
+                  type="text"
+                  value={formLocation}
+                  onChange={(e) => setFormLocation(e.target.value)}
+                  placeholder={t.qrcodes.locationPlaceholder}
+                />
+              </Field>
             </div>
 
-            <div>
-              <label htmlFor="qr-name" className="block text-sm font-medium text-gray-700 mb-1">
-                Name
-              </label>
-              <input
-                id="qr-name"
-                type="text"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="Main Entrance"
-                className="block w-full rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm"
-              />
+            <div className="flex justify-end border-t border-line pt-4">
+              <Button type="submit" disabled={saving || !formCampaignId} loading={saving}>
+                {saving ? t.qrcodes.creating : t.common.create}
+              </Button>
             </div>
-
-            <div>
-              <label htmlFor="qr-location" className="block text-sm font-medium text-gray-700 mb-1">
-                Location
-              </label>
-              <input
-                id="qr-location"
-                type="text"
-                value={formLocation}
-                onChange={(e) => setFormLocation(e.target.value)}
-                placeholder="Counter"
-                className="block w-full rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm"
-              />
-            </div>
-          </div>
-
-          <div className="mt-4 flex justify-end">
-            <Button type="submit" disabled={saving || !formCampaignId}>
-              {saving ? 'Creating...' : 'Create'}
-            </Button>
-          </div>
-        </form>
+          </form>
+        </Card>
       )}
 
-      <div className="mb-6">
-        <label htmlFor="qr-search" className="block text-sm font-medium text-gray-700 mb-1">
-          Search QR codes
-        </label>
-        <input
-          id="qr-search"
-          type="text"
-          placeholder="Search by name or campaign..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="block w-full rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-        />
-      </div>
+      {loading ? (
+        <div className="grid gap-4">
+          <SkeletonCard />
+          <SkeletonCard />
+          <p role="status" className="sr-only">{t.qrcodes.loading}</p>
+        </div>
+      ) : filteredQRCodes.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={QrCodeGlyph}
+            title={t.qrcodes.emptyTitle}
+            description={t.qrcodes.emptyDescription}
+          />
+        </Card>
+      ) : (
+        <div className="grid gap-4">
+          {filteredQRCodes.map((qrCode) => (
+            <Card key={qrCode.id} className="flex flex-col gap-5 p-5 sm:p-6">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex min-w-0 flex-1 flex-col gap-5 sm:flex-row">
+                  <QrPreview qrCode={qrCode} />
 
-      <div className="space-y-4">
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-4" />
-            <p className="text-gray-600">Loading QR codes...</p>
-          </div>
-        ) : filteredQRCodes.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500">No QR codes found.</p>
-            <p className="mt-2 text-sm text-gray-400">
-              Create a QR code to give customers a way to open your campaign in-store.
-            </p>
-          </div>
-        ) : (
-          filteredQRCodes.map((qrCode) => (
-            <div key={qrCode.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <div className="flex items-center mb-2">
-                    <div className="h-8 w-8 flex-shrink-0">
-                      <div
-                        className={`h-8 w-8 rounded-lg ${
-                          qrCode.active ? 'bg-green-100' : 'bg-gray-100'
-                        } flex items-center justify-center text-sm font-medium`}
-                      >
-                        {qrCode.active ? '🟢' : '⚪'}
+                  <div className="min-w-0 flex-1 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <EntityTile tone={qrCode.active ? 'brand' : 'neutral'}>
+                        <QrCodeGlyph className="h-4 w-4" aria-hidden />
+                      </EntityTile>
+                      <div className="min-w-0">
+                        <h3 className="truncate text-[15px] font-semibold text-ink">{qrCode.name}</h3>
+                        <p className="mt-0.5 truncate text-[13px] text-ink-muted">
+                          {qrCode.campaignName}
+                          {qrCode.location ? ` · ${qrCode.location}` : ''}
+                        </p>
                       </div>
                     </div>
-                    <div className="ml-3">
-                      <h3 className="text-lg font-medium text-gray-900">{qrCode.name}</h3>
-                      <p className="text-sm text-gray-600">
-                        {qrCode.campaignName}
-                        {qrCode.location ? ` · ${qrCode.location}` : ''}
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
-                    <div>
-                      <span className="font-medium">{qrCode.campaignParticipations}</span>
-                      <span> campaign participants</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge size="sm" tone={qrCode.active ? 'success' : 'neutral'} dot>
+                        {qrCode.active ? t.common.active : t.common.inactive}
+                      </Badge>
+                      <span className="inline-flex items-center gap-1.5 text-[13px] text-ink-muted">
+                        <Users className="h-3.5 w-3.5 text-ink-subtle" aria-hidden />
+                        <span className="numeric font-medium text-ink">{qrCode.campaignParticipations}</span>
+                        {t.qrcodes.participants}
+                      </span>
                     </div>
-                    <div className="rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">
-                      {qrCode.url}
-                    </div>
+
+                    <p className="flex items-center gap-2 truncate rounded-md border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] text-ink-muted">
+                      <Link2 className="h-3.5 w-3.5 shrink-0 text-ink-subtle" aria-hidden />
+                      <span className="truncate">{qrCode.url}</span>
+                    </p>
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-3">
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                   <Button variant="outline" size="sm" onClick={() => handleCopy(qrCode)}>
-                    {copiedId === qrCode.id ? 'Copied' : 'Copy link'}
+                    <Copy className="h-4 w-4" aria-hidden />
+                    {copiedId === qrCode.id ? t.common.copied : t.qrcodes.copyLink}
                   </Button>
                   <Button
-                    variant={qrCode.active ? 'destructive' : 'secondary'}
+                    variant={qrCode.active ? 'danger' : 'secondary'}
                     size="sm"
                     onClick={() => handleToggle(qrCode)}
                   >
-                    {qrCode.active ? 'Deactivate' : 'Activate'}
+                    {qrCode.active ? t.qrcodes.deactivate : t.qrcodes.activate}
                   </Button>
                 </div>
               </div>
 
-              <div className="mt-4 pt-3 border-t border-gray-200 text-sm text-gray-500">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-3 text-[12.5px] text-ink-subtle">
                 <p>
-                  <strong>Created:</strong> {new Date(qrCode.createdAt).toLocaleDateString()}
-                  <span className="ml-4 font-mono text-xs">{qrCode.publicCode}</span>
+                  <span className="font-medium text-ink-muted">{t.qrcodes.createdLabel}</span>{' '}
+                  {new Date(qrCode.createdAt).toLocaleDateString()}
                 </p>
+                <span className="font-mono text-[12px]">{qrCode.publicCode}</span>
               </div>
-            </div>
-          ))
-        )}
-      </div>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

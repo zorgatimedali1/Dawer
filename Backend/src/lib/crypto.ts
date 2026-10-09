@@ -14,6 +14,35 @@ export function secureRandomHex(byteLength = 16): string {
     .join('');
 }
 
+/** HMAC-SHA256 as hex — used to sign server-set identities (visitor cookie). */
+export async function hmacSha256Hex(secret: string, value: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(signature))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * Constant-time string comparison: `===` short-circuits on the first differing
+ * byte, which leaks how many leading characters matched. The length check is
+ * unavoidable but reveals nothing useful for fixed-width hex signatures.
+ */
+export function timingSafeEqualString(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  }
+  return diff === 0;
+}
+
 /**
  * Cloudflare Workers' WebCrypto rejects PBKDF2 iteration counts above 100000.
  * Keep this at the ceiling the runtime allows.
@@ -78,5 +107,5 @@ export async function verifyPassword(password: string, salt: string, candidateHa
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
 
-  return hash === candidateHash;
+  return timingSafeEqualString(hash, candidateHash);
 }

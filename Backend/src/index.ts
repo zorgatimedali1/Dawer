@@ -1,36 +1,132 @@
 import express from 'express';
 import { httpServerHandler } from 'cloudflare:node';
 import { env } from 'cloudflare:workers';
-import { createRateLimitMiddleware } from './lib/express-middleware';
+import { createGeofenceMiddleware, createRateLimitMiddleware } from './lib/express-middleware';
 import { createWorkerRoute } from './lib/express-adapter';
+import { runReconcile } from './lib/reconcile';
 import { CampaignParticipationLock } from './durable/campaign-lock';
+import { EmailBroadcastSender } from './durable/email-sender';
+import { WhatsAppPacingGate } from './durable/pacing-gate';
+import { WhatsAppBroadcastSender } from './durable/whatsapp-sender';
 import { handleAnalyticsRoute } from './routes/analytics';
 import { handleAuthRoute } from './routes/auth';
 import { handleBusinessRoute } from './routes/business';
+import { handleEmailAssetRoute, handleEmailRoute } from './routes/email';
 import { handlePlacesAutocomplete } from './routes/places';
+import { handlePublicPartnerRoute } from './routes/partners';
 import { handlePublicCampaignRoute } from './routes/public';
 import { handleSettingsRoute } from './routes/settings';
+import { handleWhatsAppRoute } from './routes/whatsapp';
+import { handleWhatsAppWebRoute } from './routes/whatsapp-web';
+import { handleWebhookRoute } from './routes/webhooks';
+import type { Env } from './types';
 
-export { CampaignParticipationLock };
+export { CampaignParticipationLock, EmailBroadcastSender, WhatsAppPacingGate, WhatsAppBroadcastSender };
 
 const app = express();
 
 app.disable('x-powered-by');
+// Baseline security headers for every API response; the SPA document gets the
+// same set (plus CSP) from the static assets `_headers` file.
+app.use((_request, response, next) => {
+  response.set('X-Content-Type-Options', 'nosniff');
+  response.set('X-Frame-Options', 'DENY');
+  response.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  response.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
+  response.set('Cross-Origin-Opener-Policy', 'same-origin');
+  response.set('Cross-Origin-Resource-Policy', 'same-origin');
+  next();
+});
+// Meta webhook POSTs must reach the route as the exact raw bytes it signed,
+// so this runs before express.json and keeps the body a plain string.
+app.use('/api/webhooks/whatsapp', express.text({ type: '*/*', limit: '1mb' }));
+// Brevo webhook payloads are JSON parsed from the exact raw body too.
+app.use('/api/webhooks/brevo', express.text({ type: '*/*', limit: '1mb' }));
+// Mailjet event callbacks are raw JSON as well (single event or grouped array).
+app.use('/api/webhooks/mailjet', express.text({ type: '*/*', limit: '1mb' }));
+// Attachment uploads carry up to 8 MB of base64 — they need their own body
+// parser before the global 1 MB limit applies (body-parser skips
+// requests whose body it already parsed).
+app.use('/api/email/asset', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '1mb' }));
 
-app.get('/health', (_request, response) => {
+app.get('/health', async (_request, response) => {
   response.set('Cache-Control', 'public, max-age=0, s-maxage=15');
-  response.json({ success: true, status: 'ok' });
+  let lastCronAt: string | null = null;
+  let lastReconcileAt: string | null = null;
+  try {
+    // Heartbeats written by the cron (TTL 2 days): lastCronAt proves the
+    // trigger still fires, lastReconcileAt additionally proves a run finished.
+    const [cron, reconcile] = await Promise.all([
+      env.TOKENS.get('health:last_cron', { cacheTtl: 30 }),
+      env.TOKENS.get('health:last_reconcile', { cacheTtl: 30 }),
+    ]);
+    lastCronAt = cron ?? null;
+    lastReconcileAt = reconcile ?? null;
+  } catch {
+    // Informational only — never fail the health probe over it.
+  }
+  response.json({ success: true, status: 'ok', lastCronAt, lastReconcileAt });
 });
 
-app.use('/api', createRateLimitMiddleware(env.API_RATE_LIMITER));
+// Webhooks get their own (ip-keyed) limiter bucket: Meta's status bursts run
+// past the general API budget, and a 429 there marks the endpoint unhealthy
+// in Meta's eyes. Keying deliberately stays on the IP — keying on signature
+// headers would let a forged header mint fresh buckets. Signature verification
+// is the security control, not the limiter.
+app.use(
+  '/api/webhooks',
+  createRateLimitMiddleware(env.WEBHOOK_RATE_LIMITER, { ipOnly: true }),
+  createWorkerRoute(handleWebhookRoute, env),
+);
+// Public campaign links circulate outside our control and get far more traffic
+// than the dashboard: they carry their own budget, and the API limiter skips
+// the same paths so a social burst cannot spend the dashboard's quota.
+const geofenceCountries = new Set(
+  (env.GEOFENCE_COUNTRIES ?? 'TN')
+    .split(',')
+    .map((country) => country.trim().toUpperCase())
+    .filter(Boolean),
+);
+// The runtime env is typed from the wrangler config; optional knobs that are
+// not declared as config vars (set via `wrangler secret put` when needed)
+// come from the extended Env type.
+const geofenceStrict = (env as Env).GEOFENCE_STRICT === 'true' || (env as Env).GEOFENCE_STRICT === '1';
+// The partner marquee is public marketing content: its feed and logo bytes
+// must load for visitors from anywhere, so this mount runs ahead of the TN
+// geofence. It still carries the dedicated public rate-limit bucket and the
+// 30s edge cache every public GET gets.
+app.use(
+  '/api/public/partners',
+  createRateLimitMiddleware(env.PUBLIC_RATE_LIMITER),
+  createWorkerRoute(handlePublicPartnerRoute, env, { cacheTtlSeconds: 30 }),
+);
+// Campaign attachment bytes (inline images fetched by mail scanners from
+// inside the inbox): served outside the TN geofence on purpose — the
+// recipients' mail clients live everywhere. Random UUID keys + a long edge
+// cache keep the origin load tiny; the public bucket absorbs refetch bursts.
+app.use(
+  '/api/email-assets',
+  createRateLimitMiddleware(env.PUBLIC_RATE_LIMITER),
+  createWorkerRoute(handleEmailAssetRoute, env, { cacheTtlSeconds: 3600 }),
+);
+app.use('/api/public', createGeofenceMiddleware(geofenceCountries, { strict: geofenceStrict }));
+app.use('/api/public', createRateLimitMiddleware(env.PUBLIC_RATE_LIMITER));
+app.use('/api', createRateLimitMiddleware(env.API_RATE_LIMITER, { skipPaths: ['/api/public'] }));
 app.use('/api/places', createWorkerRoute(handlePlacesAutocomplete, env));
+// Auth gets a dedicated tight bucket on top of the general API one, and runs
+// fail-closed: login is exactly where a limiter outage must not mean "allow".
+app.use('/api/auth', createRateLimitMiddleware(env.AUTH_RATE_LIMITER, { ipOnly: true, failClosed: true }));
 app.use('/api/auth', createWorkerRoute(handleAuthRoute, env));
 app.use('/api/business', createWorkerRoute(handleBusinessRoute, env));
 app.use('/api/analytics', createWorkerRoute(handleAnalyticsRoute, env));
 app.use('/api/profile', createWorkerRoute(handleSettingsRoute, env));
 app.use('/api/settings', createWorkerRoute(handleSettingsRoute, env));
 app.use('/api/billing', createWorkerRoute(handleSettingsRoute, env));
+app.use('/api/whatsapp', createWorkerRoute(handleWhatsAppRoute, env));
+// Parallel WhatsApp Web gateway feature (whatsapp-saas-backend container).
+app.use('/api/whatsapp-web', createWorkerRoute(handleWhatsAppWebRoute, env));
+app.use('/api/email', createWorkerRoute(handleEmailRoute, env));
 app.use('/api/public', createWorkerRoute(handlePublicCampaignRoute, env, { cacheTtlSeconds: 30 }));
 
 app.use((_request, response) => {
@@ -46,4 +142,40 @@ const expressServer = app.listen(3000);
 const viteHot = (import.meta as ImportMeta & { hot?: { dispose: (callback: () => void) => void } }).hot;
 viteHot?.dispose(() => expressServer.close());
 
-export default httpServerHandler({ port: 3000 });
+/**
+ * Cron trigger (every 10 minutes): settles broadcasts whose sender died so a
+ * stranded campaign can never hold its quota reservation forever.
+ */
+export async function scheduled(
+  _controller: ScheduledController,
+  scheduledEnv: Env,
+  _ctx: ExecutionContext,
+): Promise<void> {
+  const heartbeat = { expirationTtl: 172_800 };
+  // Liveness first: even a failing reconciler must leave proof the trigger ran.
+  try {
+    await scheduledEnv.TOKENS.put('health:last_cron', new Date().toISOString(), heartbeat);
+  } catch (error) {
+    console.error('Cron heartbeat failed.', error);
+  }
+
+  try {
+    await runReconcile(scheduledEnv);
+    try {
+      await scheduledEnv.TOKENS.put('health:last_reconcile', new Date().toISOString(), heartbeat);
+    } catch (error) {
+      console.error('Reconcile heartbeat failed.', error);
+    }
+  } catch (error) {
+    console.error('Reconcile run failed.', error);
+  }
+}
+
+// The default export must be ONE handler object: when a default-exported
+// handler object exists, the runtime dispatches cron events through it and
+// ignores module-level named exports, so `scheduled` hangs off the same
+// object (otherwise every tick dies with "Handler does not export a
+// scheduled() function").
+const handler = httpServerHandler({ port: 3000 });
+
+export default { ...handler, scheduled };

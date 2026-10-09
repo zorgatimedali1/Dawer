@@ -7,10 +7,12 @@ export default tseslint.config(
   {
     ignores: [
       'dist/**',
+      'dist-platform/**',
       '.wrangler/**',
       'node_modules/**',
       'worker-configuration.d.ts',
       'hallmark/**',
+      'whatsapp-saas-backend/**',
       'src/**/*.d.ts',
       '**/*.tsbuildinfo',
     ],

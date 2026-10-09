@@ -2,44 +2,379 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --card: #ffffff;
-  --card-muted: #f8fafc;
-  --border: #e2e8f0;
-  --muted: #64748b;
-}
+/* ==========================================================================
+   Dawer design tokens
+   Light: white / off-white / very light green surfaces, green as accent.
+   Dark:  deep green-black surfaces, green as accent, brighter green on top.
+   ========================================================================== */
 
-html {
-  scroll-behavior: smooth;
+:root {
+  --surface: 255 255 255; /* #FFFFFF */
+  --surface-2: 245 249 239; /* #F5F9EF */
+  --surface-3: 249 251 246; /* #F9FBF6 */
+  --card: 249 251 246; /* #F9FBF6 */
+  --elevated: 255 255 255; /* #FFFFFF */
+  --line: 227 235 217; /* #E3EBD9 */
+  --line-strong: 203 217 180; /* #CBD9B4 */
+
+  --ink: 23 32 20; /* #172014 */
+  --ink-muted: 102 112 95; /* #66705F */
+  --ink-subtle: 138 147 130; /* #8A9382 */
+  --ink-inverse: 255 255 255; /* #FFFFFF */
+
+  --accent: 125 171 75; /* #7DAB4B */
+  --accent-hover: 110 153 63; /* #6E993F */
+  --accent-bright: 165 207 104; /* #A5CF68 */
+  --accent-soft: 234 242 221; /* #EAF2DD */
+  --accent-ink: 13 18 11; /* #0D120B — text placed on a filled brand surface */
+
+  --focus-ring: 125 171 75;
+  --shadow-color: 23 32 20;
+
+  /* Data-visualisation hues. Green leads; blue and amber separate the
+     remaining series without turning the dashboard into a rainbow. */
+  --series-1: 125 171 75; /* #7DAB4B */
+  --series-2: 47 111 172; /* #2F6FAC */
+  --series-3: 184 123 18; /* #B87B12 */
+  --chart-grid: 227 235 217; /* #E3EBD9 */
+  --chart-label: 102 112 95; /* #66705F */
+
+  color-scheme: light;
 }
 
 html.dark {
-  --background: #020817;
-  --foreground: #e2e8f0;
-  --card: #0f172a;
-  --card-muted: #111827;
-  --border: #1e293b;
-  --muted: #94a3b8;
+  --surface: 13 18 11; /* #0D120B */
+  --surface-2: 16 23 16; /* #101710 */
+  --surface-3: 21 28 18; /* #151C12 */
+  --card: 21 28 18; /* #151C12 */
+  --elevated: 29 39 24; /* #1D2718 */
+  --line: 42 56 35; /* #2A3823 */
+  --line-strong: 58 76 49; /* #3A4C31 */
+
+  --ink: 244 247 240; /* #F4F7F0 */
+  --ink-muted: 167 177 158; /* #A7B19E */
+  --ink-subtle: 126 136 119; /* #7E8877 */
+  --ink-inverse: 13 18 11; /* #0D120B */
+
+  --accent: 125 171 75; /* #7DAB4B */
+  --accent-hover: 165 207 104; /* #A5CF68 */
+  --accent-bright: 165 207 104; /* #A5CF68 */
+  --accent-soft: 31 42 24; /* #1F2A18 */
+  --accent-ink: 13 18 11; /* #0D120B */
+
+  --focus-ring: 165 207 104;
+  --shadow-color: 0 0 0;
+
+  --series-1: 165 207 104; /* #A5CF68 */
+  --series-2: 74 139 204; /* #4A8BCC */
+  --series-3: 222 155 34; /* #DE9B22 */
+  --chart-grid: 42 56 35; /* #2A3823 */
+  --chart-label: 167 177 158; /* #A7B19E */
+
+  color-scheme: dark;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-feature-settings: 'rlig' 1, 'calt' 1;
-}
+/* ==========================================================================
+   Base
+   ========================================================================== */
 
 * {
   box-sizing: border-box;
 }
 
-::selection {
-  background: rgba(99, 102, 241, 0.25);
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
-@layer base {
-  body {
-    @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+body {
+  background-color: rgb(var(--surface));
+  color: rgb(var(--ink));
+  font-feature-settings: 'cv02' 1, 'cv03' 1, 'cv04' 1, 'ss01' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  transition:
+    background-color 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  letter-spacing: -0.018em;
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+::selection {
+  background-color: rgb(var(--accent) / 0.28);
+  color: rgb(var(--ink));
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid rgb(var(--focus-ring));
+  outline-offset: 2px;
+  border-radius: var(--tw-rounded-sm, 0.375rem);
+}
+
+@layer components {
+  /* Numeric data — tabular so KPI values and table columns stay aligned. */
+  .numeric {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  .dw-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--line-strong)) transparent;
+  }
+
+  .dw-scroll::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .dw-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .dw-scroll::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--line-strong) / 0.7);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  .dw-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--ink-subtle) / 0.6);
+    background-clip: content-box;
+  }
+
+  /* Hairline top highlight used on elevated surfaces in dark mode. */
+  .dw-edge {
+    box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.04);
+  }
+
+  .dw-grid-fade {
+    background-image:
+      linear-gradient(to right, rgb(var(--line) / 0.7) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(var(--line) / 0.7) 1px, transparent 1px);
+    background-size: 56px 56px;
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 20%, transparent 78%);
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 20%, transparent 78%);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .text-pretty {
+    text-wrap: pretty;
+  }
+
+  /* Fades the right edge of a horizontally scrollable strip on small screens. */
+  .mask-fade-r {
+    -webkit-mask-image: linear-gradient(to right, #000 88%, transparent 100%);
+    mask-image: linear-gradient(to right, #000 88%, transparent 100%);
+  }
+
+  /* Soft fade on both edges: keeps the marquee ends from cutting off hard. */
+  .mask-fade-x {
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 6%, #000 94%, transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0%, #000 6%, #000 94%, transparent 100%);
+  }
+}
+
+/* ==========================================================================
+   Wheel / confetti motion. Unchanged behaviour, restyled palette hooks.
+   ========================================================================== */
+
+@keyframes dw-loader {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+@keyframes dw-fall {
+  0% {
+    transform: translate3d(0, -12vh, 0) rotate(0deg);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, 112vh, 0) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+.cf-confetti-piece {
+  position: absolute;
+  top: -12vh;
+  animation-name: dw-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes cf-wheel-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes cf-wheel-pointer-tick {
+  from {
+    transform: rotate(-5deg);
+  }
+  to {
+    transform: rotate(5deg);
+  }
+}
+
+.cf-wheel-float {
+  animation: cf-wheel-float 3.2s ease-in-out infinite;
+}
+
+.cf-wheel-rotor {
+  transition: transform 3800ms cubic-bezier(0.12, 0.82, 0.16, 1);
+  will-change: transform;
+}
+
+.cf-wheel-pointer-spinning > div {
+  transform-origin: top center;
+  animation: cf-wheel-pointer-tick 120ms ease-in-out infinite alternate;
+}
+
+/* "Prochaine fois": the visitor landed on the no-win slice. */
+@keyframes cf-no-win-wobble {
+  0%,
+  100% {
+    transform: rotate(-8deg) scale(1);
+  }
+  25% {
+    transform: rotate(8deg) scale(1.15);
+  }
+  50% {
+    transform: rotate(-5deg) scale(1.02);
+  }
+  75% {
+    transform: rotate(6deg) scale(1.1);
+  }
+}
+
+.cf-no-win-emoji {
+  display: inline-block;
+  transform-origin: center;
+  animation: cf-no-win-wobble 1.6s ease-in-out infinite;
+}
+
+@keyframes cf-no-win-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.94) rotate(-1.5deg);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(0) scale(1.02) rotate(0.5deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
+}
+
+.cf-no-win-card {
+  animation: cf-no-win-pop 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ==========================================================================
+   Accessibility: collapse every non-essential animation on request.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .cf-confetti-piece {
+    animation: none;
+    opacity: 0.85;
+    top: 40%;
+  }
+
+  .cf-wheel-float,
+  .cf-wheel-pointer-spinning > div,
+  .cf-no-win-emoji,
+  .cf-no-win-card {
+    animation: none;
+  }
+
+  .cf-wheel-rotor {
+    transition-duration: 1ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   Print: poster export must keep rendering exactly as before.
+   ========================================================================== */
+
+/* @page must be top-level: some engines ignore @page nested inside
+   @media print, which silently restores default margins and prints the
+   poster scaled down with white bands. */
+@page {
+  size: A4 portrait;
+  margin: 0;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .poster-print-area,
+  .poster-print-area * {
+    visibility: visible !important;
+  }
+
+  .poster-print-area {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    aspect-ratio: auto !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 }

@@ -11,14 +11,17 @@ export interface RegisterData {
   businessName: string;
 }
 
+/**
+ * The session token is an HttpOnly cookie set by the backend; this body only
+ * ever carries the profile the SPA may cache for route guards (P1-1).
+ */
 export interface AuthResponse {
-  token: string;
   user: {
     id: string;
     email: string;
     firstName: string;
     lastName: string;
-    role: 'merchant' | 'admin';
+    role: 'merchant';
   };
 }
 
@@ -53,10 +56,12 @@ export class AuthService {
     return this.post<AuthResponse>('/auth/register', data);
   }
 
-  static async logout(token: string): Promise<void> {
+  static async logout(): Promise<void> {
+    // Cookie-based: the server revokes the session the HttpOnly cookie points
+    // at and expires the cookie itself.
     await this.request<void>('/auth/logout', {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}` },
+      credentials: 'same-origin',
     });
   }
 
@@ -66,25 +71,23 @@ export class AuthService {
 
   /**
    * The OAuth handoff parks the session in an HttpOnly cookie and redirects to
-   * `/auth/callback`; this exchanges it for a token the SPA can persist.
+   * `/auth/callback`; this fetches the profile that cookie belongs to.
    */
   static async sessionFromCookie(): Promise<AuthResponse> {
     return this.request<AuthResponse>('/auth/session', { method: 'GET', credentials: 'same-origin' });
   }
 
-  static async forgotPassword(email: string): Promise<{ success: boolean }> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve({ success: true });
-      }, 500);
-    });
+  /**
+   * POST /api/auth/forgot-password — the backend always answers success for
+   * unknown emails (no account enumeration), so this resolves for any input
+   * the server accepted.
+   */
+  static async forgotPassword(email: string): Promise<{ success: boolean; message?: string }> {
+    return this.post<{ success: boolean; message?: string }>('/auth/forgot-password', { email });
   }
 
-  static async resetPassword(token: string, password: string): Promise<{ success: boolean }> {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve({ success: true });
-      }, 500);
-    });
+  /** Redeems the single-use token from the emailed reset link. */
+  static async resetPassword(token: string, password: string): Promise<{ success: boolean; message?: string }> {
+    return this.post<{ success: boolean; message?: string }>('/auth/reset-password', { token, password });
   }
 }

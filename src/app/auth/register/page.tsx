@@ -2,13 +2,18 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Chrome } from 'lucide-react';
+import { Chrome, LockKeyhole, Mail, Store, User } from 'lucide-react';
 import { AuthService } from '@/services/auth.service';
 import { useAppContext } from '@/contexts/app-context';
+import { Button } from '@/components/ui/button';
+import { Field } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { useT } from '@/hooks/use-t';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
   const { login } = useAppContext();
+  const t = useT();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -28,7 +33,7 @@ export default function RegisterPage() {
     setSuccess(null);
 
     if (formData.password !== formData.confirmPassword) {
-      setError('Les mots de passe ne correspondent pas.');
+      setError(t.auth.passwordMismatch);
       setLoading(false);
       return;
     }
@@ -43,10 +48,10 @@ export default function RegisterPage() {
       });
 
       login(response);
-      setSuccess('Compte créé avec succès. Redirection vers votre tableau de bord...');
+      setSuccess(t.auth.registerSuccess);
       setTimeout(() => navigate('/dashboard/overview'), 800);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'L’inscription a échoué. Merci de réessayer.');
+      setError(err instanceof Error ? err.message : t.auth.registerFailed);
     } finally {
       setLoading(false);
     }
@@ -54,68 +59,133 @@ export default function RegisterPage() {
 
   return (
     <div className="space-y-5">
-      <div className="space-y-2 text-center">
-        <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">Créer un compte</h2>
-        <p className="text-sm text-slate-600 dark:text-slate-300">Démarrez votre espace marchand.</p>
+      <div className="space-y-1.5 text-center">
+        <h2 className="text-[22px] font-semibold tracking-[-0.02em] text-ink">{t.auth.registerTitle}</h2>
+        <p className="text-[13.5px] leading-relaxed text-ink-muted">{t.auth.registerSubtitle}</p>
       </div>
 
-      <button
+      <Button
         type="button"
+        variant="outline"
+        className="w-full"
         onClick={() => window.location.assign(AuthService.googleSignInUrl())}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800"
       >
-        <Chrome className="h-4 w-4" />
-        S’inscrire avec Google
-      </button>
+        <Chrome aria-hidden className="h-4 w-4" />
+        {t.auth.googleSignUp}
+      </Button>
 
-      <div className="flex items-center gap-3 text-xs uppercase tracking-[0.2em] text-slate-400">
-        <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-        ou
-        <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+      <div className="flex items-center gap-3">
+        <span aria-hidden className="h-px flex-1 bg-line" />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.auth.or}</span>
+        <span aria-hidden className="h-px flex-1 bg-line" />
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label htmlFor="firstName" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Prénom</label>
-            <input id="firstName" type="text" autoComplete="given-name" required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-indigo-900" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} />
-          </div>
-          <div>
-            <label htmlFor="lastName" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Nom</label>
-            <input id="lastName" type="text" autoComplete="family-name" required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-indigo-900" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} />
-          </div>
+          <Field label={t.auth.firstName} htmlFor="firstName">
+            <Input
+              id="firstName"
+              type="text"
+              autoComplete="given-name"
+              required
+              inputSize="lg"
+              iconStart={<User />}
+              value={formData.firstName}
+              onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+            />
+          </Field>
+
+          <Field label={t.auth.lastName} htmlFor="lastName">
+            <Input
+              id="lastName"
+              type="text"
+              autoComplete="family-name"
+              required
+              inputSize="lg"
+              iconStart={<User />}
+              value={formData.lastName}
+              onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+            />
+          </Field>
         </div>
 
-        <div>
-          <label htmlFor="businessName" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Nom de l’entreprise</label>
-          <input id="businessName" type="text" required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-indigo-900" value={formData.businessName} onChange={(e) => setFormData({ ...formData, businessName: e.target.value })} />
-        </div>
+        <Field label={t.auth.businessName} htmlFor="businessName">
+          <Input
+            id="businessName"
+            type="text"
+            required
+            inputSize="lg"
+            iconStart={<Store />}
+            value={formData.businessName}
+            onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
+          />
+        </Field>
 
-        <div>
-          <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Adresse e-mail</label>
-          <input id="email" type="email" autoComplete="email" required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-indigo-900" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
-        </div>
+        <Field label={t.auth.email} htmlFor="email">
+          <Input
+            id="email"
+            type="email"
+            autoComplete="email"
+            required
+            inputSize="lg"
+            iconStart={<Mail />}
+            value={formData.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+          />
+        </Field>
 
-        <div>
-          <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Mot de passe</label>
-          <input id="password" type="password" autoComplete="new-password" required minLength={8} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-indigo-900" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
-        </div>
+        <Field label={t.auth.password} htmlFor="password">
+          <Input
+            id="password"
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={8}
+            inputSize="lg"
+            iconStart={<LockKeyhole />}
+            value={formData.password}
+            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+          />
+        </Field>
 
-        <div>
-          <label htmlFor="confirmPassword" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Confirmer le mot de passe</label>
-          <input id="confirmPassword" type="password" autoComplete="new-password" required minLength={8} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-indigo-900" value={formData.confirmPassword} onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })} />
-        </div>
+        <Field label={t.auth.confirmPassword} htmlFor="confirmPassword">
+          <Input
+            id="confirmPassword"
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={8}
+            inputSize="lg"
+            iconStart={<LockKeyhole />}
+            value={formData.confirmPassword}
+            onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+          />
+        </Field>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        {success && <p className="text-sm text-emerald-600">{success}</p>}
+        {error && (
+          <p className="rounded-lg border border-danger-300/60 bg-danger-50 px-3 py-2.5 text-[13px] leading-relaxed text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200">
+            {error}
+          </p>
+        )}
+        {success && (
+          <p className="rounded-lg border border-success-300/60 bg-success-50 px-3 py-2.5 text-[13px] leading-relaxed text-success-800 dark:border-success-900/60 dark:bg-success-900/30 dark:text-success-200">
+            {success}
+          </p>
+        )}
 
-        <button type="submit" disabled={loading} className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">
-          {loading ? 'Création du compte…' : 'Créer un compte'}
-        </button>
+        <Button type="submit" size="lg" className="w-full" loading={loading}>
+          {loading ? t.auth.creatingAccount : t.auth.createAccount}
+        </Button>
       </form>
 
-      <p className="text-center text-sm text-slate-600 dark:text-slate-300">
-        Vous avez déjà un compte ? <a href="/auth/login" className="font-medium text-indigo-600 hover:text-indigo-500">Se connecter</a>
+      <p className="text-center text-[13px] text-ink-muted">
+        {t.auth.haveAccount}{' '}
+        <a
+          href="/auth/login"
+          className="font-medium text-brand-700 transition-colors duration-180 ease-swift hover:text-brand-800 dark:text-accent-bright dark:hover:text-brand-300"
+        >
+          {t.auth.signIn}
+        </a>
       </p>
     </div>
   );

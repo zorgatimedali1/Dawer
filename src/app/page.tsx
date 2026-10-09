@@ -1,180 +1,424 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import {
+  ArrowRight,
+  BarChart3,
+  Check,
+  Gift,
+  LayoutDashboard,
+  Workflow,
+} from 'lucide-react';
+import { getHomepagePlans, formatPlanInterval, formatPlanPrice } from '@/lib/plan-catalog';
+import { DEMO_VIDEO_EMBED_URL } from '@/lib/demo-video';
+import { DawerLogo } from '@/components/brand/dawer-logo';
+import { PartnerMarquee } from '@/components/marketing/partner-marquee';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/toast';
+import { cn } from '@/lib/cn';
+import { useLocale, useT } from '@/hooks/use-t';
 
-const features = [
-  {
-    title: 'Campaign orchestration',
-    description: 'Launch, schedule, and monitor loyalty and engagement campaigns across channels from one workspace.',
-  },
-  {
-    title: 'Customer intelligence',
-    description: 'Track every scan, reward, and conversion with a unified customer engagement view.',
-  },
-  {
-    title: 'Reward automation',
-    description: 'Deliver coupons, prizes, and incentives using rules managed by your backend for compliance and trust.',
-  },
-];
+const weekBars = [38, 52, 46, 68, 74, 92, 64];
 
-const steps = [
-  'Create a merchant workspace',
-  'Design a branded campaign flow',
-  'Launch QR code and reward journey',
-  'Measure engagement and ROI',
-];
+const weekDaysFr = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+const weekDaysEn = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+const heroStatValues: Record<string, string> = {
+  merchantRating: '4.9/5',
+  avgUplift: '32%',
+  campaignVisibility: '24/7',
+};
 
 export default function Home() {
-  return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.27),_transparent_35%),linear-gradient(180deg,#020817_0%,#0f172a_28%,#f8fafc_28%,#f8fafc_100%)] text-slate-50">
-      <section className="mx-auto max-w-7xl px-6 pb-20 pt-6 lg:px-8">
-        <header className="mb-14 flex items-center justify-between rounded-full border border-white/10 bg-white/5 px-4 py-3 shadow-lg shadow-indigo-950/20 backdrop-blur-md">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-cyan-400 text-sm font-bold text-white shadow-lg shadow-indigo-500/30">C</div>
-            <div>
-              <div className="text-sm font-semibold tracking-[0.14em] text-indigo-200 uppercase">CampaignEngage</div>
-            </div>
-          </div>
+  const t = useT();
+  const locale = useLocale();
+  const weekDays = locale === 'fr' ? weekDaysFr : weekDaysEn;
 
-          <nav className="hidden items-center gap-6 text-sm text-slate-300 md:flex">
-            <a href="#features" className="transition hover:text-white">Features</a>
-            <a href="#workflow" className="transition hover:text-white">Workflow</a>
-            <a href="#pricing" className="transition hover:text-white">Pricing</a>
+  // Arriving with a #demo hash (e.g. right after sign-out): the browser's own
+  // fragment scroll fires before this SPA renders, so re-run it once the
+  // section actually exists.
+  useEffect(() => {
+    if (window.location.hash !== '#demo') return;
+    const target = document.getElementById('demo');
+    if (!target) return;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+  }, []);
+
+  const features = [
+    { title: t.landing.featureOrchestrationTitle, description: t.landing.featureOrchestrationBody, icon: Workflow },
+    { title: t.landing.featureIntelligenceTitle, description: t.landing.featureIntelligenceBody, icon: BarChart3 },
+    { title: t.landing.featureAutomationTitle, description: t.landing.featureAutomationBody, icon: Gift },
+  ];
+
+  const steps = [
+    t.landing.stepWorkspace,
+    t.landing.stepFlow,
+    t.landing.stepLaunch,
+    t.landing.stepMeasure,
+  ];
+
+  const heroStats = (['merchantRating', 'avgUplift', 'campaignVisibility'] as const).map((key) => ({
+    value: heroStatValues[key],
+    label: t.landing[key],
+  }));
+
+  return (
+    <main className="relative min-h-screen bg-surface text-ink">
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[42rem] overflow-hidden">
+        <div className="dw-grid-fade absolute inset-0" />
+        <div className="absolute -top-56 left-1/2 h-[34rem] w-[54rem] -translate-x-1/2 rounded-full bg-brand-400/20 blur-3xl" />
+        <div className="absolute -top-24 right-[6%] h-[22rem] w-[22rem] rounded-full bg-brand-500/15 blur-3xl" />
+      </div>
+
+      <header className="sticky top-0 z-30 border-b border-line bg-surface/85 backdrop-blur-md">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-5 sm:px-8">
+          <DawerLogo className="h-8 w-auto" />
+
+          <nav className="hidden items-center gap-7 md:flex">
+            <a href="#features" className="text-[13.5px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink">
+              {t.landing.navFeatures}
+            </a>
+            <a href="#workflow" className="text-[13.5px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink">
+              {t.landing.navWorkflow}
+            </a>
+            <a href="#pricing" className="text-[13.5px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink">
+              {t.landing.navPricing}
+            </a>
+            <Link to="/privacy" className="text-[13.5px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink">
+              {t.landing.navPrivacy}
+            </Link>
           </nav>
 
-          <div className="flex items-center gap-3">
-            <Link to="/auth/login" className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-100 transition hover:border-white/30 hover:bg-white/5">
-              Sign in
-            </Link>
-            <Link to="/dashboard/overview" className="rounded-full bg-gradient-to-r from-indigo-500 to-cyan-500 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-indigo-500/30 transition hover:brightness-110">
-              Open dashboard
-            </Link>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/auth/login">{t.auth.signIn}</Link>
+            </Button>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <div className="grid items-center gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:pb-8">
-          <div>
-            <div className="mb-6 inline-flex items-center rounded-full border border-indigo-400/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-200">
-              Multi-tenant customer engagement platform
-            </div>
-            <h1 className="max-w-xl text-5xl font-semibold tracking-tight text-white sm:text-6xl">
-              Turn every customer touchpoint into a measurable growth engine.
+      <section className="relative">
+        <div className="mx-auto grid max-w-7xl items-center gap-14 px-5 pb-20 pt-16 sm:px-8 sm:pt-24 lg:grid-cols-[1.04fr_0.96fr]">
+          <div className="animate-slide-up">
+            <Badge tone="brand" size="sm">
+              {t.landing.heroBadge}
+            </Badge>
+
+            <h1 className="mt-6 max-w-2xl text-balance text-[2.4rem] font-semibold leading-[1.06] tracking-[-0.035em] text-ink sm:text-[3.3rem]">
+              {t.landing.heroTitle}
             </h1>
-            <p className="mt-6 max-w-xl text-lg leading-8 text-slate-300">
-              Launch branded campaigns, game experiences, loyalty offers, and QR-code journeys that convert visits into repeat customers.
+
+            <p className="mt-6 max-w-xl text-pretty text-[15px] leading-relaxed text-ink-muted sm:text-[17px]">
+              {t.landing.heroSubtitle}
             </p>
-            <div className="mt-8 flex flex-col gap-4 sm:flex-row">
-              <Link to="/auth/register" className="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-6 py-3 text-center font-medium text-white shadow-lg shadow-indigo-500/30 transition hover:brightness-110">
-                Start free trial
-              </Link>
-              <Link to="/dashboard/overview" className="rounded-full border border-white/15 bg-white/5 px-6 py-3 text-center font-medium text-slate-100 transition hover:bg-white/10">
-                View product demo
-              </Link>
+
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Button asChild variant="outline" size="lg">
+                {/* In-page anchor: the global smooth scroll (globals.css) takes
+                    the visitor straight to the demo video, same pattern as the
+                    #features / #workflow / #pricing nav links. */}
+                <a href="#demo">{t.landing.viewDemo}</a>
+              </Button>
             </div>
 
-            <div className="mt-10 flex flex-wrap gap-6 text-sm text-slate-300">
-              <div><span className="font-semibold text-white">4.9/5</span> merchant rating</div>
-              <div><span className="font-semibold text-white">32%</span> average uplift</div>
-              <div><span className="font-semibold text-white">24/7</span> campaign visibility</div>
+            <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-3 border-t border-line pt-6">
+              {heroStats.map((stat) => (
+                <p key={stat.label} className="text-[13px] text-ink-muted">
+                  <span className="numeric text-[15px] font-semibold tracking-[-0.02em] text-ink">{stat.value}</span>{' '}
+                  {stat.label}
+                </p>
+              ))}
             </div>
           </div>
 
-          <div className="relative">
-            <div className="absolute -left-8 top-6 h-28 w-28 rounded-full bg-cyan-400/20 blur-3xl" />
-            <div className="absolute -right-10 bottom-8 h-32 w-32 rounded-full bg-indigo-500/20 blur-3xl" />
+          <div className="relative animate-fade-in">
+            <div aria-hidden className="pointer-events-none absolute -inset-5 rounded-[2.25rem] bg-brand-400/20 blur-3xl" />
 
-            <div className="relative rounded-[28px] border border-white/10 bg-white/5 p-4 shadow-[0_30px_80px_rgba(79,70,229,0.35)] backdrop-blur-lg">
-              <div className="rounded-[24px] border border-slate-800 bg-slate-900 p-5">
-                <div className="mb-5 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Live overview</p>
-                    <h2 className="mt-1 text-xl font-semibold text-white">Summer Splash</h2>
-                  </div>
-                  <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-xs font-medium text-emerald-300">Active</span>
+            <Card className="relative overflow-hidden">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-x-0 -top-24 h-44 bg-[radial-gradient(70%_100%_at_50%_0%,rgb(125_171_75/0.22),transparent_70%)]"
+              />
+
+              <div className="relative flex items-center gap-2.5 border-b border-line px-5 py-3.5">
+                <LayoutDashboard aria-hidden className="h-4 w-4 text-brand-600 dark:text-accent-bright" />
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-subtle">{t.landing.liveOverview}</p>
+                <Badge tone="success" size="sm" dot className="ml-auto">
+                  {t.common.active}
+                </Badge>
+              </div>
+
+              <div className="relative space-y-4 p-5">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                  <h2 className="text-[17px] font-semibold tracking-[-0.02em] text-ink">{t.landing.sampleCampaign}</h2>
+                  <p className="text-[12px] text-ink-subtle">{t.landing.sampleDates}</p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                    <p className="text-xs text-slate-400">Customers</p>
-                    <p className="mt-2 text-3xl font-semibold text-white">1,247</p>
-                    <p className="mt-2 text-sm text-emerald-300">+11.4% this month</p>
+                  <div className="rounded-lg border border-line bg-elevated p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.landing.customers}</p>
+                    <p className="numeric mt-2 text-[26px] font-semibold tracking-[-0.03em] text-ink">1,247</p>
+                    <p className="mt-1.5 text-[12.5px] font-medium text-success-600 dark:text-success-300">
+                      {t.landing.monthDelta}
+                    </p>
                   </div>
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                    <p className="text-xs text-slate-400">Rewards issued</p>
-                    <p className="mt-2 text-3xl font-semibold text-white">284</p>
-                    <p className="mt-2 text-sm text-indigo-300">96% redemption rate</p>
+                  <div className="rounded-lg border border-line bg-elevated p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.landing.rewardsIssued}</p>
+                    <p className="numeric mt-2 text-[26px] font-semibold tracking-[-0.03em] text-ink">284</p>
+                    <p className="mt-1.5 text-[12.5px] font-medium text-brand-700 dark:text-accent-bright">
+                      {t.landing.redemptionRate}
+                    </p>
                   </div>
                 </div>
 
-                <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                  <div className="mb-4 flex items-center justify-between text-sm text-slate-300">
-                    <span>Campaign conversion</span>
-                    <span className="font-semibold text-white">68.5%</span>
+                <div className="rounded-lg border border-line bg-elevated p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[12.5px] font-medium text-ink-muted">{t.landing.scansThisWeek}</p>
+                    <Badge tone="brand" size="sm">
+                      +18.4%
+                    </Badge>
                   </div>
-                  <div className="flex h-2 overflow-hidden rounded-full bg-slate-800">
-                    <span className="block w-[68%] rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400" />
+                  <div aria-hidden className="mt-4 flex h-16 items-end gap-2">
+                    {weekBars.map((value, index) => (
+                      <span
+                        key={value}
+                        style={{ height: `${value}%`, animationDelay: `${index * 60}ms` }}
+                        className="flex-1 animate-slide-up rounded-t-sm bg-brand-500/25 last:bg-brand-500 motion-reduce:animate-none"
+                      />
+                    ))}
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-slate-400">
-                    <div>QR scans 3.2k</div>
-                    <div>Starts 1.1k</div>
-                    <div>Redeems 420</div>
+                  <div aria-hidden className="mt-2 flex gap-2 text-[10px] font-medium uppercase tracking-[0.06em] text-ink-subtle">
+                    {weekDays.map((day, index) => (
+                      <span key={`${day}-${index}`} className="flex-1 text-center">
+                        {day}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-line bg-elevated p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-[12.5px] font-medium text-ink-muted">{t.landing.campaignConversion}</p>
+                    <span className="numeric text-[13px] font-semibold text-ink">68.5%</span>
+                  </div>
+                  <Progress value={68} label={t.landing.campaignConversion} />
+                  <div className="mt-4 grid grid-cols-3 gap-3 border-t border-line pt-3.5">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.landing.qrScans}</p>
+                      <p className="numeric mt-1 text-[14px] font-semibold text-ink">3.2k</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.landing.starts}</p>
+                      <p className="numeric mt-1 text-[14px] font-semibold text-ink">1.1k</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.landing.redeems}</p>
+                      <p className="numeric mt-1 text-[14px] font-semibold text-ink">420</p>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            </Card>
           </div>
         </div>
       </section>
 
-      <section id="features" className="border-t border-slate-200/10 bg-slate-900/70">
-        <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
-          <div className="mb-12 max-w-2xl">
-            <p className="text-sm font-medium uppercase tracking-[0.2em] text-indigo-300">Why teams choose us</p>
-            <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">A complete growth stack for modern customer engagement.</h2>
+      <PartnerMarquee />
+
+      <section id="features" className="relative border-y border-line bg-surface-2 scroll-mt-20">
+        <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24">
+          <div className="max-w-2xl">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-accent-bright">
+              {t.landing.whyUs}
+            </p>
+            <h2 className="mt-3 text-balance text-[28px] font-semibold leading-[1.15] tracking-[-0.03em] text-ink sm:text-[36px]">
+              {t.landing.featuresTitle}
+            </h2>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-3">
-            {features.map((feature) => (
-              <div key={feature.title} className="rounded-[28px] border border-slate-700 bg-slate-950 p-7 shadow-[0_20px_50px_rgba(15,23,42,0.45)] transition hover:-translate-y-1 hover:border-indigo-500/40 hover:shadow-indigo-900/20">
-                <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/20 to-cyan-500/20 text-lg text-indigo-200">✦</div>
-                <h3 className="text-xl font-semibold text-white">{feature.title}</h3>
-                <p className="mt-3 text-slate-300">{feature.description}</p>
-              </div>
+          <div className="mt-12 grid gap-5 md:grid-cols-3">
+            {features.map(({ title, description, icon: Icon }) => (
+              <Card key={title} className="bg-elevated p-6">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-accent-soft text-brand-700 dark:text-accent-bright">
+                  <Icon aria-hidden className="h-5 w-5" />
+                </span>
+                <CardTitle className="mt-5">{title}</CardTitle>
+                <p className="mt-2 text-[13.5px] leading-relaxed text-ink-muted">{description}</p>
+              </Card>
             ))}
           </div>
         </div>
       </section>
 
-      <section id="workflow" className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
-        <div className="mb-12 max-w-2xl">
-          <p className="text-sm font-medium uppercase tracking-[0.2em] text-indigo-600">How it works</p>
-          <h2 className="mt-3 text-3xl font-semibold text-slate-900 sm:text-4xl">From campaign idea to repeat customer in a few steps.</h2>
-        </div>
+      <section id="workflow" className="relative scroll-mt-20">
+        <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24">
+          <div className="max-w-2xl">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-accent-bright">
+              {t.landing.howItWorks}
+            </p>
+            <h2 className="mt-3 text-balance text-[28px] font-semibold leading-[1.15] tracking-[-0.03em] text-ink sm:text-[36px]">
+              {t.landing.workflowTitle}
+            </h2>
+          </div>
 
-        <div className="grid gap-5 md:grid-cols-4">
-          {steps.map((step, index) => (
-            <div key={step} className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_10px_30px_rgba(15,23,42,0.04)] transition hover:-translate-y-1">
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-r from-indigo-100 to-cyan-100 text-sm font-semibold text-indigo-700">0{index + 1}</div>
-              <p className="text-base font-medium text-slate-900">{step}</p>
-            </div>
-          ))}
+          <ol className="mt-12 grid gap-5 md:grid-cols-4">
+            {steps.map((step, index) => (
+              <li key={step} className="h-full">
+                <Card className="h-full p-6">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-accent-soft text-[13px] font-semibold text-brand-700 dark:text-accent-bright">
+                    0{index + 1}
+                  </span>
+                  <p className="mt-4 text-[14.5px] font-medium leading-snug text-ink">{step}</p>
+                </Card>
+              </li>
+            ))}
+          </ol>
         </div>
       </section>
 
-      <section id="pricing" className="bg-slate-100">
-        <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
-          <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-[0_18px_45px_rgba(15,23,42,0.06)] lg:p-10">
-            <div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
-              <div>
-                <p className="text-sm font-medium uppercase tracking-[0.2em] text-indigo-500">Simple pricing</p>
-                <h2 className="mt-3 text-3xl font-semibold text-slate-900">Scale without complexity.</h2>
-              </div>
-              <div className="flex items-end gap-3">
-                <span className="text-4xl font-semibold text-slate-900">$49</span>
-                <span className="pb-2 text-slate-500">/ month</span>
+      <section id="demo" className="relative border-t border-line scroll-mt-20">
+        <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24">
+          <div className="mx-auto max-w-2xl text-center">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-accent-bright">
+              {t.landing.demoEyebrow}
+            </p>
+            <h2 className="mt-3 text-balance text-[28px] font-semibold leading-[1.15] tracking-[-0.03em] text-ink sm:text-[36px]">
+              {t.landing.demoTitle}
+            </h2>
+          </div>
+
+          <div className="relative mx-auto mt-10 w-full max-w-5xl">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -inset-4 rounded-[2rem] bg-brand-400/15 blur-3xl"
+            />
+            <div className="relative overflow-hidden rounded-2xl border border-line bg-elevated shadow-card">
+              <div className="relative aspect-video w-full">
+                <iframe
+                  className="absolute inset-0 h-full w-full border-0"
+                  src={DEMO_VIDEO_EMBED_URL}
+                  title={t.landing.demoVideoTitle}
+                  loading="lazy"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
               </div>
             </div>
           </div>
         </div>
       </section>
+
+      <section id="pricing" className="relative border-y border-line bg-surface-2 scroll-mt-20">
+        <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24">
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-accent-bright">
+                {t.landing.pricingEyebrow}
+              </p>
+              <h2 className="mt-3 text-balance text-[28px] font-semibold leading-[1.15] tracking-[-0.03em] text-ink sm:text-[36px]">
+                {t.landing.pricingTitle}
+              </h2>
+            </div>
+            <p className="max-w-md text-pretty text-[13.5px] leading-relaxed text-ink-muted">
+              {t.landing.pricingSubtitle}
+            </p>
+          </div>
+
+          <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            {getHomepagePlans(locale).map((plan) => {
+              const featured = plan.slug === 'growth';
+              const badge = plan.badge;
+              return (
+                <div key={plan.slug} className="relative h-full">
+                  {featured ? (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute -inset-2.5 rounded-2xl bg-brand-400/20 blur-2xl"
+                    />
+                  ) : null}
+
+                  <Card
+                    className={cn(
+                      'relative flex h-full min-w-0 flex-col p-6',
+                      featured && 'bg-elevated',
+                    )}
+                  >
+                    <div className="flex min-h-[24px] items-start">
+                      {badge ? (
+                        <Badge tone={featured ? 'brand' : 'outline'} size="sm" uppercase>
+                          {badge}
+                        </Badge>
+                      ) : null}
+                    </div>
+
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.landing.planLabel}</p>
+                    <h3 className="mt-1.5 text-[17px] font-semibold tracking-[-0.02em] text-ink">{plan.name}</h3>
+
+                    <p className="mt-6 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <span
+                        className={cn(
+                          'numeric text-[32px] font-semibold tracking-[-0.03em] text-ink',
+                          featured && 'text-brand-700 dark:text-accent-bright',
+                        )}
+                      >
+                        {formatPlanPrice(plan.priceCents)}
+                      </span>
+                      <span className="text-[13px] text-ink-subtle">/ {formatPlanInterval(plan.interval, locale)}</span>
+                    </p>
+
+                    <ul className="mt-6 flex-1 space-y-2.5">
+                      {plan.features.map((feature) => (
+                        <li key={feature} className="flex gap-2.5 text-[13.5px] leading-relaxed text-ink-muted">
+                          <Check
+                            aria-hidden
+                            className="mt-0.5 h-4 w-4 shrink-0 text-brand-600 dark:text-accent-bright"
+                          />
+                          <span>{feature}</span>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <Button asChild className="mt-7 w-full" variant={featured ? 'primary' : 'outline'}>
+                      <Link to="/auth/register">
+                        {t.landing.trialCta}
+                        <ArrowRight aria-hidden className="h-4 w-4" />
+                      </Link>
+                    </Button>
+
+                    <p className="mt-3 text-center text-[12px] text-ink-subtle">
+                      {plan.slug === 'scale' ? t.landing.scaleNote : t.landing.cancelNote}
+                    </p>
+                  </Card>
+
+                  {featured ? (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 rounded-xl border-2 border-brand-500"
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      <footer className="relative bg-surface">
+        <div className="mx-auto flex max-w-7xl flex-col items-start gap-6 px-5 py-10 sm:px-8 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-3">
+            <DawerLogo className="h-8 w-auto" />
+            <p className="text-[13px] text-ink-subtle">© 2026 dawer</p>
+          </div>
+          <Link
+            to="/privacy"
+            className="text-[13px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink"
+          >
+            {t.landing.privacyLink}
+          </Link>
+        </div>
+      </footer>
     </main>
   );
 }

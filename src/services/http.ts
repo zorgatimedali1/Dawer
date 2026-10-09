@@ -1,22 +1,9 @@
 export const AUTH_STORAGE_KEY = 'campaign-engage-auth';
 
-export function getSessionToken(): string {
-  const session = window.localStorage.getItem(AUTH_STORAGE_KEY);
-  if (!session) throw new Error('Sign in to continue.');
-
-  try {
-    const token = (JSON.parse(session) as { token?: unknown }).token;
-    if (typeof token === 'string' && token) return token;
-  } catch {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-  }
-
-  throw new Error('Your session has expired. Sign in again.');
-}
-
 /**
- * Same-origin `/api` fetch that carries the bearer session and unwraps the
- * standard `{ success, message, error }` envelope.
+ * Same-origin `/api` fetch that authenticates through the HttpOnly session
+ * cookie (JavaScript never sees a token, P1-1) and unwraps the standard
+ * `{ success, message, error }` envelope.
  */
 export async function apiRequest<T>(
   method: 'GET' | 'PUT' | 'POST' | 'PATCH' | 'DELETE',
@@ -26,8 +13,8 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const response = await fetch(path, {
     method,
+    credentials: 'same-origin',
     headers: {
-      authorization: `Bearer ${getSessionToken()}`,
       ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -37,6 +24,11 @@ export async function apiRequest<T>(
   const result = (text ? JSON.parse(text) : {}) as T & { message?: string; error?: string };
 
   if (!response.ok) {
+    if (response.status === 401) {
+      // The session cookie is gone or expired: drop the cached user so route
+      // guards bounce to sign-in on the next render.
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    }
     throw new Error(result.message ?? result.error ?? fallbackError);
   }
 

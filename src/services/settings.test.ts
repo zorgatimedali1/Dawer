@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 describe('settings service', () => {
-  it('loads the profile with the bearer token', async () => {
+  it('loads the profile through the HttpOnly session cookie', async () => {
     const spy = mockFetch(() =>
       jsonResponse({
         success: true,
@@ -51,7 +51,8 @@ describe('settings service', () => {
     expect(profile.firstName).toBe('Ada');
     expect(profile.businesses[0]?.slug).toBe('shop');
     const headers = spy.mock.calls[0]?.[1]?.headers as Record<string, string>;
-    expect(headers.authorization).toBe('Bearer cf_abc.def');
+    expect(headers.authorization).toBeUndefined();
+    expect(spy.mock.calls[0]?.[1]?.credentials).toBe('same-origin');
   });
 
   it('surfaces the 404 when no business exists yet', async () => {
@@ -138,30 +139,25 @@ describe('billing service', () => {
     expect(billing.usage).toEqual({ campaigns: 3, customers: 892 });
   });
 
-  it('posts the plan slug when switching', async () => {
+  it('records the plan slug and returns the owner WhatsApp link', async () => {
     const spy = mockFetch(() =>
       jsonResponse({
         success: true,
-        plans: [],
-        subscription: {
-          id: 's1',
-          status: 'active',
-          currentPeriodEnd: null,
-          plan: { id: 'plan_growth', name: 'Growth', slug: 'growth', priceCents: 7900, interval: 'month' },
-        },
-        usage: { campaigns: 0, customers: 0 },
+        requestId: 'req-1',
+        plan: { id: 'plan_premium', name: 'Premium', slug: 'premium' },
+        whatsappUrl: 'https://wa.me/21699744593?text=hello',
       }),
     );
 
-    const billing = await BillingService.changePlan('growth');
+    const result = await BillingService.subscribeRequest('premium');
 
-    expect(spy.mock.calls[0]?.[0]).toBe('/api/billing/change-plan');
-    expect(JSON.parse(String(spy.mock.calls[0]?.[1]?.body))).toEqual({ planSlug: 'growth' });
-    expect(billing.subscription?.plan.slug).toBe('growth');
+    expect(spy.mock.calls[0]?.[0]).toBe('/api/billing/subscribe-request');
+    expect(JSON.parse(String(spy.mock.calls[0]?.[1]?.body))).toEqual({ planSlug: 'premium' });
+    expect(result.whatsappUrl).toContain('wa.me/21699744593');
   });
 
   it('throws the server message on failure', async () => {
     mockFetch(() => jsonResponse({ success: false, message: 'Plan not found.' }, 404));
-    await expect(BillingService.changePlan('nope')).rejects.toThrow('Plan not found.');
+    await expect(BillingService.subscribeRequest('nope')).rejects.toThrow('Plan not found.');
   });
 });

@@ -86,8 +86,8 @@ function mapCampaign(row: CampaignRow): Campaign {
     description: row.description ?? '',
     status: STATUS_TO_KEY[row.status] ?? 'draft',
     publicCode: row.public_code ?? '',
-    startsAt: row.start_at ?? row.created_at,
-    endsAt: row.end_at ?? row.created_at,
+    startsAt: row.start_at ?? '',
+    endsAt: row.end_at ?? '',
     participantCount,
     rewardCount: Number(row.reward_count ?? row.rewards?.length ?? 0),
     redemptionCount,
@@ -132,11 +132,23 @@ export class CampaignService {
     }
   }
 
-  static async createCampaign(data: { name: string; description?: string }): Promise<Campaign> {
+  static async createCampaign(data: {
+    name: string;
+    description?: string;
+    startsAt?: string;
+    endsAt?: string;
+    status?: CampaignStatusKey;
+  }): Promise<Campaign> {
     const result = await apiRequest<{ success: boolean; campaign: { id: string; publicCode: string } }>(
       'POST',
       '/api/business/campaigns',
-      { name: data.name, description: data.description ?? '' },
+      {
+        name: data.name,
+        description: data.description ?? '',
+        ...(data.status ? { status: KEY_TO_STATUS[data.status] } : {}),
+        ...(data.startsAt !== undefined ? { startAt: data.startsAt } : {}),
+        ...(data.endsAt !== undefined ? { endAt: data.endsAt } : {}),
+      },
       'Unable to create the campaign.',
     );
 
@@ -165,14 +177,13 @@ export class CampaignService {
     return updated;
   }
 
-  static async deleteCampaign(id: string): Promise<boolean> {
-    await apiRequest(
+  static async deleteCampaign(id: string): Promise<{ archived: boolean }> {
+    return apiRequest<{ success: boolean; archived: boolean }>(
       'DELETE',
       `/api/business/campaigns/${encodeURIComponent(id)}`,
       undefined,
       'Unable to delete the campaign.',
     );
-    return true;
   }
 
   static async duplicateCampaign(id: string): Promise<Campaign> {

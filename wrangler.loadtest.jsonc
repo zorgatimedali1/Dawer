@@ -1,0 +1,102 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "campaignflow-loadtest",
+	"main": "./Backend/src/index.ts",
+	"compatibility_date": "2026-09-30",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"vars": {
+		"APP_ENV": "development",
+		"GEOFENCE_COUNTRIES": "TN"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "campaignflow",
+			"database_id": "beb8dee4-de63-4ea8-815d-11120c54c44d",
+			"migrations_dir": "Backend/migrations"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "CAMPAIGN_LOCK",
+				"class_name": "CampaignParticipationLock"
+			},
+			{
+				"name": "WHATSAPP_SENDER",
+				"class_name": "WhatsAppBroadcastSender"
+			},
+			{
+				"name": "EMAIL_SENDER",
+				"class_name": "EmailBroadcastSender"
+			},
+			{
+				"name": "WHATSAPP_PACING",
+				"class_name": "WhatsAppPacingGate"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"CampaignParticipationLock"
+			]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": [
+				"WhatsAppBroadcastSender"
+			]
+		},
+		{
+			"tag": "v3",
+			"new_sqlite_classes": [
+				"EmailBroadcastSender",
+				"WhatsAppPacingGate"
+			]
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "TOKENS",
+			"id": "153a28536daa4d529584f355474d27a1"
+		}
+	],
+	"ratelimits": [
+		{
+			"name": "API_RATE_LIMITER",
+			"namespace_id": "92609301",
+			"simple": {
+				"limit": 120,
+				"period": 60
+			}
+		},
+		{
+			"name": "WEBHOOK_RATE_LIMITER",
+			"namespace_id": "92609302",
+			"simple": {
+				"limit": 1200,
+				"period": 60
+			}
+		},
+		{
+			"name": "PUBLIC_RATE_LIMITER",
+			"namespace_id": "92609303",
+			"simple": {
+				"limit": 300,
+				"period": 60
+			}
+		},
+		{
+			"name": "AUTH_RATE_LIMITER",
+			"namespace_id": "92609304",
+			"simple": {
+				"limit": 20,
+				"period": 60
+			}
+		}
+	]
+}

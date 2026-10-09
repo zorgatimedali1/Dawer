@@ -1,11 +1,14 @@
 import { sha256Hex } from './crypto';
+import { readSessionCookie } from './cookie';
 import type { Env } from '../types';
 
 export type AuthenticatedUser = { id: string; email: string };
 
 /**
  * Resolves a raw session token (bearer header value, or the value of an HttpOnly
- * cookie) to the owning user. Returns null for expired or unknown tokens.
+ * cookie) to the owning user. Returns null for expired or unknown tokens, and
+ * for suspended accounts — suspension has to cut off existing sessions, not just
+ * new sign-ins.
  */
 export async function getUserByToken(token: string, env: Env): Promise<AuthenticatedUser | null> {
   if (!token) return null;
@@ -17,23 +20,29 @@ export async function getUserByToken(token: string, env: Env): Promise<Authentic
     `SELECT u.id, u.email
      FROM sessions s
      INNER JOIN users u ON u.id = s.user_id
-     WHERE s.token_hash = ? AND s.expires_at > ?`,
+     WHERE s.token_hash = ? AND s.expires_at > ? AND u.status = 'ACTIVE'`,
   )
     .bind(tokenHash, now)
     .first<{ id: string; email: string }>();
 
-  return session ?? null;
+  if (!session) return null;
+
+  return { id: session.id, email: session.email };
 }
 
 export async function getAuthenticatedUser(request: Request, env: Env): Promise<AuthenticatedUser | null> {
   const authorizationHeader = request.headers.get('authorization');
 
-  if (!authorizationHeader || !authorizationHeader.startsWith('Bearer ')) {
-    return null;
+  if (authorizationHeader?.startsWith('Bearer ')) {
+    const token = authorizationHeader.slice('Bearer '.length).trim();
+    return getUserByToken(token, env);
   }
 
-  const token = authorizationHeader.slice('Bearer '.length).trim();
-  return getUserByToken(token, env);
+  // Same-origin fallback: the HttpOnly cookie minted at login (or by the
+  // OAuth handoff), under the current `__Host-` name or its predecessor.
+  // Bearer always wins when both are present.
+  const cookieToken = readSessionCookie(request);
+  return cookieToken ? getUserByToken(cookieToken, env) : null;
 }
 
 export async function getBusinessIds(userId: string, env: Env): Promise<string[]> {
@@ -58,7 +67,7 @@ export async function getPrimaryBusinessId(userId: string, env: Env): Promise<st
 
 export const CAMPAIGN_COLUMNS = `id, business_id, name, description, public_code, status, start_at, end_at,
   game_type, require_customer_information, require_action, google_maps_name, google_maps_url,
-  google_place_id, facebook_url, instagram_url, created_at, updated_at`;
+  google_place_id, facebook_url, instagram_url, created_at, updated_at, play_rules, latitude, longitude`;
 
 export type CampaignRecord = {
   id: string;
@@ -79,6 +88,9 @@ export type CampaignRecord = {
   instagram_url: string | null;
   created_at: string;
   updated_at: string;
+  play_rules: string | null;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 /**
@@ -110,6 +122,7 @@ export async function writeAuditLog(
   entry: {
     businessId: string | null;
     userId: string | null;
+    platformOperatorId?: string | null;
     action: string;
     entityType?: string;
     entityId?: string;
@@ -117,13 +130,14 @@ export async function writeAuditLog(
   },
 ): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO audit_logs (id, business_id, user_id, action, entity_type, entity_id, metadata, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO audit_logs (id, business_id, user_id, platform_operator_id, action, entity_type, entity_id, metadata, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       crypto.randomUUID(),
       entry.businessId,
       entry.userId,
+      entry.platformOperatorId ?? null,
       entry.action,
       entry.entityType ?? null,
       entry.entityId ?? null,

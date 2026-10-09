@@ -1,38 +1,35 @@
 import { z } from 'zod';
 import { hashPassword, sha256Hex, secureRandomHex, verifyPassword } from '../lib/crypto';
+import { buildCookie, readCookie, readSessionCookie, sessionCookieName, SESSION_COOKIE } from '../lib/cookie';
 import { errorResponse, jsonResponse } from '../lib/http';
-import { loginSchema, registerSchema, googleCallbackSchema } from '../lib/validation';
+import {
+  forgotPasswordSchema,
+  loginSchema,
+  registerSchema,
+  resetPasswordSchema,
+  googleCallbackSchema,
+} from '../lib/validation';
+import { getEmailConfig, sendPasswordResetEmail } from '../lib/email';
+import { getPlatformFeatures } from '../lib/feature-access';
 import { getUserByToken } from '../lib/tenant';
+import {
+  createBusinessForUser,
+  ensureStarterTrialForUser,
+  starterTrialStatement,
+  uniqueBusinessSlug,
+  userHasBusiness,
+} from '../lib/business';
 import type { Env } from '../types';
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
-const SESSION_COOKIE = 'cf_session';
 const OAUTH_STATE_COOKIE = 'cf_oauth_state';
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
 const OAUTH_STATE_MAX_AGE = 60 * 15;
-
-function readCookie(request: Request, name: string): string | null {
-  const header = request.headers.get('cookie');
-  if (!header) return null;
-
-  for (const part of header.split(';')) {
-    const separator = part.indexOf('=');
-    if (separator < 0) continue;
-    if (part.slice(0, separator).trim() === name) {
-      return decodeURIComponent(part.slice(separator + 1).trim());
-    }
-  }
-
-  return null;
-}
-
-function buildCookie(request: Request, name: string, value: string, maxAgeSeconds: number): string {
-  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
-  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`;
-}
+const PASSWORD_RESET_TTL_MS = 15 * 60_000;
+const RESET_LINK_MESSAGE = 'If that email is registered, a password reset link has been sent.';
 
 /** Error response for the OAuth handoff that also expires the state cookie. */
 function oauthError(request: Request, message: string, status: number, details?: unknown): Response {
@@ -42,22 +39,36 @@ function oauthError(request: Request, message: string, status: number, details?:
 }
 
 /**
- * Business slugs are globally unique, so a friendly name can collide with an
- * existing one. Deterministically suffix with random bytes until it is free.
+ * Login CSRF: a cross-site page must not be able to POST credentials to
+ * sign the victim into an attacker session. Browsers attach `Origin` to
+ * cross-origin POSTs; requests without one (non-browser clients) pass and
+ * rely on the SameSite=Lax session cookie for the same protection.
  */
-async function uniqueBusinessSlug(name: string, env: Env): Promise<string> {
-  const base = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'business';
-  let slug = base;
-
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const clash = await env.DB.prepare('SELECT 1 AS taken FROM businesses WHERE slug = ? LIMIT 1')
-      .bind(slug)
-      .first();
-    if (!clash) return slug;
-    slug = `${base}-${secureRandomHex(3)}`;
+function crossSitePost(request: Request): boolean {
+  const origin = request.headers.get('origin');
+  if (!origin) return false;
+  if (origin === 'null') return true;
+  try {
+    return new URL(origin).host !== new URL(request.url).host;
+  } catch {
+    return true;
   }
+}
 
-  return `${base}-${secureRandomHex(6)}`;
+/**
+ * Fixed stand-in credential (well-formed salt + hash). Unknown-account
+ * logins run the same 100k-iteration PBKDF2 as real ones so response
+ * timing cannot be used to enumerate registered emails (P1-7b).
+ */
+const DUMMY_PASSWORD_SALT = 'f'.repeat(64);
+const DUMMY_PASSWORD_HASH = '0'.repeat(64);
+
+/** Expires the current session cookie name and its pre-`__Host-` predecessor. */
+function clearSessionCookies(request: Request, response: Response): void {
+  response.headers.append('set-cookie', buildCookie(request, sessionCookieName(request), '', 0));
+  if (sessionCookieName(request) !== SESSION_COOKIE) {
+    response.headers.append('set-cookie', buildCookie(request, SESSION_COOKIE, '', 0));
+  }
 }
 
 export async function registerUser(request: Request, env: Env): Promise<Response> {
@@ -67,6 +78,9 @@ export async function registerUser(request: Request, env: Env): Promise<Response
     const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ? LIMIT 1').bind(email).first();
 
     if (existing) {
+      // Equalise work with a fresh registration: a fast 409 would leak that
+      // the address is taken via response timing.
+      await hashPassword(body.password);
       return errorResponse('This email is already registered.', 409);
     }
 
@@ -87,14 +101,27 @@ export async function registerUser(request: Request, env: Env): Promise<Response
     if (body.businessName) {
       const businessId = crypto.randomUUID();
       const slug = await uniqueBusinessSlug(body.businessName, env);
+      // Seed the channel switches from the platform-wide controls so a new
+      // business starts in sync with the operator's current intent.
+      const platform = await getPlatformFeatures(env);
 
       statements.push(
         env.DB.prepare(
-          `INSERT INTO businesses (id, name, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-        ).bind(businessId, body.businessName, slug, now, now),
+          `INSERT INTO businesses (id, name, slug, whatsapp_enabled, email_enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ).bind(
+          businessId,
+          body.businessName,
+          slug,
+          platform.whatsappEnabled ? 1 : 0,
+          platform.emailEnabled ? 1 : 0,
+          now,
+          now,
+        ),
         env.DB.prepare(
           `INSERT INTO business_members (id, business_id, user_id, role, created_at) VALUES (?, ?, ?, 'OWNER', ?)`,
         ).bind(crypto.randomUUID(), businessId, userId, now),
+        starterTrialStatement(env, businessId, now),
       );
     }
 
@@ -106,10 +133,11 @@ export async function registerUser(request: Request, env: Env): Promise<Response
 
     await env.DB.batch(statements);
 
-    return jsonResponse({
+    // P1-1: the session token travels only in the HttpOnly cookie — it is
+    // never part of the JSON body JavaScript can read.
+    const response = jsonResponse({
       success: true,
       message: 'User registered successfully.',
-      token,
       user: {
         id: userId,
         email,
@@ -118,6 +146,8 @@ export async function registerUser(request: Request, env: Env): Promise<Response
         role: 'merchant',
       },
     });
+    response.headers.append('set-cookie', buildCookie(request, sessionCookieName(request), token, SESSION_MAX_AGE));
+    return response;
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse('Validation failed.', 400, error.flatten());
@@ -128,25 +158,68 @@ export async function registerUser(request: Request, env: Env): Promise<Response
   }
 }
 
+/** Wrong passwords tolerated before the account is frozen, and for how long. */
+const MAX_FAILED_LOGINS = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60_000;
+
 export async function loginUser(request: Request, env: Env): Promise<Response> {
   try {
     const body = loginSchema.parse(await request.json());
     const email = normalizeEmail(body.email);
     const existing = await env.DB.prepare(
-      'SELECT id, email, password_hash, salt, first_name, last_name FROM users WHERE email = ? LIMIT 1',
+      `SELECT id, email, password_hash, salt, first_name, last_name, status,
+              failed_login_attempts, locked_until
+       FROM users WHERE email = ? LIMIT 1`,
     )
       .bind(email)
-      .first<{ id: string; email: string; password_hash: string; salt: string; first_name: string; last_name: string }>();
+      .first<{
+        id: string;
+        email: string;
+        password_hash: string;
+        salt: string;
+        first_name: string;
+        last_name: string;
+        status: string;
+        failed_login_attempts: number;
+        locked_until: string | null;
+      }>();
 
     if (!existing) {
+      await verifyPassword(body.password, DUMMY_PASSWORD_SALT, DUMMY_PASSWORD_HASH);
       return errorResponse('Invalid email or password.', 401);
+    }
+
+    const now = new Date();
+    if (existing.locked_until && existing.locked_until > now.toISOString()) {
+      return errorResponse('Too many failed attempts. Try again later.', 429);
     }
 
     const isValidPassword = await verifyPassword(body.password, existing.salt, existing.password_hash);
 
     if (!isValidPassword) {
+      const attempts = Number(existing.failed_login_attempts ?? 0) + 1;
+      const lockedUntil =
+        attempts >= MAX_FAILED_LOGINS ? new Date(now.getTime() + LOGIN_LOCKOUT_MS).toISOString() : null;
+      await env.DB.prepare(
+        `UPDATE users SET failed_login_attempts = ?, locked_until = ?, updated_at = ? WHERE id = ?`,
+      )
+        .bind(attempts, lockedUntil, now.toISOString(), existing.id)
+        .run();
       return errorResponse('Invalid email or password.', 401);
     }
+
+    // The credential was correct: hand the counter back whatever else fails.
+    await env.DB.prepare(
+      `UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?`,
+    )
+      .bind(existing.id)
+      .run();
+
+    if (existing.status !== 'ACTIVE') {
+      return errorResponse('This account has been suspended.', 403);
+    }
+
+    await ensureStarterTrialForUser(existing.id, env);
 
     const token = `cf_${secureRandomHex(16)}.${secureRandomHex(16)}`;
     const tokenHash = await sha256Hex(token);
@@ -158,9 +231,8 @@ export async function loginUser(request: Request, env: Env): Promise<Response> {
       .bind(crypto.randomUUID(), existing.id, tokenHash, new Date().toISOString(), expiresAt)
       .run();
 
-    return jsonResponse({
+    const response = jsonResponse({
       success: true,
-      token,
       user: {
         id: existing.id,
         email: existing.email,
@@ -169,6 +241,8 @@ export async function loginUser(request: Request, env: Env): Promise<Response> {
         role: 'merchant',
       },
     });
+    response.headers.append('set-cookie', buildCookie(request, sessionCookieName(request), token, SESSION_MAX_AGE));
+    return response;
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse('Validation failed.', 400, error.flatten());
@@ -180,18 +254,20 @@ export async function loginUser(request: Request, env: Env): Promise<Response> {
 
 export async function logoutUser(request: Request, env: Env): Promise<Response> {
   const authorizationHeader = request.headers.get('authorization');
+  const bearerToken = authorizationHeader?.startsWith('Bearer ')
+    ? authorizationHeader.slice('Bearer '.length).trim()
+    : '';
+  // Cookie-only sessions (SPA) revoke through the session cookie; the bearer
+  // path stays supported so an old client still kills its own session.
+  const token = bearerToken || readSessionCookie(request);
 
-  if (!authorizationHeader || !authorizationHeader.startsWith('Bearer ')) {
-    return errorResponse('Missing bearer token.', 401);
+  if (token) {
+    const tokenHash = await sha256Hex(token);
+    await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run();
   }
 
-  const token = authorizationHeader.slice('Bearer '.length).trim();
-  const tokenHash = await sha256Hex(token);
-
-  await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run();
-
   const response = jsonResponse({ success: true, message: 'Logged out.' });
-  response.headers.append('set-cookie', buildCookie(request, SESSION_COOKIE, '', 0));
+  clearSessionCookies(request, response);
   return response;
 }
 
@@ -200,9 +276,10 @@ export async function googleAuthStart(request: Request, env: Env): Promise<Respo
     return errorResponse('Google OAuth is not configured.', 501);
   }
 
-  const url = new URL(request.url);
   const state = secureRandomHex(16);
-  await env.TOKENS.put(`google:oauth:${state}`, JSON.stringify({ createdAt: Date.now() }), { expirationTtl: 900 });
+  await env.DB.prepare('INSERT INTO oauth_states (state, created_at) VALUES (?, ?)')
+    .bind(state, new Date().toISOString())
+    .run();
 
   const params = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID,
@@ -237,14 +314,15 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
       return oauthError(request, 'Invalid or expired OAuth state.', 400);
     }
 
-    const savedState = await env.TOKENS.get(`google:oauth:${payload.state}`);
+    // Single use: only one callback can consume the row (D1 serialises the
+    // write), so a replayed callback cannot mint a second session.
+    const consumed = await env.DB.prepare('DELETE FROM oauth_states WHERE state = ?')
+      .bind(payload.state)
+      .run();
 
-    if (!savedState) {
+    if (Number(consumed.meta.changes ?? 0) !== 1) {
       return oauthError(request, 'Invalid or expired OAuth state.', 400);
     }
-
-    // Single use: a replayed callback must not be able to mint a second session.
-    await env.TOKENS.delete(`google:oauth:${payload.state}`);
 
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -293,7 +371,11 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
       return oauthError(request, 'Google email is required.', 400);
     }
 
-    const existingUser = await env.DB.prepare('SELECT id FROM users WHERE email = ? LIMIT 1').bind(email).first<{ id: string }>();
+    const existingUser = await env.DB.prepare('SELECT id, status FROM users WHERE email = ? LIMIT 1').bind(email).first<{ id: string; status: string }>();
+
+    if (existingUser && existingUser.status !== 'ACTIVE') {
+      return oauthError(request, 'This account has been suspended.', 403);
+    }
 
     const userId = existingUser?.id ?? crypto.randomUUID();
 
@@ -313,6 +395,16 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
       .bind(crypto.randomUUID(), userId, googleUser.sub, email, googleUser.name ?? 'Google User', googleUser.picture ?? '', new Date().toISOString())
       .run();
 
+    // Google sign-in has no businessName step, so a fresh account would land on
+    // a dashboard with no business and no endpoint to create one. Seed one from
+    // the profile so the account is usable immediately; Settings can rename it.
+    if (!(await userHasBusiness(userId, env))) {
+      const displayName = googleUser.name?.trim() || email.split('@')[0] || 'My Business';
+      await createBusinessForUser(userId, displayName, env);
+    }
+
+    await ensureStarterTrialForUser(userId, env);
+
     const accessToken = `cf_${secureRandomHex(16)}.${secureRandomHex(16)}`;
     const tokenHash = await sha256Hex(accessToken);
     const expiresAt = new Date(Date.now() + 1000 * SESSION_MAX_AGE).toISOString();
@@ -326,9 +418,9 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
     // The token travels in an HttpOnly cookie, never in the URL.
     const response = new Response(null, {
       status: 302,
-      headers: { location: `${new URL(request.url).origin}/auth/callback` },
+      headers: { location: '/auth/callback' },
     });
-    response.headers.append('set-cookie', buildCookie(request, SESSION_COOKIE, accessToken, SESSION_MAX_AGE));
+    response.headers.append('set-cookie', buildCookie(request, sessionCookieName(request), accessToken, SESSION_MAX_AGE));
     response.headers.append('set-cookie', buildCookie(request, OAUTH_STATE_COOKIE, '', 0));
     return response;
   } catch (error) {
@@ -342,16 +434,16 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
 }
 
 /**
- * Exchanges the HttpOnly session cookie for a token the SPA can persist.
- * The cookie itself is never exposed to JavaScript.
+ * Reads the HttpOnly session cookie and returns the owning profile. The
+ * cookie value itself stays server-side — JavaScript never sees a token.
  */
 export async function sessionFromCookie(request: Request, env: Env): Promise<Response> {
-  const token = readCookie(request, SESSION_COOKIE);
+  const token = readSessionCookie(request);
   const user = token ? await getUserByToken(token, env) : null;
 
   if (!user) {
     const response = errorResponse('Your session has expired. Sign in again.', 401);
-    response.headers.append('set-cookie', buildCookie(request, SESSION_COOKIE, '', 0));
+    clearSessionCookies(request, response);
     return response;
   }
 
@@ -363,7 +455,6 @@ export async function sessionFromCookie(request: Request, env: Env): Promise<Res
 
   return jsonResponse({
     success: true,
-    token,
     user: {
       id: user.id,
       email: user.email,
@@ -374,8 +465,164 @@ export async function sessionFromCookie(request: Request, env: Env): Promise<Res
   });
 }
 
+/**
+ * P1-6, step 1: start a password reset. The response never reveals whether
+ * the email exists (generic message both ways) and the mail config is checked
+ * before the account lookup so that path is identical too. The raw token only
+ * ever lives in the emailed link — the database stores its SHA-256.
+ */
+export async function forgotPassword(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = forgotPasswordSchema.parse(await request.json());
+
+    const emailConfig = getEmailConfig(env);
+    if (!emailConfig) {
+      return errorResponse('Password reset is not available right now. Please contact support.', 503);
+    }
+
+    const email = normalizeEmail(body.email);
+    const user = await env.DB.prepare('SELECT id FROM users WHERE email = ? LIMIT 1')
+      .bind(email)
+      .first<{ id: string }>();
+
+    if (!user) {
+      return jsonResponse({ success: true, message: RESET_LINK_MESSAGE });
+    }
+
+    // Cooldown: one send per minute and at most five per hour per address.
+    // The response stays generic so the limiter never reveals registrations;
+    // this caps email-bombing of a victim and quota-burn of the daily cap.
+    const cooldownKey = `pwreset:${email.toLowerCase()}`;
+    const nowMs = Date.now();
+    const rawCooldown = await env.TOKENS.get(cooldownKey);
+    if (rawCooldown) {
+      try {
+        const state = JSON.parse(rawCooldown) as { count: number; since: number };
+        const withinHour = nowMs - state.since < 60 * 60 * 1000;
+        if (nowMs - state.since < 60_000 || (withinHour && state.count >= 5)) {
+          return jsonResponse({ success: true, message: RESET_LINK_MESSAGE });
+        }
+      } catch {
+        // Corrupt entry — treat as no cooldown and continue.
+      }
+    }
+
+    const requestedAt = new Date();
+    const rawToken = `cfr_${secureRandomHex(32)}`;
+    const tokenHash = await sha256Hex(rawToken);
+    const expiresAt = new Date(requestedAt.getTime() + PASSWORD_RESET_TTL_MS).toISOString();
+
+    // One live token per account: older requests die when a new one lands.
+    await env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(user.id).run();
+    await env.DB.prepare(
+      `INSERT INTO password_resets (id, user_id, token_hash, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+      .bind(crypto.randomUUID(), user.id, tokenHash, expiresAt, requestedAt.toISOString())
+      .run();
+
+    const origin = env.APP_ORIGIN || new URL(request.url).origin;
+    const resetUrl = `${origin}/auth/reset-password?token=${encodeURIComponent(rawToken)}`;
+
+    const sent = await sendPasswordResetEmail(emailConfig, { to: email, resetUrl });
+    if (!sent) {
+      await env.DB.prepare('DELETE FROM password_resets WHERE token_hash = ?').bind(tokenHash).run();
+      return errorResponse('Unable to send the reset email right now. Please try again.', 503);
+    }
+
+    // Count this send against the cooldown only after it actually went out.
+    const cooldownState = rawCooldown
+      ? (() => {
+          try {
+            const state = JSON.parse(rawCooldown) as { count: number; since: number };
+            const withinHour = nowMs - state.since < 60 * 60 * 1000;
+            return { count: withinHour ? state.count + 1 : 1, since: withinHour ? state.since : nowMs };
+          } catch {
+            return { count: 1, since: nowMs };
+          }
+        })()
+      : { count: 1, since: nowMs };
+    await env.TOKENS.put(cooldownKey, JSON.stringify(cooldownState), { expirationTtl: 3600 });
+
+    return jsonResponse({ success: true, message: RESET_LINK_MESSAGE });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse('Validation failed.', 400, error.flatten());
+    }
+
+    return errorResponse('Unable to start the password reset.', 500);
+  }
+}
+
+/**
+ * P1-6, step 2: redeem the emailed token. Consumption is a guarded DELETE
+ * (`changes === 1`), so concurrent redemptions cannot both win. Success
+ * rewrites the password hash, clears any lockout counters, and revokes every
+ * existing session for the account.
+ */
+export async function resetPassword(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = resetPasswordSchema.parse(await request.json());
+    const tokenHash = await sha256Hex(body.token);
+    const now = new Date().toISOString();
+
+    const record = await env.DB.prepare(
+      `SELECT id, user_id FROM password_resets
+       WHERE token_hash = ? AND expires_at > ? AND used_at IS NULL
+       LIMIT 1`,
+    )
+      .bind(tokenHash, now)
+      .first<{ id: string; user_id: string }>();
+
+    if (!record) {
+      return errorResponse('This reset link is invalid or has expired. Request a new one.', 400);
+    }
+
+    const consumed = await env.DB.prepare(
+      `DELETE FROM password_resets WHERE id = ? AND used_at IS NULL AND expires_at > ?`,
+    )
+      .bind(record.id, now)
+      .run();
+
+    if (Number(consumed.meta.changes ?? 0) !== 1) {
+      return errorResponse('This reset link is invalid or has expired. Request a new one.', 400);
+    }
+
+    const { salt, hash } = await hashPassword(body.password);
+
+    await env.DB.prepare(
+      `UPDATE users
+       SET password_hash = ?, salt = ?, failed_login_attempts = 0, locked_until = NULL, updated_at = ?
+       WHERE id = ?`,
+    )
+      .bind(hash, salt, now, record.user_id)
+      .run();
+
+    await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(record.user_id).run();
+
+    return jsonResponse({ success: true, message: 'Password updated. You can now sign in.' });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse('Validation failed.', 400, error.flatten());
+    }
+
+    return errorResponse('Unable to reset the password.', 500);
+  }
+}
+
 export async function handleAuthRoute(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+
+  if (
+    request.method === 'POST'
+    && (url.pathname === '/api/auth/login'
+      || url.pathname === '/api/auth/register'
+      || url.pathname === '/api/auth/forgot-password'
+      || url.pathname === '/api/auth/reset-password')
+    && crossSitePost(request)
+  ) {
+    return errorResponse('Cross-site request rejected.', 403);
+  }
 
   if (request.method === 'POST' && url.pathname === '/api/auth/register') {
     return registerUser(request, env);
@@ -383,6 +630,14 @@ export async function handleAuthRoute(request: Request, env: Env): Promise<Respo
 
   if (request.method === 'POST' && url.pathname === '/api/auth/login') {
     return loginUser(request, env);
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/auth/forgot-password') {
+    return forgotPassword(request, env);
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/auth/reset-password') {
+    return resetPassword(request, env);
   }
 
   if (request.method === 'POST' && url.pathname === '/api/auth/logout') {

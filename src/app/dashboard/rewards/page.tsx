@@ -1,30 +1,50 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
+import {
+  Ban,
+  BadgeDollarSign,
+  BadgePercent,
+  Gift,
+  Minus,
+  Power,
+  Search,
+  Sparkles,
+  Star,
+  Trash2,
+  type LucideIcon,
+} from 'lucide-react';
+import { EntityTile } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Field } from '@/components/ui/field';
+import { Input, Select } from '@/components/ui/input';
+import { PageHeader } from '@/components/ui/page-header';
+import { SkeletonCard } from '@/components/ui/skeleton';
+import { Progress } from '@/components/ui/toast';
 import { RewardService, type RewardSummary } from '@/services/reward.service';
+import { interpolate, msg } from '@/lib/i18n';
+import { useT } from '@/hooks/use-t';
 
-const TYPE_ICONS: Record<string, { className: string; glyph: string }> = {
-  percentage_discount: { className: 'bg-amber-100', glyph: '%' },
-  fixed_discount: { className: 'bg-blue-100', glyph: '$' },
-  free_product: { className: 'bg-green-100', glyph: '🎁' },
-  free_service: { className: 'bg-green-100', glyph: '🎁' },
-  custom_reward: { className: 'bg-purple-100', glyph: '⭐' },
-  none: { className: 'bg-gray-100', glyph: '🚫' },
+const TYPE_ICONS: Record<string, LucideIcon> = {
+  percentage_discount: BadgePercent,
+  fixed_discount: BadgeDollarSign,
+  free_product: Gift,
+  free_service: Sparkles,
+  custom_reward: Star,
+  none: Ban,
 };
 
-const FALLBACK_ICON = { className: 'bg-purple-100', glyph: '⭐' };
+const FALLBACK_ICON: LucideIcon = Star;
 
-const TYPE_LABELS: Record<string, string> = {
-  percentage_discount: 'Percentage Discount',
-  fixed_discount: 'Fixed Amount Discount',
-  free_product: 'Free Product',
-  free_service: 'Free Service',
-  custom_reward: 'Custom Reward',
-  none: 'No Reward',
-};
+function valueSuffix(type: string, fixedSuffix: string): string {
+  return type === 'percentage_discount' ? '%' : type === 'fixed_discount' ? fixedSuffix : '';
+}
 
 export default function RewardsPage() {
+  const t = useT();
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [rewards, setRewards] = useState<RewardSummary[]>([]);
@@ -32,12 +52,23 @@ export default function RewardsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  const TYPE_LABELS: Record<string, string> = {
+    percentage_discount: t.rewards.typePercentageDiscount,
+    fixed_discount: t.rewards.typeFixedDiscount,
+    free_product: t.rewards.typeFreeProduct,
+    free_service: t.rewards.typeFreeService,
+    custom_reward: t.rewards.typeCustomReward,
+    none: t.rewards.typeNone,
+  };
+
   useEffect(() => {
     RewardService.list()
       .then(setRewards)
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Unable to load rewards.'))
+      .catch((cause: unknown) =>
+        setError(msg(t, cause instanceof Error ? cause.message : t.rewards.loadError)),
+      )
       .finally(() => setLoading(false));
-  }, []);
+  }, [t]);
 
   const totalWeight = useMemo(
     () => rewards.filter((reward) => reward.active).reduce((sum, reward) => sum + reward.weight, 0),
@@ -60,149 +91,239 @@ export default function RewardsPage() {
       const updated = await RewardService.update(reward.id, changes);
       setRewards((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to update the reward.');
+      setError(msg(t, cause instanceof Error ? cause.message : t.rewards.updateError));
     } finally {
       setBusyId(null);
     }
   };
 
-  return (
-    <div className="p-6">
-      <div className="mb-6 flex justify-between items-start">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Rewards</h2>
-          <p className="text-sm text-gray-600">Manage the rewards and incentives for your campaigns</p>
-        </div>
+  const remove = async (reward: RewardSummary) => {
+    if (!window.confirm(interpolate(t.rewards.confirmDelete, { name: reward.name }))) return;
+
+    setBusyId(reward.id);
+    setError(null);
+    try {
+      await RewardService.delete(reward.id);
+      setRewards((current) => current.filter((item) => item.id !== reward.id));
+    } catch (cause) {
+      setError(msg(t, cause instanceof Error ? cause.message : t.rewards.deleteError));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const list =
+    loading ? (
+      <div className="grid gap-4">
+        <SkeletonCard />
+        <SkeletonCard />
+        <p role="status" className="sr-only">{t.rewards.loading}</p>
       </div>
+    ) : filteredRewards.length === 0 ? (
+      <Card>
+        <EmptyState
+          icon={Gift}
+          title={t.rewards.emptyTitle}
+          description={t.rewards.emptyDescription}
+        />
+      </Card>
+    ) : (
+      <div className="grid gap-4">
+        {filteredRewards.map((reward) => {
+          const Icon = TYPE_ICONS[reward.type] ?? FALLBACK_ICON;
+          const probability =
+            reward.active && totalWeight > 0 ? Math.round((reward.weight / totalWeight) * 100) : 0;
+
+          return (
+            <Card key={reward.id} className="flex flex-col gap-5 p-5 sm:p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <EntityTile tone={reward.active ? 'brand' : 'neutral'}>
+                    <Icon className="h-4 w-4" aria-hidden />
+                  </EntityTile>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="truncate text-[15px] font-semibold text-ink">{reward.name}</h3>
+                      <Badge size="sm" tone={reward.active ? 'success' : 'danger'} dot>
+                        {reward.active ? t.common.active : t.common.inactive}
+                      </Badge>
+                      {reward.quantityInitial !== null && reward.quantityInitial > 0 && reward.quantity <= 0 ? (
+                        <Badge size="sm" tone="danger">
+                          {t.rewards.finished}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-0.5 truncate text-[13px] text-ink-muted">
+                      {reward.description || reward.campaignName}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busyId === reward.id || reward.quantity <= 0}
+                    onClick={() => patch(reward, { quantity: reward.quantity - 1 })}
+                  >
+                    <Minus className="h-4 w-4" aria-hidden />
+                    {t.rewards.decreaseStock}
+                  </Button>
+                  <Button
+                    variant={reward.active ? 'outline' : 'secondary'}
+                    size="sm"
+                    disabled={busyId === reward.id}
+                    onClick={() => patch(reward, { active: !reward.active })}
+                  >
+                    <Power className="h-4 w-4" aria-hidden />
+                    {reward.active ? t.rewards.deactivate : t.rewards.activate}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-ink-subtle hover:text-danger-600 dark:hover:text-danger-300"
+                    disabled={busyId === reward.id}
+                    aria-label={interpolate(t.rewards.deleteAria, { name: reward.name })}
+                    title={interpolate(t.rewards.deleteAria, { name: reward.name })}
+                    onClick={() => void remove(reward)}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden />
+                    {t.rewards.delete}
+                  </Button>
+                </div>
+              </div>
+
+              <dl className="grid gap-x-6 gap-y-4 border-y border-line py-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                    {t.rewards.valueLabel}
+                  </dt>
+                  <dd className="numeric mt-1 text-[15px] font-semibold text-ink">
+                    {reward.value}
+                    {valueSuffix(reward.type, t.rewards.fixedSuffix)}
+                  </dd>
+                </div>
+
+                <div>
+                  <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                    {t.rewards.remainingLabel}
+                  </dt>
+                  <dd className="mt-1 flex items-center gap-2 text-[13px] text-ink-muted">
+                    <Input
+                      key={`${reward.id}-${reward.quantity}`}
+                      type="number"
+                      min={0}
+                      defaultValue={Math.max(reward.quantity, 0)}
+                      aria-label={interpolate(t.rewards.remainingStockAria, { name: reward.name })}
+                      disabled={busyId === reward.id}
+                      inputSize="sm"
+                      className="w-24"
+                      onBlur={(event) => {
+                        const next = Number.parseInt(event.target.value, 10);
+                        if (Number.isFinite(next) && next >= 0 && next !== reward.quantity) {
+                          void patch(reward, { quantity: next });
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
+                      }}
+                    />
+                    <span>
+                      {t.rewards.remainingOf} {reward.quantityInitial ?? reward.quantity} {t.rewards.remainingSuffix}
+                    </span>
+                  </dd>
+                </div>
+
+                <div>
+                  <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                    {t.rewards.chanceLabel}
+                  </dt>
+                  <dd className="mt-1 flex items-center gap-2">
+                    <span className="numeric text-[13px] font-medium text-brand-700 dark:text-accent-bright">
+                      {probability}%
+                    </span>
+                    <Progress value={probability} label={`${reward.name} ${t.rewards.progressChance}`} />
+                  </dd>
+                </div>
+
+                <div>
+                  <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                    {t.rewards.campaignLabel}
+                  </dt>
+                  <dd className="mt-1 truncate text-[13px] text-ink-muted">{reward.campaignName}</dd>
+                </div>
+              </dl>
+            </Card>
+          );
+        })}
+      </div>
+    );
+
+  return (
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        eyebrow={t.rewards.eyebrow}
+        title={t.rewards.title}
+        description={t.rewards.description}
+        toolbar={
+          <>
+            <Field
+              label={
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                  {t.rewards.searchLabel}
+                </span>
+              }
+              htmlFor="reward-search"
+              className="w-full max-w-md"
+            >
+              <Input
+                id="reward-search"
+                inputSize="sm"
+                iconStart={<Search />}
+                type="text"
+                placeholder={t.rewards.searchPlaceholder}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </Field>
+
+            <Field
+              label={
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                  {t.rewards.typeLabel}
+                </span>
+              }
+              htmlFor="reward-type-filter"
+              className="w-full max-w-[15rem]"
+            >
+              <Select
+                id="reward-type-filter"
+                inputSize="sm"
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+              >
+                <option value="all">{t.rewards.allTypes}</option>
+                {Object.entries(TYPE_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </>
+        }
+      />
 
       {error && (
-        <div className="mb-6 rounded-lg border-l-4 border-red-400 bg-red-50 p-4 text-sm text-red-700">
+        <div
+          role="alert"
+          className="rounded-xl border border-danger-300/60 bg-danger-50 p-4 text-sm text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200"
+        >
           {error}
         </div>
       )}
 
-      <div className="mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-          <div className="flex-1 min-w-[200px]">
-            <label htmlFor="reward-search" className="block text-sm font-medium text-gray-700 mb-1">
-              Search rewards
-            </label>
-            <input
-              id="reward-search"
-              type="text"
-              placeholder="Search by name or description..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="block w-full rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-            />
-          </div>
-
-          <div className="flex-1">
-            <label htmlFor="reward-type-filter" className="block text-sm font-medium text-gray-700 mb-1">
-              Reward Type
-            </label>
-            <select
-              id="reward-type-filter"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="block w-full rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-            >
-              <option value="all">All Types</option>
-              {Object.entries(TYPE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-4" />
-            <p className="text-gray-600">Loading rewards...</p>
-          </div>
-        ) : filteredRewards.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500">No rewards found matching your criteria.</p>
-            <p className="mt-2 text-sm text-gray-400">
-              Configure rewards inside a campaign from the Wheel page.
-            </p>
-          </div>
-        ) : (
-          filteredRewards.map((reward) => {
-            const icon = TYPE_ICONS[reward.type] ?? FALLBACK_ICON;
-            const probability =
-              reward.active && totalWeight > 0 ? Math.round((reward.weight / totalWeight) * 100) : 0;
-
-            return (
-              <div key={reward.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center mb-2">
-                      <div className="h-8 w-8 flex-shrink-0">
-                        <div
-                          className={`h-8 w-8 rounded-lg ${icon.className} flex items-center justify-center text-sm font-medium`}
-                        >
-                          {icon.glyph}
-                        </div>
-                      </div>
-                      <div className="ml-3">
-                        <h3 className="text-lg font-medium text-gray-900">{reward.name}</h3>
-                        <p className="text-sm text-gray-600">{reward.description || reward.campaignName}</p>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
-                      <div>
-                        <span className="font-medium">{reward.value}</span>
-                        <span>{reward.type === 'percentage_discount' ? '%' : reward.type === 'fixed_discount' ? ' off' : ''}</span>
-                      </div>
-                      <div>
-                        <span className="font-medium">{Math.max(reward.quantity, 0)}</span>
-                        <span> of {reward.quantityInitial ?? reward.quantity} remaining</span>
-                      </div>
-                      <div>
-                        <span className="font-medium">{probability}%</span>
-                        <span> chance to win</span>
-                      </div>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          reward.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        {reward.active ? 'Active' : 'Inactive'}
-                      </span>
-                      <span className="text-xs text-gray-400">{reward.campaignName}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busyId === reward.id || reward.quantity <= 0}
-                      onClick={() => patch(reward, { quantity: reward.quantity - 1 })}
-                    >
-                      -1 stock
-                    </Button>
-                    <Button
-                      variant={reward.active ? 'outline' : 'secondary'}
-                      size="sm"
-                      disabled={busyId === reward.id}
-                      onClick={() => patch(reward, { active: !reward.active })}
-                    >
-                      {reward.active ? 'Deactivate' : 'Activate'}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+      {list}
     </div>
   );
 }

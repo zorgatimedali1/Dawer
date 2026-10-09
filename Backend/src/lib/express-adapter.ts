@@ -17,9 +17,13 @@ function toWorkerRequest(request: ExpressRequest): Request {
   }
 
   const method = request.method.toUpperCase();
+  // `express.text` (webhook routes) leaves a string body that must pass through
+  // byte-exact — re-stringifying it would corrupt the X-Hub-Signature-256 input.
   const body = method === 'GET' || method === 'HEAD' || request.body === undefined
     ? undefined
-    : JSON.stringify(request.body);
+    : typeof request.body === 'string'
+      ? request.body
+      : JSON.stringify(request.body);
 
   return new Request(new URL(request.originalUrl, `https://${request.get('host') ?? 'localhost'}`), {
     method,
@@ -45,22 +49,48 @@ export function createWorkerRoute(
       if (cacheKey) {
         const cached = await caches.default.match(cacheKey);
         if (cached) {
-          cached.headers.forEach((value, name) => expressResponse.setHeader(name, value));
+            const cachedCookies = cached.headers.getSetCookie();
+          if (cachedCookies.length > 0) {
+            expressResponse.setHeader('set-cookie', cachedCookies);
+          }
+          cached.headers.forEach((value, name) => {
+            if (name.toLowerCase() !== 'set-cookie') expressResponse.setHeader(name, value);
+          });
           expressResponse.setHeader('X-Cache', 'HIT');
-          expressResponse.status(cached.status).send(await cached.text());
+          // Bytes, not text: `response.text()` would decode binary bodies
+          // (the stored company logo) as UTF-8 and corrupt every non-UTF-8
+          // byte into U+FFFD on the way out.
+          expressResponse.status(cached.status).send(Buffer.from(await cached.arrayBuffer()));
           return;
         }
       }
 
       const response = await route(request, env);
       if (cacheKey && response.ok) {
-        response.headers.set('Cache-Control', `public, max-age=0, s-maxage=${options.cacheTtlSeconds}`);
         response.headers.set('X-Cache', 'MISS');
-        await caches.default.put(cacheKey, response.clone());
+        // A response that hands out a cookie (the signed visitor identity)
+        // must never be stored: replaying one Set-Cookie would pin every
+        // visitor onto the same identity. The edge cache already refuses such
+        // entries — this keeps the Cache API equally strict.
+        if (response.headers.getSetCookie().length === 0) {
+          response.headers.set('Cache-Control', `public, max-age=0, s-maxage=${options.cacheTtlSeconds}`);
+          await caches.default.put(cacheKey, response.clone());
+        }
       }
 
-      response.headers.forEach((value, name) => expressResponse.setHeader(name, value));
-      expressResponse.status(response.status).send(await response.text());
+      // `setHeader` replaces, so the cookies are collected first — otherwise the
+      // last one silently overwrites every Set-Cookie before it.
+      const setCookies = response.headers.getSetCookie();
+      if (setCookies.length > 0) {
+        expressResponse.setHeader('set-cookie', setCookies);
+      }
+      response.headers.forEach((value, name) => {
+        if (name.toLowerCase() !== 'set-cookie') expressResponse.setHeader(name, value);
+      });
+      // `send(Buffer)` forwards the body untouched — `await response.text()`
+      // would re-encode binary responses (e.g. /api/public/.../logo) through
+      // UTF-8 and turn every high byte into a replacement character.
+      expressResponse.status(response.status).send(Buffer.from(await response.arrayBuffer()));
     } catch (error) {
       next(error);
     }

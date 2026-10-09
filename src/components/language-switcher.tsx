@@ -1,26 +1,32 @@
 'use client';
 
 import { useAppContext } from '@/contexts/app-context';
+import { SegmentedControl } from '@/components/ui/segmented';
+import { useT } from '@/hooks/use-t';
+import type { Locale } from '@/lib/i18n';
 
-export function LanguageSwitcher() {
+const LANGUAGES = { fr: 'FR', en: 'EN' } as const;
+
+/**
+ * FR/EN switch. Previously the active language was the only signal; the
+ * selected pill now carries a brand fill so the state survives a glance.
+ */
+export function LanguageSwitcher({ className }: { className?: string }) {
   const { locale, setLocale } = useAppContext();
+  const t = useT();
 
   return (
-    <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-      {(['fr', 'en'] as const).map((value) => (
-        <button
-          key={value}
-          type="button"
-          onClick={() => setLocale(value)}
-          className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold uppercase tracking-wide transition ${
-            locale === value
-              ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-              : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
-          }`}
-        >
-          {value}
-        </button>
-      ))}
-    </div>
+    <SegmentedControl<Locale>
+      value={locale}
+      onChange={setLocale}
+      aria-label={t.toggle.language}
+      size="sm"
+      selectedTone="brand"
+      className={className}
+      options={[
+        { value: 'fr', label: LANGUAGES.fr, title: 'Français' },
+        { value: 'en', label: LANGUAGES.en, title: 'English' },
+      ]}
+    />
   );
 }

@@ -1,3 +1,11 @@
+'use client';
+
+import { PageHeader } from '@/components/ui/page-header';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useT } from '@/hooks/use-t';
+
 const campaigns = [
   {
     name: 'Summer Splash',
@@ -22,74 +30,98 @@ const campaigns = [
   },
 ];
 
-const contentIdeas = [
-  'Customer testimonial loop',
-  'Flash sale reminder sequence',
-  'Gamified loyalty push',
-  'Referral trigger campaign',
-];
-
 export default function MarketingPage() {
+  const t = useT();
+
+  const CHANNEL_LABELS: Record<string, string> = {
+    'Email + QR': t.marketing.channelEmailQr,
+    Social: t.marketing.channelSocial,
+    'In-store': t.marketing.channelInStore,
+  };
+
+  const STATUS_LABELS: Record<string, string> = {
+    Running: t.marketing.statusRunning,
+    Draft: t.marketing.statusDraft,
+    Scheduled: t.marketing.statusScheduled,
+  };
+
+  const contentIdeas = [
+    t.marketing.ideaTestimonials,
+    t.marketing.ideaFlashSale,
+    t.marketing.ideaLoyalty,
+    t.marketing.ideaReferral,
+  ];
+
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Marketing workspace</p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-900">Campaign planning</h2>
-          </div>
-          <button type="button" className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-500">Create campaign</button>
-        </div>
-      </div>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        eyebrow={t.marketing.eyebrow}
+        title={t.marketing.title}
+        description={t.marketing.description}
+        actions={<Button size="sm">{t.marketing.createCampaign}</Button>}
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
         {campaigns.map((campaign) => (
-          <div key={campaign.name} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">{campaign.name}</h3>
-              <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">{campaign.status}</span>
-            </div>
-            <p className="mt-3 text-sm text-slate-500">{campaign.channel}</p>
-            <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-              <div className="rounded-xl bg-slate-100 p-3">
-                <div className="text-slate-500">Reach</div>
-                <div className="mt-1 font-semibold text-slate-900">{campaign.reach}</div>
+          <Card key={campaign.name}>
+            <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+              <CardTitle className="text-[15px]">{campaign.name}</CardTitle>
+              <Badge tone={campaign.status === 'Running' ? 'success' : campaign.status === 'Draft' ? 'warning' : 'info'} size="sm" dot>
+                {STATUS_LABELS[campaign.status] ?? campaign.status}
+              </Badge>
+            </CardHeader>
+            <CardContent>
+              <p className="text-[13px] text-ink-subtle">{CHANNEL_LABELS[campaign.channel] ?? campaign.channel}</p>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="rounded-lg border border-line bg-surface-2/60 p-3">
+                  <p className="text-[12px] text-ink-subtle">{t.marketing.reach}</p>
+                  <p className="numeric mt-1 text-[15px] font-semibold text-ink">{campaign.reach}</p>
+                </div>
+                <div className="rounded-lg border border-line bg-surface-2/60 p-3">
+                  <p className="text-[12px] text-ink-subtle">{t.marketing.roi}</p>
+                  <p className="numeric mt-1 text-[15px] font-semibold text-ink">{campaign.roi}</p>
+                </div>
               </div>
-              <div className="rounded-xl bg-slate-100 p-3">
-                <div className="text-slate-500">ROI</div>
-                <div className="mt-1 font-semibold text-slate-900">{campaign.roi}</div>
-              </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-xl font-semibold text-slate-900">Content ideas</h3>
-          <div className="mt-4 space-y-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-[15px]">{t.marketing.contentIdeas}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2.5">
             {contentIdeas.map((idea) => (
-              <div key={idea} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <div
+                key={idea}
+                className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface-2/50 px-3.5 py-3 text-[13.5px] text-ink transition-colors duration-180 hover:border-accent/40"
+              >
                 <span>{idea}</span>
-                <button type="button" className="text-indigo-600">View</button>
+                <Button variant="link" size="xs">
+                  {t.marketing.view}
+                </Button>
               </div>
             ))}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-xl font-semibold text-slate-900">Quick stats</h3>
-          <div className="mt-5 space-y-4">
-            <div className="rounded-2xl bg-indigo-50 p-4">
-              <p className="text-sm text-indigo-700">Avg. CTR</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-900">8.4%</p>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-[15px]">{t.marketing.quickStats}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="rounded-xl border border-accent/30 bg-accent-soft/60 p-4 dark:border-accent/25 dark:bg-accent-soft">
+              <p className="text-[13px] font-medium text-brand-800 dark:text-accent-bright">{t.marketing.avgCtr}</p>
+              <p className="numeric mt-2 text-[26px] font-semibold leading-none tracking-[-0.03em] text-ink">8.4%</p>
             </div>
-            <div className="rounded-2xl bg-emerald-50 p-4">
-              <p className="text-sm text-emerald-700">Conversion lift</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-900">+27%</p>
+            <div className="rounded-xl border border-success-300/60 bg-success-50 p-4 dark:border-success-900/60 dark:bg-success-900/25">
+              <p className="text-[13px] font-medium text-success-800 dark:text-success-200">{t.marketing.conversionLift}</p>
+              <p className="numeric mt-2 text-[26px] font-semibold leading-none tracking-[-0.03em] text-ink">+27%</p>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

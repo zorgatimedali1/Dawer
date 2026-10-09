@@ -1,19 +1,43 @@
 "use client";
 
 import { useEffect, useState } from 'react';
+import { Badge, type BadgeTone } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { CouponService, type Coupon } from '@/services/coupon.service';
+import { Card, CardContent } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Field } from '@/components/ui/field';
+import { Input, Select } from '@/components/ui/input';
+import { PageHeader } from '@/components/ui/page-header';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Ticket } from 'lucide-react';
+import { CouponService, type Coupon, type CouponStatus } from '@/services/coupon.service';
+import { msg } from '@/lib/i18n';
+import { useT } from '@/hooks/use-t';
 
-const STATUS_FILTERS = [
-  { value: 'ALL', label: 'All' },
-  { value: 'ISSUED', label: 'Issued' },
-  { value: 'REDEEMED', label: 'Redeemed' },
-  { value: 'EXPIRED', label: 'Expired' },
-] as const;
+type StatusFilter = 'ALL' | 'ISSUED' | 'REDEEMED' | 'EXPIRED';
 
-type StatusFilter = (typeof STATUS_FILTERS)[number]['value'];
+const STATUS_TONES: Record<string, BadgeTone> = {
+  issued: 'info',
+  redeemed: 'success',
+  expired: 'neutral',
+};
 
 export default function CouponsPage() {
+  const t = useT();
+
+  const STATUS_FILTERS = [
+    { value: 'ALL', label: t.coupons.filterAll },
+    { value: 'ISSUED', label: t.coupons.filterIssued },
+    { value: 'REDEEMED', label: t.coupons.filterRedeemed },
+    { value: 'EXPIRED', label: t.coupons.filterExpired },
+  ] as const;
+
+  const STATUS_LABELS: Record<CouponStatus, string> = {
+    issued: t.coupons.statusIssued,
+    redeemed: t.coupons.statusRedeemed,
+    expired: t.coupons.statusExpired,
+  };
+
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('ALL');
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -27,7 +51,9 @@ export default function CouponsPage() {
 
     CouponService.list({ status, search: search || undefined, limit: 50 })
       .then((result) => setCoupons(result.coupons))
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Unable to load coupons.'))
+      .catch((cause: unknown) =>
+        setError(msg(t, cause instanceof Error ? cause.message : 'Unable to load coupons.')),
+      )
       .finally(() => setLoading(false));
   };
 
@@ -45,145 +71,135 @@ export default function CouponsPage() {
       await CouponService.redeem(couponId);
       load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to redeem the coupon.');
+      setError(msg(t, cause instanceof Error ? cause.message : 'Unable to redeem the coupon.'));
     } finally {
       setRedeemingId(null);
     }
   };
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex justify-between items-start">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Coupons</h2>
-          <p className="text-sm text-gray-600">Track and manage coupon issuance and redemption</p>
-        </div>
-      </div>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        eyebrow={t.coupons.eyebrow}
+        title={t.coupons.title}
+        description={t.coupons.description}
+      />
 
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end">
-        <div className="flex-1">
-          <label htmlFor="coupon-search" className="block text-sm font-medium text-gray-700 mb-1">
-            Search coupons
-          </label>
-          <input
-            id="coupon-search"
-            type="text"
-            placeholder="Search by code, customer, reward, or campaign..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="block w-full rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-          />
-        </div>
+      <Card className="p-5 sm:p-6">
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)]">
+          <Field label={t.coupons.searchLabel} htmlFor="coupon-search">
+            <Input
+              id="coupon-search"
+              type="text"
+              placeholder={t.coupons.searchPlaceholder}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </Field>
 
-        <div>
-          <label htmlFor="coupon-status" className="block text-sm font-medium text-gray-700 mb-1">
-            Status
-          </label>
-          <select
-            id="coupon-status"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as StatusFilter)}
-            className="block w-full rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-          >
-            {STATUS_FILTERS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <Field label={t.coupons.statusLabel} htmlFor="coupon-status">
+            <Select
+              id="coupon-status"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as StatusFilter)}
+            >
+              {STATUS_FILTERS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
-      </div>
+      </Card>
 
       {error && (
-        <div className="mb-6 rounded-lg border-l-4 border-red-400 bg-red-50 p-4 text-sm text-red-700">
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-xl border border-danger-300/60 bg-danger-50 p-4 text-sm text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200"
+        >
+          <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-danger-500" aria-hidden />
           {error}
         </div>
       )}
 
-      <div className="space-y-4">
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-4" />
-            <p className="text-gray-600">Loading coupons...</p>
-          </div>
-        ) : coupons.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500">No coupons found.</p>
-            <p className="mt-2 text-sm text-gray-400">
-              Coupons are issued automatically when a customer wins a reward.
-            </p>
-          </div>
-        ) : (
-          coupons.map((coupon) => (
-            <div key={coupon.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <div className="flex items-center mb-2">
-                    <div className="h-8 w-8 flex-shrink-0">
-                      <div
-                        className={`h-8 w-8 rounded-lg ${
-                          coupon.status === 'issued'
-                            ? 'bg-blue-100'
-                            : coupon.status === 'redeemed'
-                              ? 'bg-green-100'
-                              : 'bg-gray-100'
-                        } flex items-center justify-center text-sm font-medium`}
-                      >
+      {loading ? (
+        <div className="flex flex-col gap-3" role="status">
+          <p className="text-[13px] text-ink-subtle">{t.coupons.loading}</p>
+          {Array.from({ length: 3 }).map((_, index) => (
+            <Skeleton key={index} className="h-28 w-full rounded-xl" />
+          ))}
+        </div>
+      ) : coupons.length === 0 ? (
+        <Card>
+          <CardContent>
+            <EmptyState
+              icon={Ticket}
+              title={t.coupons.emptyTitle}
+              description={t.coupons.emptyDescription}
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {coupons.map((coupon) => (
+            <Card key={coupon.id}>
+              <CardContent>
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-[15px]" aria-hidden>
                         {coupon.status === 'issued' ? '🎫' : coupon.status === 'redeemed' ? '✅' : '⏰'}
+                      </span>
+                      <div className="min-w-0">
+                        <h3 className="numeric truncate text-[15px] font-semibold text-ink">{coupon.code}</h3>
+                        <p className="truncate text-[13px] text-ink-muted">{coupon.customerName}</p>
                       </div>
                     </div>
-                    <div className="ml-3">
-                      <h3 className="text-lg font-medium text-gray-900">{coupon.code}</h3>
-                      <p className="text-sm text-gray-600">{coupon.customerName}</p>
+
+                    <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-ink-muted">
+                      <span className="font-medium text-ink">{coupon.rewardName}</span>
+                      <span className="font-medium text-ink">{coupon.campaignName}</span>
+                      <span>{new Date(coupon.issuedAt).toLocaleDateString()}</span>
+                      <Badge size="sm" tone={STATUS_TONES[coupon.status] ?? 'neutral'}>
+                        {STATUS_LABELS[coupon.status]}
+                      </Badge>
                     </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
-                    <span className="font-medium">{coupon.rewardName}</span>
-                    <span className="font-medium">{coupon.campaignName}</span>
-                    <span>{new Date(coupon.issuedAt).toLocaleDateString()}</span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        coupon.status === 'issued'
-                          ? 'bg-blue-100 text-blue-800'
-                          : coupon.status === 'redeemed'
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-gray-100 text-gray-800'
-                      }`}
-                    >
-                      {coupon.status.charAt(0).toUpperCase() + coupon.status.slice(1)}
-                    </span>
-                  </div>
-                </div>
 
-                <div className="flex items-center space-x-3">
                   {coupon.status === 'issued' && (
                     <Button
                       size="sm"
                       onClick={() => handleRedeem(coupon.id)}
                       disabled={redeemingId === coupon.id}
+                      loading={redeemingId === coupon.id}
                     >
-                      {redeemingId === coupon.id ? 'Redeeming...' : 'Redeem'}
+                      {redeemingId === coupon.id ? t.coupons.redeeming : t.coupons.redeem}
                     </Button>
                   )}
                 </div>
-              </div>
 
-              <div className="mt-4 pt-3 border-t border-gray-200 text-sm text-gray-500 space-y-1">
-                {coupon.expiresAt && (
-                  <p>
-                    <strong>Expires:</strong> {new Date(coupon.expiresAt).toLocaleDateString()}
-                  </p>
+                {(coupon.expiresAt || coupon.redeemedAt) && (
+                  <div className="mt-4 space-y-1 border-t border-line pt-3 text-[13px] text-ink-subtle">
+                    {coupon.expiresAt && (
+                      <p>
+                        <strong className="font-medium text-ink-muted">{t.coupons.expiresLabel}</strong>{' '}
+                        {new Date(coupon.expiresAt).toLocaleDateString()}
+                      </p>
+                    )}
+                    {coupon.redeemedAt && (
+                      <p>
+                        <strong className="font-medium text-ink-muted">{t.coupons.redeemedLabel}</strong>{' '}
+                        {new Date(coupon.redeemedAt).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
                 )}
-                {coupon.redeemedAt && (
-                  <p>
-                    <strong>Redeemed:</strong> {new Date(coupon.redeemedAt).toLocaleDateString()}
-                  </p>
-                )}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

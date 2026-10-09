@@ -1,1 +1,75 @@
 GOOGLE_MAPS_API_KEY=replace-with-restricted-Places-API-key
+
+# Google OAuth - https://console.cloud.google.com/apis/credentials
+# Authorized redirect URI must equal GOOGLE_REDIRECT_URI exactly.
+GOOGLE_CLIENT_ID=replace-with-oauth-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=replace-with-oauth-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:5173/api/auth/google/callback
+
+# WhatsApp Cloud API - https://developers.facebook.com/docs/whatsapp/cloud-api
+# Permanent access token + phone number id. Production: npx wrangler secret put WHATSAPP_TOKEN
+WHATSAPP_TOKEN=replace-with-whatsapp-permanent-token
+WHATSAPP_PHONE_ID=replace-with-whatsapp-phone-number-id
+
+# WhatsApp webhooks - Meta App Dashboard > Configuration de la production > Configurer des webhooks
+# "Verify token" pasted into the Meta form must equal this value.
+# Production: npx wrangler secret put WHATSAPP_WEBHOOK_VERIFY_TOKEN
+WHATSAPP_WEBHOOK_VERIFY_TOKEN=replace-with-webhook-verify-token
+# App Secret (Meta App Dashboard > Paramètres de base) validates X-Hub-Signature-256 on webhook POSTs.
+# Production: npx wrangler secret put META_APP_SECRET
+META_APP_SECRET=replace-with-meta-app-secret
+
+# Mailjet - https://mailjet.com (email broadcasts, 6,000/month & 200/day free tier)
+# API key pair (app.mailjet.com > Account Settings > SMTP and API > API Keys).
+# Sender address must be validated first (Senders and Domains > Add sender).
+# Production: npx wrangler secret put MAILJET_API_KEY / MAILJET_API_SECRET
+MAILJET_API_KEY=replace-with-mailjet-api-key
+MAILJET_API_SECRET=replace-with-mailjet-api-secret
+# Active provider (mailjet is the default; brevo/resend are dormant).
+# EMAIL_PROVIDER=mailjet
+# Verified sender address (both Mailjet values are required to send).
+# Production: npx wrangler secret put EMAIL_FROM
+EMAIL_FROM=no-reply@example.com
+
+# Mailjet event-callback auth token (Event Tracking > set callback URL with
+# ?token=... appended — Mailjet signs nothing, the token is the auth).
+# Powers the bounce/block/spam/unsub -> suppression list at POST /api/webhooks/mailjet.
+# Production: npx wrangler secret put MAILJET_WEBHOOK_TOKEN
+MAILJET_WEBHOOK_TOKEN=replace-with-mailjet-webhook-token
+
+# Dormant Brevo (activate with EMAIL_PROVIDER=brevo):
+# BREVO_API_KEY=replace-with-brevo-api-key
+# BREVO_WEBHOOK_SECRET=replace-with-brevo-webhook-token
+# Dormant Resend (activate with EMAIL_PROVIDER=resend; needs a verified domain):
+# RESEND_API_KEY=replace-with-resend-api-key
+
+# Absolute origin for links inside outbound emails (unsubscribe URLs, inline
+# campaign images). Local dev: the Vite dev server origin.
+APP_ORIGIN=http://localhost:5173
+
+# Cookie signing key - HMAC secret for signed spin-visitor cookies (64+ random chars).
+# Without it every spin falls back to the no-reward slice (fail-closed).
+# Production: npx wrangler secret put COOKIE_SIGNING_KEY
+COOKIE_SIGNING_KEY=replace-with-long-random-cookie-signing-key
+
+# Geofence: set to true/1 to REJECT /api/public requests with no country signal
+# (default off - missing country passes). Production secret if enabled.
+# GEOFENCE_STRICT=true
+
+# WhatsApp Web gateway (whatsapp-saas-backend container)
+# Base URL of the deployed gateway, e.g. https://whatsapp-saas-backend.onrender.com
+# Production: npx wrangler secret put GATEWAY_URL
+GATEWAY_URL=http://localhost:3000
+# Shared bearer secret for gateway calls. Production: npx wrangler secret put GATEWAY_SECRET
+GATEWAY_SECRET=replace-with-gateway-shared-secret
+# Shared secret for gateway -> Worker progress callbacks.
+# Production: npx wrangler secret put WHATSAPP_WEB_CALLBACK_SECRET
+WHATSAPP_WEB_CALLBACK_SECRET=replace-with-gateway-callback-secret
+
+# Optional email tuning knobs (uncomment to override the defaults):
+# Marketing recipients per UTC day (default 190; reserves headroom for password resets).
+# EMAIL_MARKETING_DAILY_CAP=190
+# Account-wide monthly ceiling across all tenants (default 5800; set high to disable).
+# EMAIL_MONTHLY_SOFT_CAP=5800
+# Daily quota ceiling displayed in the dashboard (Mailjet free tier default 200).
+# EMAIL_DAILY_LIMIT=200

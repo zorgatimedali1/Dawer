@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-platform/
 .wrangler/
 .dev.vars
 .dev.vars.*
@@ -11,3 +12,10 @@ hallmark/
 .hallmark-cache/
 *.local
 .DS_Store
+
+# D1 nightly backups (scripts/backup-d1.ps1)
+backups/
+
+# whatsapp-saas-backend runtime state (its own .gitignore has a typo'd dot)
+whatsapp-saas-backend/wwebjs_cache/
+whatsapp-saas-backend/data/

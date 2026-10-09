@@ -39,7 +39,7 @@ function mapQr(row: QrRow): QrCode {
     active: Number(row.active ?? 1) === 1,
     createdAt: row.created_at,
     campaignParticipations: Number(row.campaign_participations ?? 0),
-    url: `${window.location.origin}/customer/${slug}`,
+    url: `${window.location.origin}/wheels/${slug}`,
   };
 }
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { errorResponse, jsonResponse } from '../lib/http';
 import { secureRandomHex } from '../lib/crypto';
+import { fetchPlaceCoordinates } from '../lib/google-places';
 import {
   campaignConfigSchema,
   campaignCreateSchema,
@@ -12,7 +13,6 @@ import {
   CAMPAIGN_COLUMNS,
   findCampaignForUser,
   getBusinessIds,
-  getPrimaryBusinessId,
   writeAuditLog,
   type AuthenticatedUser,
 } from '../lib/tenant';
@@ -22,12 +22,37 @@ const CONFIG_PATH = '/api/business/campaign-config';
 const LIST_PATH = '/api/business/campaigns';
 const ITEM_PATTERN = /^\/api\/business\/campaigns\/([^/]+)$/;
 const DUPLICATE_PATTERN = /^\/api\/business\/campaigns\/([^/]+)\/duplicate$/;
+const CLAIMS_EXPIRE_PATTERN = /^\/api\/business\/campaigns\/([^/]+)\/claims-expire$/;
+
+const claimsExpireSchema = z.object({
+  before: z.string().datetime({ offset: true }).optional(),
+});
 
 /**
  * Rewards created without an explicit quantity are stocked at 100 so the
  * remaining-units loop works out of the box; an explicit 0 means unlimited.
  */
 const DEFAULT_REWARD_STOCK = 100;
+
+/** Hard product cap: one user manages at most this many campaigns at a time. */
+export const MAX_CAMPAIGNS_PER_USER = 4;
+
+const CAMPAIGN_LIMIT_MESSAGE = `You can create at most ${MAX_CAMPAIGNS_PER_USER} campaigns. Delete or archive a campaign first.`;
+
+/** Archived campaigns are soft-deleted and do not count against the cap. */
+async function campaignsAtLimit(env: Env, businessIds: string[]): Promise<boolean> {
+  if (businessIds.length === 0) return false;
+
+  const placeholders = businessIds.map(() => '?').join(', ');
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS total FROM campaigns
+     WHERE business_id IN (${placeholders}) AND status <> 'ARCHIVED'`,
+  )
+    .bind(...businessIds)
+    .first<{ total: number }>();
+
+  return (row?.total ?? 0) >= MAX_CAMPAIGNS_PER_USER;
+}
 
 function actionToDb(action: string): string {
   return action === 'none' ? 'NONE' : action.toUpperCase().replace(/-/g, '_');
@@ -73,20 +98,29 @@ async function syncRewards(
   const existingSet = new Set(existingIds);
   const keptIds = new Set<string>();
   const now = new Date().toISOString();
+  const statements: Array<ReturnType<typeof env.DB.prepare>> = [];
 
   for (const reward of rewards) {
-    const reuseId = reward.id && existingSet.has(reward.id) ? reward.id : null;
-    const id = reuseId ?? crypto.randomUUID();
+    let id: string | null = reward.id && existingSet.has(reward.id) ? reward.id : null;
+    if (!id && reward.id) {
+      // Adopt the client-generated id when it is free, so ids the UI created
+      // locally (then saved) stay valid for per-row deletes afterwards.
+      const clash = await env.DB.prepare('SELECT 1 AS hit FROM rewards WHERE id = ? LIMIT 1')
+        .bind(reward.id)
+        .first<{ hit: number }>();
+      if (!clash) id = reward.id;
+    }
+    if (!id) id = crypto.randomUUID();
     keptIds.add(id);
 
-    if (reuseId) {
-      await env.DB.prepare(
-        `UPDATE rewards
-         SET name = ?, type = ?, value = ?, description = ?, weight = ?, quantity = ?,
-             quantity_initial = ?, active = ?, updated_at = ?
-         WHERE id = ? AND campaign_id = ?`,
-      )
-        .bind(
+    if (existingSet.has(id)) {
+      statements.push(
+        env.DB.prepare(
+          `UPDATE rewards
+           SET name = ?, type = ?, value = ?, description = ?, weight = ?, quantity = ?,
+               quantity_initial = ?, active = ?, updated_at = ?
+           WHERE id = ? AND campaign_id = ?`,
+        ).bind(
           reward.name,
           reward.type,
           String(reward.value),
@@ -98,15 +132,15 @@ async function syncRewards(
           now,
           id,
           campaign.id,
-        )
-        .run();
+        ),
+      );
     } else {
-      await env.DB.prepare(
-        `INSERT INTO rewards (id, business_id, campaign_id, name, type, value, description,
-                              quantity, quantity_initial, weight, active, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-        .bind(
+      statements.push(
+        env.DB.prepare(
+          `INSERT INTO rewards (id, business_id, campaign_id, name, type, value, description,
+                                quantity, quantity_initial, weight, active, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).bind(
           id,
           campaign.business_id,
           campaign.id,
@@ -120,19 +154,25 @@ async function syncRewards(
           reward.active ? 1 : 0,
           now,
           now,
-        )
-        .run();
+        ),
+      );
     }
   }
 
   const removed = existingIds.filter((id) => !keptIds.has(id));
   if (removed.length) {
     const placeholders = removed.map(() => '?').join(', ');
-    await env.DB.prepare(
-      `DELETE FROM rewards WHERE campaign_id = ? AND id IN (${placeholders})`,
-    )
-      .bind(campaign.id, ...removed)
-      .run();
+    statements.push(
+      env.DB.prepare(
+        `DELETE FROM rewards WHERE campaign_id = ? AND id IN (${placeholders})`,
+      ).bind(campaign.id, ...removed),
+    );
+  }
+
+  // Apply the whole replacement as one transaction: a save that dies halfway
+  // must not leave the campaign with a half-merged reward set.
+  if (statements.length) {
+    await env.DB.batch(statements);
   }
 }
 
@@ -152,10 +192,13 @@ async function handleConfigGet(request: Request, env: Env, user: AuthenticatedUs
     campaign = await findCampaignForUser(requestedId, businessIds, env);
     if (!campaign) return errorResponse('Campaign not found.', 404);
   } else {
+    // Default target: the most recently edited live campaign. Archiving
+    // bumps updated_at too, so archived rows must stay out of the pick —
+    // otherwise returning to the config page opens the archived campaign.
     const placeholders = businessIds.map(() => '?').join(', ');
     campaign = await env.DB.prepare(
       `SELECT id FROM campaigns
-       WHERE business_id IN (${placeholders})
+       WHERE business_id IN (${placeholders}) AND status <> 'ARCHIVED'
        ORDER BY updated_at DESC LIMIT 1`,
     )
       .bind(...businessIds)
@@ -198,10 +241,12 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
     if (!found) return errorResponse('Campaign not found.', 404);
     target = { id: found.id, public_code: found.public_code, business_id: found.business_id };
   } else {
+    // Same default as the GET: never let an archived campaign win the pick,
+    // or a save from the config page would write into the archived row.
     const placeholders = businessIds.map(() => '?').join(', ');
     target = await env.DB.prepare(
       `SELECT id, public_code, business_id FROM campaigns
-       WHERE business_id IN (${placeholders})
+       WHERE business_id IN (${placeholders}) AND status <> 'ARCHIVED'
        ORDER BY updated_at DESC LIMIT 1`,
     )
       .bind(...businessIds)
@@ -211,6 +256,11 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
   const now = new Date().toISOString();
   const startAt = config.startAt ? config.startAt : null;
   const endAt = config.endAt ? config.endAt : null;
+
+  // P2-7: resolve the selected place to coordinates so spins can record a
+  // distance signal. Degrades to null (no signal) when the key is missing or
+  // Google does not answer — saving the campaign must never fail on this.
+  const placeCoordinates = await fetchPlaceCoordinates(config.googlePlaceId, env.GOOGLE_MAPS_API_KEY);
 
   let campaignId: string;
   let publicCode: string;
@@ -223,7 +273,8 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
       `UPDATE campaigns
        SET name = ?, description = ?, require_action = ?,
            google_maps_name = ?, google_maps_url = ?, google_place_id = ?,
-           facebook_url = ?, instagram_url = ?,
+           latitude = ?, longitude = ?,
+           facebook_url = ?, instagram_url = ?, play_rules = ?,
            status = COALESCE(?, status),
            start_at = ?, end_at = ?, updated_at = ?
        WHERE id = ? AND business_id = ?`,
@@ -235,8 +286,11 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
         config.googleMapsName || null,
         config.googleMapsUrl || null,
         config.googlePlaceId || null,
+        placeCoordinates?.latitude ?? null,
+        placeCoordinates?.longitude ?? null,
         config.facebookUrl || null,
         config.instagramUrl || null,
+        config.playRules ? JSON.stringify(config.playRules) : null,
         config.status ?? null,
         startAt,
         endAt,
@@ -246,6 +300,10 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
       )
       .run();
   } else {
+    if (await campaignsAtLimit(env, businessIds)) {
+      return errorResponse(CAMPAIGN_LIMIT_MESSAGE, 409);
+    }
+
     campaignId = crypto.randomUUID();
     publicCode = secureRandomHex(6).toUpperCase();
 
@@ -253,8 +311,9 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
       `INSERT INTO campaigns (
         id, business_id, name, description, public_code, status, start_at, end_at,
         require_action, google_maps_name, google_maps_url, google_place_id,
-        facebook_url, instagram_url, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        latitude, longitude,
+        facebook_url, instagram_url, play_rules, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         campaignId,
@@ -269,8 +328,11 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
         config.googleMapsName || null,
         config.googleMapsUrl || null,
         config.googlePlaceId || null,
+        placeCoordinates?.latitude ?? null,
+        placeCoordinates?.longitude ?? null,
         config.facebookUrl || null,
         config.instagramUrl || null,
+        config.playRules ? JSON.stringify(config.playRules) : null,
         now,
         now,
       )
@@ -359,10 +421,15 @@ async function handleCampaignList(request: Request, env: Env, user: Authenticate
 
 async function handleCampaignCreate(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
   const input = campaignCreateSchema.parse(await request.json());
-  const businessId = await getPrimaryBusinessId(user.id, env);
+  const businessIds = await getBusinessIds(user.id, env);
+  const businessId = businessIds[0] ?? null;
 
   if (!businessId) {
     return errorResponse('Create a business before adding campaigns.', 404);
+  }
+
+  if (await campaignsAtLimit(env, businessIds)) {
+    return errorResponse(CAMPAIGN_LIMIT_MESSAGE, 409);
   }
 
   const now = new Date().toISOString();
@@ -370,11 +437,43 @@ async function handleCampaignCreate(request: Request, env: Env, user: Authentica
   const publicCode = secureRandomHex(6).toUpperCase();
 
   await env.DB.prepare(
-    `INSERT INTO campaigns (id, business_id, name, description, public_code, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'DRAFT', ?, ?)`,
+    `INSERT INTO campaigns (id, business_id, name, description, public_code, status, start_at, end_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(id, businessId, input.name, input.description, publicCode, now, now)
+    .bind(
+      id,
+      businessId,
+      input.name,
+      input.description,
+      publicCode,
+      input.status,
+      input.startAt || null,
+      input.endAt || null,
+      now,
+      now,
+    )
     .run();
+
+  // Auto-create a default QR code for the campaign so it appears in QR Codes page
+  try {
+    const qrId = crypto.randomUUID();
+    const qrPublicCode = secureRandomHex(8).toUpperCase();
+    await env.DB.prepare(
+      `INSERT INTO qr_codes (id, business_id, campaign_id, public_code, name, location, active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+    )
+      .bind(qrId, businessId, id, qrPublicCode, input.name, '', now)
+      .run();
+    await writeAuditLog(env, {
+      businessId,
+      userId: user.id,
+      action: 'qr_code.created',
+      entityType: 'qr_code',
+      entityId: qrId,
+    });
+  } catch (err) {
+    console.error('Failed to auto-create QR code for campaign', err);
+  }
 
   await writeAuditLog(env, {
     businessId,
@@ -398,6 +497,15 @@ async function handleCampaignPatch(
   const campaign = await findCampaignForUser(campaignId, businessIds, env);
 
   if (!campaign) return errorResponse('Campaign not found.', 404);
+
+  const dates = await env.DB.prepare('SELECT start_at, end_at FROM campaigns WHERE id = ? LIMIT 1')
+    .bind(campaign.id)
+    .first<{ start_at: string | null; end_at: string | null }>();
+  const startAt = input.startAt !== undefined ? input.startAt : dates?.start_at ?? '';
+  const endAt = input.endAt !== undefined ? input.endAt : dates?.end_at ?? '';
+  if (startAt && endAt && Date.parse(endAt) < Date.parse(startAt)) {
+    return errorResponse('End date must be on or after the start date.', 400);
+  }
 
   const updates: string[] = [];
   const params: unknown[] = [];
@@ -458,15 +566,19 @@ async function handleCampaignDuplicate(
 
   if (!source) return errorResponse('Campaign not found.', 404);
 
+  if (await campaignsAtLimit(env, businessIds)) {
+    return errorResponse(CAMPAIGN_LIMIT_MESSAGE, 409);
+  }
+
   const now = new Date().toISOString();
   const newId = crypto.randomUUID();
   const publicCode = secureRandomHex(6).toUpperCase();
 
-  await env.DB.prepare(
-    `INSERT INTO campaigns (${CAMPAIGN_COLUMNS})
-     VALUES (?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
+  const copyStatements: Array<ReturnType<typeof env.DB.prepare>> = [
+    env.DB.prepare(
+      `INSERT INTO campaigns (${CAMPAIGN_COLUMNS})
+       VALUES (?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
       newId,
       source.business_id,
       `${source.name} (copy)`,
@@ -484,34 +596,59 @@ async function handleCampaignDuplicate(
       source.instagram_url,
       now,
       now,
-    )
-    .run();
+      source.play_rules,
+      source.latitude ?? null,
+      source.longitude ?? null,
+    ),
+  ];
 
   const rewards = await loadRewards(env, source.id);
-  if (rewards.length) {
-    for (const reward of rewards) {
-      await env.DB.prepare(
+  for (const reward of rewards) {
+    copyStatements.push(
+      env.DB.prepare(
         `INSERT INTO rewards (id, business_id, campaign_id, name, type, value, description,
                               quantity, quantity_initial, weight, active, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-        .bind(
-          crypto.randomUUID(),
-          source.business_id,
-          newId,
-          reward.name,
-          reward.type,
-          reward.value,
-          reward.description,
-          reward.quantity,
-          reward.quantity_initial ?? reward.quantity,
-          reward.weight,
-          reward.active,
-          now,
-          now,
-        )
-        .run();
-    }
+      ).bind(
+        crypto.randomUUID(),
+        source.business_id,
+        newId,
+        reward.name,
+        reward.type,
+        reward.value,
+        reward.description,
+        reward.quantity,
+        reward.quantity_initial ?? reward.quantity,
+        reward.weight,
+        reward.active,
+        now,
+        now,
+      ),
+    );
+  }
+
+  // The copy and its rewards land together — never a campaign without them.
+  await env.DB.batch(copyStatements);
+
+  // Auto-create a default QR code so the duplicated campaign appears in QR Codes page.
+  try {
+    const qrId = crypto.randomUUID();
+    const qrPublicCode = secureRandomHex(8).toUpperCase();
+    await env.DB.prepare(
+      `INSERT INTO qr_codes (id, business_id, campaign_id, public_code, name, location, active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+    )
+      .bind(qrId, source.business_id, newId, qrPublicCode, `${source.name} (copy)`, '', now)
+      .run();
+    await writeAuditLog(env, {
+      businessId: source.business_id,
+      userId: user.id,
+      action: 'qr_code.created',
+      entityType: 'qr_code',
+      entityId: qrId,
+    });
+  } catch (err) {
+    console.error('Failed to auto-create QR code for duplicated campaign', err);
   }
 
   await writeAuditLog(env, {
@@ -607,6 +744,45 @@ async function handleCampaignDetail(
   });
 }
 
+/**
+ * P2-4 escape hatch: delete spin-claim rows older than `before` (default now)
+ * so blocked contact addresses become usable again. Only the D1 claims are
+ * cleared — the per-browser Durable Object claims live with that browser.
+ */
+async function handleCampaignClaimsExpire(
+  request: Request,
+  env: Env,
+  user: AuthenticatedUser,
+  campaignId: string,
+): Promise<Response> {
+  const businessIds = await getBusinessIds(user.id, env);
+  const campaign = await findCampaignForUser(campaignId, businessIds, env);
+
+  if (!campaign) return errorResponse('Campaign not found.', 404);
+
+  const body = claimsExpireSchema.parse(await request.json().catch(() => ({})));
+  const before = body.before ?? new Date().toISOString();
+
+  const result = await env.DB.prepare(
+    `DELETE FROM spin_claims WHERE campaign_id = ? AND created_at < ?`,
+  )
+    .bind(campaign.id, before)
+    .run();
+
+  const expired = Number(result.meta.changes ?? 0);
+
+  await writeAuditLog(env, {
+    businessId: campaign.business_id,
+    userId: user.id,
+    action: 'campaign.claims_expired',
+    entityType: 'campaign',
+    entityId: campaign.id,
+    metadata: { before, expired },
+  });
+
+  return jsonResponse({ success: true, expired, before });
+}
+
 export async function handleCampaignRoute(
   request: Request,
   env: Env,
@@ -631,6 +807,13 @@ export async function handleCampaignRoute(
     const duplicateMatch = DUPLICATE_PATTERN.exec(path);
     if (duplicateMatch?.[1]) {
       if (request.method === 'POST') return await handleCampaignDuplicate(request, env, user, duplicateMatch[1]);
+      return errorResponse('Method not allowed.', 405);
+    }
+
+    const claimsExpireMatch = CLAIMS_EXPIRE_PATTERN.exec(path);
+    if (claimsExpireMatch?.[1]) {
+      if (request.method === 'POST')
+        return await handleCampaignClaimsExpire(request, env, user, claimsExpireMatch[1]);
       return errorResponse('Method not allowed.', 405);
     }
 

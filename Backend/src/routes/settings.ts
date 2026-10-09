@@ -2,20 +2,43 @@ import { z } from 'zod';
 import { errorResponse, jsonResponse } from '../lib/http';
 import { hashPassword, sha256Hex, verifyPassword } from '../lib/crypto';
 import {
-  changePlanSchema,
   passwordChangeSchema,
   profileUpdateSchema,
+  subscribeRequestSchema,
   businessSettingsSchema,
+  logoUploadSchema,
+  wheelThemeSchema,
+  wheelThemeToStorage,
+  parseWheelTheme,
+  resolveWheelTheme,
+  DEFAULT_WHEEL_THEME,
+  type WheelTheme,
 } from '../lib/validation';
 import { getAuthenticatedUser, getPrimaryBusinessId, writeAuditLog } from '../lib/tenant';
+import { buildSubscriptionWhatsAppUrl } from '../lib/whatsapp';
+import { getBusinessAccess } from '../lib/subscription-access';
+import { wheelCenterLogoAllowed, wheelDesignAllowed } from '../lib/subscription-limits';
+import { getEffectiveFeatures } from '../lib/feature-access';
 import type { AuthenticatedUser } from '../lib/tenant';
 import type { Env } from '../types';
 
 const PROFILE_PATH = '/api/profile';
 const PROFILE_PASSWORD_PATH = '/api/profile/password';
 const SETTINGS_PATH = '/api/settings';
+const LOGO_PATH = '/api/settings/logo';
+const WHEEL_THEME_PATH = '/api/settings/wheel-theme';
+const WHEEL_LOGO_PATH = '/api/settings/wheel-logo';
+const PUBLIC_LOGO_PATH = '/api/public/businesses';
 const BILLING_PATH = '/api/billing';
-const BILLING_PLAN_PATH = '/api/billing/change-plan';
+const BILLING_SUBSCRIBE_PATH = '/api/billing/subscribe-request';
+
+export function businessLogoPath(businessId: string): string {
+  return `${PUBLIC_LOGO_PATH}/${businessId}/logo`;
+}
+
+export function businessWheelLogoPath(businessId: string): string {
+  return `${PUBLIC_LOGO_PATH}/${businessId}/wheel-logo`;
+}
 
 type BusinessRow = {
   id: string;
@@ -35,6 +58,10 @@ type SettingsRow = {
   google_place_id: string | null;
   facebook_url: string | null;
   instagram_url: string | null;
+  twitter_url: string | null;
+  linkedin_url: string | null;
+  tiktok_url: string | null;
+  youtube_url: string | null;
   notifications: string | null;
 };
 
@@ -56,7 +83,7 @@ function parseJson<T>(value: string | null, fallback: T): T {
 
 async function handleProfileGet(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
   const profile = await env.DB.prepare(
-    `SELECT id, email, first_name, last_name, avatar_url, email_verified, created_at
+    `SELECT id, email, first_name, last_name, avatar_url, email_verified, password_hash, created_at
      FROM users WHERE id = ? LIMIT 1`,
   )
     .bind(user.id)
@@ -83,6 +110,7 @@ async function handleProfileGet(request: Request, env: Env, user: AuthenticatedU
       lastName: profile.last_name,
       avatarUrl: profile.avatar_url ?? '',
       emailVerified: Number(profile.email_verified ?? 0) === 1,
+      hasPassword: Boolean(profile.password_hash),
       createdAt: profile.created_at,
       businesses: businessIds.results ?? [],
     },
@@ -185,7 +213,8 @@ async function loadBusinessSettings(env: Env, userId: string): Promise<Response>
   if (!business) return errorResponse('Create a business before configuring settings.', 404);
 
   const settingsRow = await env.DB.prepare(
-    `SELECT google_maps_name, google_maps_url, google_place_id, facebook_url, instagram_url, notifications
+    `SELECT google_maps_name, google_maps_url, google_place_id, facebook_url, instagram_url,
+            twitter_url, linkedin_url, tiktok_url, youtube_url, notifications
      FROM business_settings WHERE business_id = ? LIMIT 1`,
   )
     .bind(businessId)
@@ -195,7 +224,8 @@ async function loadBusinessSettings(env: Env, userId: string): Promise<Response>
     const now = new Date().toISOString();
     await env.DB.prepare(
       `INSERT INTO business_settings (id, business_id, timezone, notifications, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(business_id) DO NOTHING`,
     )
       .bind(crypto.randomUUID(), businessId, business.timezone ?? 'UTC', JSON.stringify(DEFAULT_NOTIFICATIONS), now, now)
       .run();
@@ -223,6 +253,10 @@ async function loadBusinessSettings(env: Env, userId: string): Promise<Response>
       googlePlaceId: settingsRow?.google_place_id ?? '',
       facebookUrl: settingsRow?.facebook_url ?? '',
       instagramUrl: settingsRow?.instagram_url ?? '',
+      twitterUrl: settingsRow?.twitter_url ?? '',
+      linkedinUrl: settingsRow?.linkedin_url ?? '',
+      tiktokUrl: settingsRow?.tiktok_url ?? '',
+      youtubeUrl: settingsRow?.youtube_url ?? '',
       primaryColor: branding?.primary_color ?? '#4f46e5',
       secondaryColor: branding?.secondary_color ?? '#10b981',
       notifications: parseJson(settingsRow?.notifications ?? null, DEFAULT_NOTIFICATIONS),
@@ -271,6 +305,10 @@ async function handleSettingsUpdate(request: Request, env: Env, user: Authentica
     google_place_id: input.googlePlaceId,
     facebook_url: input.facebookUrl,
     instagram_url: input.instagramUrl,
+    twitter_url: input.twitterUrl,
+    linkedin_url: input.linkedinUrl,
+    tiktok_url: input.tiktokUrl,
+    youtube_url: input.youtubeUrl,
     timezone: input.timezone,
   };
 
@@ -302,7 +340,8 @@ async function handleSettingsUpdate(request: Request, env: Env, user: Authentica
     const now = new Date().toISOString();
     await env.DB.prepare(
       `INSERT INTO business_settings (id, business_id, timezone, notifications, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(business_id) DO NOTHING`,
     )
       .bind(
         crypto.randomUUID(),
@@ -344,7 +383,8 @@ async function handleSettingsUpdate(request: Request, env: Env, user: Authentica
     if (!branding) {
       await env.DB.prepare(
         `INSERT INTO business_branding (id, business_id, primary_color, secondary_color, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(business_id) DO NOTHING`,
       )
         .bind(
           crypto.randomUUID(),
@@ -364,7 +404,8 @@ async function handleSettingsUpdate(request: Request, env: Env, user: Authentica
     const now = new Date().toISOString();
     await env.DB.prepare(
       `INSERT INTO business_branding (id, business_id, primary_color, secondary_color, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(business_id) DO NOTHING`,
     )
       .bind(crypto.randomUUID(), businessId, '#4f46e5', '#10b981', now, now)
       .run();
@@ -386,14 +427,14 @@ async function handleBillingGet(request: Request, env: Env, user: AuthenticatedU
   const businessId = await getPrimaryBusinessId(user.id, env);
   if (!businessId) return errorResponse('Create a business before opening billing.', 404);
 
-  const [plans, subscription, usage] = await Promise.all([
+  const [plans, subscription, usage, pendingRequest, access, features] = await Promise.all([
     env.DB.prepare(
       `SELECT id, name, slug, price_cents, interval, features, active
        FROM plans WHERE active = 1 ORDER BY price_cents ASC`,
     )
       .all<Record<string, unknown>>(),
     env.DB.prepare(
-      `SELECT s.id, s.status, s.current_period_end, s.plan_id, p.name, p.slug, p.price_cents, p.interval
+      `SELECT s.id, s.status, s.updated_at, s.current_period_end, s.plan_id, p.name, p.slug, p.price_cents, p.interval
        FROM subscriptions s
        LEFT JOIN plans p ON p.id = s.plan_id
        WHERE s.business_id = ?
@@ -408,7 +449,22 @@ async function handleBillingGet(request: Request, env: Env, user: AuthenticatedU
     )
       .bind(businessId, businessId)
       .first<{ campaigns: number; customers: number }>(),
+    env.DB.prepare(
+      `SELECT r.id, r.created_at, p.name, p.slug
+       FROM subscription_requests r
+       JOIN plans p ON p.id = r.plan_id
+       WHERE r.business_id = ? AND r.status = 'PENDING'
+       ORDER BY r.created_at DESC LIMIT 1`,
+    )
+      .bind(businessId)
+      .first<{ id: string; created_at: string; name: string; slug: string }>(),
+    getBusinessAccess(env, businessId),
+    getEffectiveFeatures(env, businessId),
   ]);
+
+  const subscriptionStatus = subscription
+    ? access.state === 'expired' ? 'expired' : access.state === 'trial' ? 'trialing' : describeSubscriptionStatus(subscription)
+    : null;
 
   return jsonResponse({
     success: true,
@@ -422,10 +478,12 @@ async function handleBillingGet(request: Request, env: Env, user: AuthenticatedU
         features: [],
       }),
     })),
+    access,
     subscription: subscription
       ? {
           id: subscription.id,
-          status: subscription.status,
+          status: subscriptionStatus ?? 'expired',
+          currentPeriodStart: subscription.updated_at,
           currentPeriodEnd: subscription.current_period_end,
           plan: {
             id: subscription.plan_id,
@@ -436,58 +494,365 @@ async function handleBillingGet(request: Request, env: Env, user: AuthenticatedU
           },
         }
       : null,
+    pendingRequest: pendingRequest
+      ? {
+          id: pendingRequest.id,
+          plan: { name: pendingRequest.name, slug: pendingRequest.slug },
+          createdAt: pendingRequest.created_at,
+        }
+      : null,
     usage: {
       campaigns: usage?.campaigns ?? 0,
       customers: usage?.customers ?? 0,
     },
+    features,
   });
 }
 
-async function handleChangePlan(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
-  const input = changePlanSchema.parse(await request.json());
-  const businessId = await getPrimaryBusinessId(user.id, env);
-  if (!businessId) return errorResponse('Create a business before changing plans.', 404);
+/**
+ * Nothing renews automatically in this app, so an "active" row whose period
+ * already elapsed is reported as expired instead of silently looking current.
+ */
+function describeSubscriptionStatus(subscription: Record<string, unknown> | null | undefined): string {
+  const status = String(subscription?.status ?? '');
+  const periodEnd = subscription?.current_period_end;
 
-  const plan = await env.DB.prepare('SELECT id, name, slug FROM plans WHERE slug = ? AND active = 1 LIMIT 1')
+  if (
+    ['active', 'trialing'].includes(status.toLowerCase()) &&
+    typeof periodEnd === 'string' &&
+    Date.parse(periodEnd) < Date.now()
+  ) {
+    return 'expired';
+  }
+
+  return status;
+}
+
+/**
+ * There is no online payment in Tunisia: the merchant records the plan they
+ * want and the owner confirms the transfer over WhatsApp, then activates it
+ * from the operator console.
+ */
+async function handleSubscribeRequest(
+  request: Request,
+  env: Env,
+  user: AuthenticatedUser,
+): Promise<Response> {
+  const input = subscribeRequestSchema.parse(await request.json());
+  const businessId = await getPrimaryBusinessId(user.id, env);
+  if (!businessId) return errorResponse('Create a business before subscribing.', 404);
+
+  const plan = await env.DB.prepare(
+    'SELECT id, name, slug, price_cents, interval FROM plans WHERE slug = ? AND active = 1 LIMIT 1',
+  )
     .bind(input.planSlug)
-    .first<{ id: string; name: string; slug: string }>();
+    .first<{ id: string; name: string; slug: string; price_cents: number; interval: string }>();
 
   if (!plan) return errorResponse('Plan not found.', 404);
 
-  const now = new Date().toISOString();
-  const periodEnd = new Date(Date.now() + 30 * 86400_000).toISOString();
-
-  const existing = await env.DB.prepare(
-    'SELECT id FROM subscriptions WHERE business_id = ? ORDER BY created_at DESC LIMIT 1',
+  const pending = await env.DB.prepare(
+    `SELECT id FROM subscription_requests WHERE business_id = ? AND status = 'PENDING' LIMIT 1`,
   )
     .bind(businessId)
     .first<{ id: string }>();
 
-  if (existing) {
-    await env.DB.prepare(
-      `UPDATE subscriptions SET plan_id = ?, status = 'active', current_period_end = ?, updated_at = ? WHERE id = ?`,
-    )
-      .bind(plan.id, periodEnd, now, existing.id)
-      .run();
-  } else {
-    await env.DB.prepare(
-      `INSERT INTO subscriptions (id, business_id, plan_id, status, current_period_end, created_at, updated_at)
-       VALUES (?, ?, ?, 'active', ?, ?, ?)`,
-    )
-      .bind(crypto.randomUUID(), businessId, plan.id, periodEnd, now, now)
-      .run();
+  if (pending) {
+    return errorResponse('A request is already awaiting validation.', 409);
   }
+
+  const business = await env.DB.prepare('SELECT name FROM businesses WHERE id = ? LIMIT 1')
+    .bind(businessId)
+    .first<{ name: string }>();
+
+  const now = new Date().toISOString();
+  const requestId = crypto.randomUUID();
+
+  await env.DB.prepare(
+    `INSERT INTO subscription_requests (id, business_id, user_id, plan_id, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'PENDING', ?, ?)`,
+  )
+    .bind(requestId, businessId, user.id, plan.id, now, now)
+    .run();
 
   await writeAuditLog(env, {
     businessId,
     userId: user.id,
-    action: 'billing.plan_changed',
-    entityType: 'subscription',
-    entityId: plan.id,
+    action: 'billing.subscription_requested',
+    entityType: 'subscription_request',
+    entityId: requestId,
     metadata: { planSlug: plan.slug },
   });
 
-  return handleBillingGet(request, env, user);
+  return jsonResponse({
+    success: true,
+    requestId,
+    plan: { id: plan.id, name: plan.name, slug: plan.slug },
+    whatsappUrl: buildSubscriptionWhatsAppUrl({
+      reference: requestId.slice(0, 8).toUpperCase(),
+      planName: plan.name,
+      priceCents: plan.price_cents,
+      interval: plan.interval,
+      businessName: business?.name ?? 'Mon espace',
+    }),
+  });
+}
+
+async function handleLogoUpload(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
+  const input = logoUploadSchema.parse(await request.json());
+  const businessId = await getPrimaryBusinessId(user.id, env);
+  if (!businessId) return errorResponse('Create a business before adding a logo.', 404);
+
+  const now = new Date().toISOString();
+
+  await env.DB.prepare(
+    `INSERT INTO business_logos (id, business_id, mime_type, image_data, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(business_id) DO UPDATE SET
+       mime_type = excluded.mime_type,
+       image_data = excluded.image_data,
+       updated_at = excluded.updated_at`,
+  )
+    .bind(crypto.randomUUID(), businessId, input.mimeType, input.dataBase64, now, now)
+    .run();
+
+  await env.DB.prepare('UPDATE businesses SET logo = ?, updated_at = ? WHERE id = ?')
+    .bind(businessLogoPath(businessId), now, businessId)
+    .run();
+
+  await writeAuditLog(env, {
+    businessId,
+    userId: user.id,
+    action: 'business.logo.updated',
+    entityType: 'business',
+    entityId: businessId,
+  });
+
+  return jsonResponse({ success: true, logo: businessLogoPath(businessId) });
+}
+
+async function handleLogoDelete(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
+  const businessId = await getPrimaryBusinessId(user.id, env);
+  if (!businessId) return errorResponse('Create a business before removing a logo.', 404);
+
+  const now = new Date().toISOString();
+
+  await env.DB.prepare('DELETE FROM business_logos WHERE business_id = ?').bind(businessId).run();
+  await env.DB.prepare('UPDATE businesses SET logo = NULL, updated_at = ? WHERE id = ?')
+    .bind(now, businessId)
+    .run();
+
+  await writeAuditLog(env, {
+    businessId,
+    userId: user.id,
+    action: 'business.logo.deleted',
+    entityType: 'business',
+    entityId: businessId,
+  });
+
+  return jsonResponse({ success: true, logo: '' });
+}
+
+async function loadWheelThemeState(env: Env, businessId: string) {
+  return env.DB.prepare(
+    'SELECT wheel_theme, wheel_theme_override FROM businesses WHERE id = ?',
+  )
+    .bind(businessId)
+    .first<{
+      wheel_theme: string | null;
+      wheel_theme_override: string | null;
+    }>();
+}
+
+async function handleWheelThemeGet(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
+  const businessId = await getPrimaryBusinessId(user.id, env);
+  if (!businessId) return errorResponse('Create a business before configuring the wheel design.', 404);
+
+  const access = await getBusinessAccess(env, businessId);
+  const row = await loadWheelThemeState(env, businessId);
+
+  const theme = parseWheelTheme(row?.wheel_theme);
+  const override = parseWheelTheme(row?.wheel_theme_override);
+  const designAllowed = wheelDesignAllowed(access.plan.slug, access.plan.features.limits);
+  const centerLogoAllowed = wheelCenterLogoAllowed(access.plan.slug, access.plan.features.limits);
+
+  return jsonResponse({
+    success: true,
+    designAllowed,
+    centerLogoAllowed,
+    planSlug: access.plan.slug,
+    planName: access.plan.name,
+    theme,
+    override,
+    effective: resolveWheelTheme({
+      merchantTheme: row?.wheel_theme,
+      overrideTheme: row?.wheel_theme_override,
+      designAllowed,
+      centerLogoAllowed,
+    }),
+    centerLogo: businessWheelLogoPath(businessId),
+  });
+}
+
+/**
+ * Plan flags first: colors/motion are a Business-tier edit, the hub logo
+ * ships from the Pro tier up. There is no per-account grant anymore.
+ */
+async function handleWheelThemePut(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
+  const input = wheelThemeSchema.parse(await request.json());
+  const businessId = await getPrimaryBusinessId(user.id, env);
+  if (!businessId) return errorResponse('Create a business before configuring the wheel design.', 404);
+
+  const access = await getBusinessAccess(env, businessId);
+  const designAllowed = wheelDesignAllowed(access.plan.slug, access.plan.features.limits);
+  const centerLogoAllowed = wheelCenterLogoAllowed(access.plan.slug, access.plan.features.limits);
+  if (!designAllowed && !centerLogoAllowed) {
+    return errorResponse(
+      'Custom wheel design requires the Business plan and the center logo requires the Pro plan. Upgrade from Billing.',
+      403,
+    );
+  }
+
+  // Without the design flag the saved colors and motion stay untouched (the
+  // resolver keeps them hidden); only the hub toggle tracks the plan flag.
+  const existing = parseWheelTheme((await loadWheelThemeState(env, businessId))?.wheel_theme);
+  const stored: WheelTheme = {
+    colors: designAllowed ? input.colors : existing?.colors ?? DEFAULT_WHEEL_THEME.colors,
+    motion: designAllowed ? input.motion : existing?.motion ?? DEFAULT_WHEEL_THEME.motion,
+    centerLogo: centerLogoAllowed ? input.centerLogo : false,
+  };
+
+  const now = new Date().toISOString();
+  await env.DB.prepare('UPDATE businesses SET wheel_theme = ?, updated_at = ? WHERE id = ?')
+    .bind(wheelThemeToStorage(stored), now, businessId)
+    .run();
+
+  await writeAuditLog(env, {
+    businessId,
+    userId: user.id,
+    action: 'business.wheel_theme.updated',
+    entityType: 'business',
+    entityId: businessId,
+    metadata: { preset: stored.motion.preset, centerLogo: stored.centerLogo },
+  });
+
+  return jsonResponse({ success: true, theme: stored, designAllowed, centerLogoAllowed });
+}
+
+async function handleWheelLogoUpload(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
+  const input = logoUploadSchema.parse(await request.json());
+  const businessId = await getPrimaryBusinessId(user.id, env);
+  if (!businessId) return errorResponse('Create a business before adding a wheel logo.', 404);
+
+  const access = await getBusinessAccess(env, businessId);
+  if (!wheelCenterLogoAllowed(access.plan.slug, access.plan.features.limits)) {
+    return errorResponse('The center wheel logo is available on the Pro plan and above. Upgrade from Billing.', 403);
+  }
+
+  const now = new Date().toISOString();
+
+  await env.DB.prepare(
+    `INSERT INTO business_wheel_logos (id, business_id, mime_type, image_data, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(business_id) DO UPDATE SET
+       mime_type = excluded.mime_type,
+       image_data = excluded.image_data,
+       updated_at = excluded.updated_at`,
+  )
+    .bind(crypto.randomUUID(), businessId, input.mimeType, input.dataBase64, now, now)
+    .run();
+
+  await writeAuditLog(env, {
+    businessId,
+    userId: user.id,
+    action: 'business.wheel_logo.updated',
+    entityType: 'business',
+    entityId: businessId,
+  });
+
+  return jsonResponse({ success: true, logo: businessWheelLogoPath(businessId) });
+}
+
+async function handleWheelLogoDelete(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
+  const businessId = await getPrimaryBusinessId(user.id, env);
+  if (!businessId) return errorResponse('Create a business before removing a wheel logo.', 404);
+
+  await env.DB.prepare('DELETE FROM business_wheel_logos WHERE business_id = ?').bind(businessId).run();
+
+  await writeAuditLog(env, {
+    businessId,
+    userId: user.id,
+    action: 'business.wheel_logo.deleted',
+    entityType: 'business',
+    entityId: businessId,
+  });
+
+  return jsonResponse({ success: true, logo: '' });
+}
+
+/** Serves the stored center-hub image so the public wheel can render it. */
+export async function handlePublicWheelLogoRoute(request: Request, env: Env): Promise<Response> {
+  const match = /^\/api\/public\/businesses\/([^/]+)\/wheel-logo$/.exec(new URL(request.url).pathname);
+  if (!match?.[1]) return errorResponse('Wheel logo not found.', 404);
+
+  const logo = await env.DB.prepare(
+    'SELECT mime_type, image_data FROM business_wheel_logos WHERE business_id = ? LIMIT 1',
+  )
+    .bind(match[1])
+    .first<{ mime_type: string; image_data: string }>();
+
+  if (!logo) return errorResponse('Wheel logo not found.', 404);
+
+  let bytes: Uint8Array;
+  try {
+    const binary = atob(logo.image_data);
+    bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+  } catch {
+    return errorResponse('Wheel logo not found.', 404);
+  }
+
+  return new Response(bytes, {
+    headers: {
+      'content-type': logo.mime_type,
+      'content-length': String(bytes.byteLength),
+      'cache-control': 'public, max-age=300',
+    },
+  });
+}
+
+/** Serves the stored logo image for a business so the public wheel can render it. */
+export async function handlePublicLogoRoute(request: Request, env: Env): Promise<Response> {
+  const match = /^\/api\/public\/businesses\/([^/]+)\/logo$/.exec(new URL(request.url).pathname);
+  if (!match?.[1]) return errorResponse('Logo not found.', 404);
+
+  const logo = await env.DB.prepare(
+    'SELECT mime_type, image_data FROM business_logos WHERE business_id = ? LIMIT 1',
+  )
+    .bind(match[1])
+    .first<{ mime_type: string; image_data: string }>();
+
+  if (!logo) return errorResponse('Logo not found.', 404);
+
+  let bytes: Uint8Array;
+  try {
+    const binary = atob(logo.image_data);
+    bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+  } catch {
+    return errorResponse('Logo not found.', 404);
+  }
+
+  return new Response(bytes, {
+    headers: {
+      'content-type': logo.mime_type,
+      'content-length': String(bytes.byteLength),
+      'cache-control': 'public, max-age=300',
+    },
+  });
 }
 
 /** Profile, settings/integrations and billing for the signed-in merchant. */
@@ -499,6 +864,15 @@ export async function handleSettingsRoute(request: Request, env: Env): Promise<R
   }
 
   const path = new URL(request.url).pathname;
+
+  const billingRequest = path === BILLING_SUBSCRIBE_PATH && request.method === 'POST';
+  if (request.method !== 'GET' && !billingRequest) {
+    const businessId = await getPrimaryBusinessId(user.id, env);
+    const access = businessId ? await getBusinessAccess(env, businessId) : null;
+    if (!access?.canManage) {
+      return errorResponse('This account is read-only. Activate a plan from Billing to change account settings.', 403);
+    }
+  }
 
   try {
     if (path === PROFILE_PATH) {
@@ -522,13 +896,31 @@ export async function handleSettingsRoute(request: Request, env: Env): Promise<R
       return errorResponse('Method not allowed.', 405);
     }
 
+    if (path === LOGO_PATH) {
+      if (request.method === 'POST' || request.method === 'PUT') return await handleLogoUpload(request, env, user);
+      if (request.method === 'DELETE') return await handleLogoDelete(request, env, user);
+      return errorResponse('Method not allowed.', 405);
+    }
+
+    if (path === WHEEL_THEME_PATH) {
+      if (request.method === 'GET') return await handleWheelThemeGet(request, env, user);
+      if (request.method === 'PUT' || request.method === 'PATCH') return await handleWheelThemePut(request, env, user);
+      return errorResponse('Method not allowed.', 405);
+    }
+
+    if (path === WHEEL_LOGO_PATH) {
+      if (request.method === 'POST' || request.method === 'PUT') return await handleWheelLogoUpload(request, env, user);
+      if (request.method === 'DELETE') return await handleWheelLogoDelete(request, env, user);
+      return errorResponse('Method not allowed.', 405);
+    }
+
     if (path === BILLING_PATH) {
       if (request.method === 'GET') return await handleBillingGet(request, env, user);
       return errorResponse('Method not allowed.', 405);
     }
 
-    if (path === BILLING_PLAN_PATH) {
-      if (request.method === 'POST') return await handleChangePlan(request, env, user);
+    if (path === BILLING_SUBSCRIBE_PATH) {
+      if (request.method === 'POST') return await handleSubscribeRequest(request, env, user);
       return errorResponse('Method not allowed.', 405);
     }
 
@@ -542,3 +934,6 @@ export async function handleSettingsRoute(request: Request, env: Env): Promise<R
     return errorResponse('Unable to process the request.', 500);
   }
 }
+
+
+

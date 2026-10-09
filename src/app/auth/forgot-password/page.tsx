@@ -1,9 +1,16 @@
 'use client';
 
 import { useState } from 'react';
+import { Mail } from 'lucide-react';
 import { AuthService } from '@/services/auth.service';
+import { Button } from '@/components/ui/button';
+import { Field } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { interpolate } from '@/lib/i18n';
+import { useT } from '@/hooks/use-t';
 
 export default function ForgotPasswordPage() {
+  const t = useT();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -18,47 +25,58 @@ export default function ForgotPasswordPage() {
       await AuthService.forgotPassword(email);
       setSent(true);
     } catch {
-      setError('Impossible d’envoyer le lien pour le moment. Merci de réessayer.');
+      setError(t.auth.forgotFailed);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-2 text-center">
-        <h2 className="text-2xl font-semibold text-slate-900">Réinitialiser votre mot de passe</h2>
-        <p className="text-sm text-slate-600">Saisissez votre e-mail pour recevoir un lien de récupération.</p>
+    <div className="space-y-5">
+      <div className="space-y-1.5 text-center">
+        <h2 className="text-[22px] font-semibold tracking-[-0.02em] text-ink">
+          {t.auth.forgotTitle}
+        </h2>
+        <p className="text-[13.5px] leading-relaxed text-ink-muted">
+          {t.auth.forgotSubtitle}
+        </p>
       </div>
 
       {sent ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
-          Un e-mail de réinitialisation a été envoyé à {email}.
-        </div>
+        <p className="rounded-lg border border-success-300/60 bg-success-50 px-3 py-2.5 text-[13px] leading-relaxed text-success-800 dark:border-success-900/60 dark:bg-success-900/30 dark:text-success-200">
+          {interpolate(t.auth.forgotSent, { email })}
+        </p>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">Adresse e-mail</label>
-            <input
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Field label={t.auth.email} htmlFor="email">
+            <Input
               id="email"
               type="email"
+              required
+              inputSize="lg"
+              iconStart={<Mail />}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
-          </div>
+          </Field>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && (
+            <p className="rounded-lg border border-danger-300/60 bg-danger-50 px-3 py-2.5 text-[13px] leading-relaxed text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200">
+              {error}
+            </p>
+          )}
 
-          <button type="submit" disabled={loading} className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">
-            {loading ? 'Envoi…' : 'Envoyer le lien'}
-          </button>
+          <Button type="submit" size="lg" className="w-full" loading={loading}>
+            {loading ? t.auth.sendingLink : t.auth.sendLink}
+          </Button>
         </form>
       )}
 
-      <a href="/auth/login" className="block text-center text-sm font-medium text-indigo-600 hover:text-indigo-500">
-        Retour à la connexion
+      <a
+        href="/auth/login"
+        className="block text-center text-[13px] font-medium text-brand-700 transition-colors duration-180 ease-swift hover:text-brand-800 dark:text-accent-bright dark:hover:text-brand-300"
+      >
+        {t.auth.backToSignIn}
       </a>
     </div>
   );

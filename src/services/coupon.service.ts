@@ -86,4 +86,25 @@ export class CouponService {
 
     return { code: result.coupon.code, redeemedAt: result.coupon.redeemed_at };
   }
+
+  static async update(
+    couponId: string,
+    input: { status?: 'ISSUED' | 'REDEEMED'; expiresAt?: string },
+  ): Promise<void> {
+    await apiRequest<{ success: boolean }>(
+      'PATCH',
+      `/api/business/coupons/${encodeURIComponent(couponId)}`,
+      input,
+      'Unable to update the prize.',
+    );
+  }
+
+  static async delete(couponId: string): Promise<void> {
+    await apiRequest<{ success: boolean }>(
+      'DELETE',
+      `/api/business/coupons/${encodeURIComponent(couponId)}`,
+      undefined,
+      'Unable to delete the prize.',
+    );
+  }
 }

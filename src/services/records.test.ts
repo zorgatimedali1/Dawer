@@ -32,20 +32,22 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-describe('session header', () => {
-  it('sends the bearer token on every record request', async () => {
+describe('session credential', () => {
+  it('sends same-origin credentials and no bearer header', async () => {
     const spy = mockFetch(() => jsonResponse({ success: true, customers: [], total: 0, page: 1, limit: 20 }));
 
     await CustomerService.list();
 
     const init = spy.mock.calls[0]?.[1];
-    const headers = init?.headers as Record<string, string>;
-    expect(headers.authorization).toBe('Bearer cf_abc.def');
+    const headers = init?.headers as Record<string, string> | undefined;
+    expect(headers?.authorization).toBeUndefined();
+    expect(init?.credentials).toBe('same-origin');
   });
 
-  it('throws the server message when the session is rejected', async () => {
+  it('throws the server message and drops the cached session when rejected', async () => {
     mockFetch(() => jsonResponse({ success: false, message: 'Authentication required.' }, 401));
     await expect(CustomerService.list()).rejects.toThrow('Authentication required.');
+    expect(window.localStorage.getItem(AUTH_KEY)).toBeNull();
   });
 });
 
@@ -257,7 +259,7 @@ describe('reward and qr mapping', () => {
 
     const codes = await QrCodeService.list();
 
-    expect(codes[0]?.url).toBe(`${window.location.origin}/customer/PUBLIC123`);
+    expect(codes[0]?.url).toBe(`${window.location.origin}/wheels/PUBLIC123`);
     expect(codes[0]?.active).toBe(true);
     expect(codes[0]?.campaignParticipations).toBe(7);
   });

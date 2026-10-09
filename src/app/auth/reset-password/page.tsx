@@ -1,9 +1,18 @@
 'use client';
 
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { LockKeyhole, ShieldCheck } from 'lucide-react';
 import { AuthService } from '@/services/auth.service';
+import { Button } from '@/components/ui/button';
+import { Field } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { useT } from '@/hooks/use-t';
 
 export default function ResetPasswordPage() {
+  const t = useT();
+  const [searchParams] = useSearchParams();
+  const token = searchParams.get('token') ?? '';
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [success, setSuccess] = useState(false);
@@ -13,8 +22,13 @@ export default function ResetPasswordPage() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
 
+    if (!token) {
+      setError(t.auth.resetFailed);
+      return;
+    }
+
     if (password !== confirm) {
-      setError('Les mots de passe ne correspondent pas.');
+      setError(t.auth.passwordMismatch);
       return;
     }
 
@@ -22,60 +36,73 @@ export default function ResetPasswordPage() {
     setError(null);
 
     try {
-      await AuthService.resetPassword('demo-reset-token', password);
+      await AuthService.resetPassword(token, password);
       setSuccess(true);
     } catch {
-      setError('La réinitialisation a échoué. Merci de réessayer.');
+      setError(t.auth.resetFailed);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-2 text-center">
-        <h2 className="text-2xl font-semibold text-slate-900">Créer un nouveau mot de passe</h2>
-        <p className="text-sm text-slate-600">Choisissez un mot de passe sécurisé.</p>
+    <div className="space-y-5">
+      <div className="space-y-1.5 text-center">
+        <h2 className="text-[22px] font-semibold tracking-[-0.02em] text-ink">
+          {t.auth.resetTitle}
+        </h2>
+        <p className="text-[13.5px] leading-relaxed text-ink-muted">{t.auth.resetSubtitle}</p>
       </div>
 
       {success ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
-          Votre mot de passe a bien été réinitialisé.
-        </div>
+        <p className="rounded-lg border border-success-300/60 bg-success-50 px-3 py-2.5 text-[13px] leading-relaxed text-success-800 dark:border-success-900/60 dark:bg-success-900/30 dark:text-success-200">
+          {t.auth.resetSuccess}
+        </p>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700">Nouveau mot de passe</label>
-            <input
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Field label={t.auth.newPassword} htmlFor="password">
+            <Input
               id="password"
               type="password"
+              required
+              minLength={8}
+              inputSize="lg"
+              iconStart={<LockKeyhole />}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={8}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
-          </div>
+          </Field>
 
-          <div>
-            <label htmlFor="confirm" className="mb-1 block text-sm font-medium text-slate-700">Confirmer le mot de passe</label>
-            <input
+          <Field
+            label={t.auth.confirmPassword}
+            htmlFor="confirm"
+            error={
+              password && confirm && password !== confirm
+                ? t.auth.passwordMismatch
+                : undefined
+            }
+          >
+            <Input
               id="confirm"
               type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
               required
               minLength={8}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              inputSize="lg"
+              iconStart={<ShieldCheck />}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
             />
-            {password && confirm && password !== confirm && <p className="mt-2 text-xs text-red-600">Les mots de passe ne correspondent pas.</p>}
-          </div>
+          </Field>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && (
+            <p className="rounded-lg border border-danger-300/60 bg-danger-50 px-3 py-2.5 text-[13px] leading-relaxed text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200">
+              {error}
+            </p>
+          )}
 
-          <button type="submit" disabled={loading} className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60">
-            {loading ? 'Enregistrement…' : 'Enregistrer'}
-          </button>
+          <Button type="submit" size="lg" className="w-full" loading={loading}>
+            {loading ? t.common.saving : t.common.save}
+          </Button>
         </form>
       )}
     </div>

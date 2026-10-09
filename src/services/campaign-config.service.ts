@@ -10,6 +10,46 @@ export type RewardType =
 
 export type CampaignStatus = 'DRAFT' | 'SCHEDULED' | 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'ARCHIVED';
 
+/** Mirrors the backend `playRulesSchema`: anti-fraud rules stored on the campaign. */
+export interface PlayRules {
+  mode: 'once' | 'windowed';
+  /** Spins allowed per rolling 24 h per identity (windowed mode only). */
+  perDay: number;
+  /** Minimum minutes between two spins (windowed mode only). */
+  cooldownMinutes: number;
+  /** Spins allowed per network per rolling 24 h; 0 disables the cap. */
+  maxPlaysPerIpDay: number;
+  /** Wins allowed per rolling 24 h per identity; 0 disables the budget. */
+  winBudget: number;
+}
+
+export const DEFAULT_PLAY_RULES: PlayRules = {
+  mode: 'once',
+  perDay: 1,
+  cooldownMinutes: 0,
+  maxPlaysPerIpDay: 0,
+  winBudget: 1,
+};
+
+function parsePlayRules(raw: string | null | undefined): PlayRules | undefined {
+  if (!raw) return undefined;
+
+  try {
+    const value = JSON.parse(raw) as Partial<PlayRules>;
+    if (value.mode !== 'once' && value.mode !== 'windowed') return undefined;
+
+    return {
+      mode: value.mode,
+      perDay: Number(value.perDay ?? DEFAULT_PLAY_RULES.perDay),
+      cooldownMinutes: Number(value.cooldownMinutes ?? DEFAULT_PLAY_RULES.cooldownMinutes),
+      maxPlaysPerIpDay: Number(value.maxPlaysPerIpDay ?? DEFAULT_PLAY_RULES.maxPlaysPerIpDay),
+      winBudget: Number(value.winBudget ?? DEFAULT_PLAY_RULES.winBudget),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export interface RewardConfiguration {
   id?: string | undefined;
   name: string;
@@ -29,12 +69,13 @@ export interface CampaignConfigurationInput {
   googlePlaceId: string;
   facebookUrl: string;
   instagramUrl: string;
-  action: 'google-review' | 'instagram' | 'facebook' | 'newsletter' | 'purchase' | 'none';
+  action: 'google-review' | 'instagram' | 'facebook' | 'none';
   campaignId?: string | undefined;
   status?: CampaignStatus | undefined;
   startAt?: string | undefined;
   endAt?: string | undefined;
   rewards?: RewardConfiguration[] | undefined;
+  playRules?: PlayRules | undefined;
 }
 
 export interface SavedCampaignConfiguration extends CampaignConfigurationInput {
@@ -56,6 +97,7 @@ interface CampaignRecord {
   status?: string;
   start_at?: string | null;
   end_at?: string | null;
+  play_rules?: string | null;
 }
 
 interface RewardRecord {
@@ -69,8 +111,6 @@ interface RewardRecord {
   weight: number;
   active: number;
 }
-
-export { getSessionToken } from './http';
 
 function mapReward(record: RewardRecord): RewardConfiguration {
   return {
@@ -110,6 +150,7 @@ export class CampaignConfigService {
       startAt: campaign.start_at ?? undefined,
       endAt: campaign.end_at ?? undefined,
       rewards: (result.rewards ?? []).map(mapReward),
+      playRules: parsePlayRules(campaign.play_rules),
     };
   }
 

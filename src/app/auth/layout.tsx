@@ -1,15 +1,33 @@
 import { Outlet } from 'react-router-dom';
+import { DawerLogo } from '@/components/brand/dawer-logo';
+import { useT } from '@/hooks/use-t';
 
 export default function AuthLayout() {
+  const t = useT();
+
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.16),transparent_30%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] px-4 py-10 dark:bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.2),transparent_25%),linear-gradient(180deg,#020817_0%,#0f172a_100%)]">
-      <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 text-xl font-bold text-white shadow-lg shadow-indigo-500/30">C</div>
-          <h1 className="text-3xl font-semibold text-slate-900 dark:text-white">CampaignFlow</h1>
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Créez des campagnes et récompensez vos clients facilement.</p>
+    <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-surface-2 px-4 py-10 sm:py-14">
+      {/* Ambient brand wash. Decorative only. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="dw-grid-fade absolute inset-0" />
+        <div className="absolute -left-32 -top-40 h-[26rem] w-[26rem] rounded-full bg-brand-500/18 blur-3xl" />
+        <div className="absolute -bottom-48 -right-24 h-[24rem] w-[24rem] rounded-full bg-brand-400/14 blur-3xl dark:bg-brand-500/12" />
+      </div>
+
+      <div className="relative w-full max-w-[26rem]">
+        <div className="mb-7 flex animate-slide-down flex-col items-center gap-4 text-center">
+          <DawerLogo className="h-11 w-auto" />
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-600 dark:text-accent-bright">
+              {t.auth.eyebrow}
+            </p>
+            <p className="text-pretty text-[13.5px] leading-relaxed text-ink-muted">
+              {t.auth.tagline}
+            </p>
+          </div>
         </div>
-        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] dark:border-slate-800 dark:bg-slate-900">
+
+        <div className="animate-pop-in rounded-2xl border border-line bg-elevated p-6 shadow-card sm:p-7">
           <Outlet />
         </div>
       </div>

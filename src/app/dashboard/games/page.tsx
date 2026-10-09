@@ -2,6 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Field } from '@/components/ui/field';
+import { Input, Select, Textarea } from '@/components/ui/input';
+import { LoadingScreen } from '@/components/ui/skeleton';
+import { PageHeader } from '@/components/ui/page-header';
+import { msg } from '@/lib/i18n';
+import { useT } from '@/hooks/use-t';
 import {
   CampaignConfigService,
   type RewardConfiguration,
@@ -45,6 +52,7 @@ function segmentsFromRewards(rewards: RewardConfiguration[] | undefined): GameSe
 }
 
 export default function GamesPage() {
+  const t = useT();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [campaignId, setCampaignId] = useState('');
   const [config, setConfig] = useState<SavedCampaignConfiguration | null>(null);
@@ -64,7 +72,9 @@ export default function GamesPage() {
         setCampaigns(list);
         setCampaignId(list[0]?.id ?? '');
       })
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Unable to load campaigns.'))
+      .catch((cause: unknown) =>
+        setError(msg(t, cause instanceof Error ? cause.message : 'Unable to load campaigns.')),
+      )
       .finally(() => setLoading(false));
   }, []);
 
@@ -84,7 +94,10 @@ export default function GamesPage() {
         setSegments(segmentsFromRewards(loaded?.rewards));
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Unable to load the game configuration.');
+        if (!cancelled)
+          setError(
+            msg(t, cause instanceof Error ? cause.message : 'Unable to load the game configuration.'),
+          );
       });
 
     return () => {
@@ -126,9 +139,9 @@ export default function GamesPage() {
           active: segment.active,
         })),
       });
-      setStatus('Game configuration saved.');
+      setStatus(t.games.saved);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to save the game configuration.');
+      setError(msg(t, cause instanceof Error ? cause.message : 'Unable to save the game configuration.'));
     } finally {
       setSaving(false);
     }
@@ -139,229 +152,210 @@ export default function GamesPage() {
   };
 
   if (loading) {
-    return (
-      <div className="p-6">
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-4" />
-          <p className="text-gray-600">Loading games...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen label={t.games.loading} />;
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex justify-between items-start">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Games</h2>
-          <p className="text-sm text-gray-600">Create and manage interactive games for your campaigns</p>
-        </div>
-      </div>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        eyebrow={t.games.eyebrow}
+        title={t.games.title}
+        description={t.games.description}
+      />
 
       {error && (
-        <div className="mb-6 rounded-lg border-l-4 border-red-400 bg-red-50 p-4 text-sm text-red-700">{error}</div>
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-xl border border-danger-300/60 bg-danger-50 p-4 text-sm text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200"
+        >
+          <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-danger-500" aria-hidden />
+          {error}
+        </div>
       )}
       {status && (
-        <div className="mb-6 rounded-lg border-l-4 border-green-400 bg-green-50 p-4 text-sm text-green-700">
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-xl border border-success-300/60 bg-success-50 p-4 text-sm text-success-800 dark:border-success-900/60 dark:bg-success-900/30 dark:text-success-200"
+        >
+          <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-success-500" aria-hidden />
           {status}
         </div>
       )}
 
-      <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center space-x-4">
-            <span className="text-sm font-medium text-gray-700">Game Type:</span>
-            <select
-              value={gameType}
-              onChange={(e) => setGameType(e.target.value)}
-              className="block rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-            >
-              <option value="prize_wheel">Prize Wheel</option>
-              <option value="scratch_card">Scratch Card</option>
-              <option value="slot_machine">Slot Machine</option>
-            </select>
-          </div>
+      <Card className="p-5 sm:p-6">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={t.games.gameType} htmlFor="game-type">
+            <Select id="game-type" value={gameType} onChange={(e) => setGameType(e.target.value)}>
+              <option value="prize_wheel">{t.games.prizeWheel}</option>
+              <option value="scratch_card">{t.games.scratchCard}</option>
+              <option value="slot_machine">{t.games.slotMachine}</option>
+            </Select>
+          </Field>
 
-          <div className="flex items-center space-x-4">
-            <label htmlFor="game-campaign" className="text-sm font-medium text-gray-700">
-              Campaign:
-            </label>
-            <select
-              id="game-campaign"
-              value={campaignId}
-              onChange={(e) => setCampaignId(e.target.value)}
-              className="block rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-            >
-              <option value="">Select a campaign</option>
+          <Field label={t.games.campaign} htmlFor="game-campaign">
+            <Select id="game-campaign" value={campaignId} onChange={(e) => setCampaignId(e.target.value)}>
+              <option value="">{t.games.selectCampaign}</option>
               {campaigns.map((campaign) => (
                 <option key={campaign.id} value={campaign.id}>
                   {campaign.name}
                 </option>
               ))}
-            </select>
-          </div>
+            </Select>
+          </Field>
         </div>
-      </div>
+      </Card>
 
       {!campaignId ? (
-        <div className="rounded-lg border border-dashed border-gray-300 p-12 text-center text-gray-500">
-          {campaigns.length === 0
-            ? 'Create a campaign first, then come back to configure its game.'
-            : 'Pick a campaign to configure its prize wheel.'}
+        <div className="rounded-xl border border-dashed border-line-strong p-12 text-center text-[13px] text-ink-muted">
+          {campaigns.length === 0 ? t.games.noCampaignsHint : t.games.pickCampaignHint}
         </div>
       ) : !config ? (
-        <div className="rounded-lg border border-dashed border-gray-300 p-12 text-center text-gray-500">
-          This campaign has no saved configuration yet. Save it from the Wheel page first.
+        <div className="rounded-xl border border-dashed border-line-strong p-12 text-center text-[13px] text-ink-muted">
+          {t.games.noConfigHint}
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <div className="p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Game Configuration</h3>
+        <Card>
+          <CardHeader>
+            <CardTitle>{t.games.configTitle}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-5">
+            <Field label={t.games.gameTitle} htmlFor="game-title">
+              <Input id="game-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
+            </Field>
 
-            <div className="mb-4">
-              <label htmlFor="game-title" className="block text-sm font-medium text-gray-700 mb-1">
-                Game Title
-              </label>
-              <input
-                id="game-title"
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="block w-full rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-              />
-            </div>
-
-            <div className="mb-4">
-              <label htmlFor="game-description" className="block text-sm font-medium text-gray-700 mb-1">
-                Description
-              </label>
-              <textarea
+            <Field label={t.games.descriptionField} htmlFor="game-description">
+              <Textarea
                 id="game-description"
                 rows={3}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="block w-full rounded-md border-0 px-3 py-2 text-base text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
               />
-            </div>
+            </Field>
 
-            <div className="mb-4">
-              <label htmlFor="theme-color" className="block text-sm font-medium text-gray-700 mb-1">
-                Theme Color
-              </label>
+            <Field label={t.games.themeColor} htmlFor="theme-color">
               <input
                 id="theme-color"
                 type="color"
                 value={themeColor}
                 onChange={(e) => setThemeColor(e.target.value)}
-                className="w-12 h-12 rounded-md border-0 p-0"
+                className="h-10 w-16 cursor-pointer rounded-md border border-line bg-elevated p-1"
               />
-            </div>
+            </Field>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Live Preview</label>
-              <div className="aspect-square bg-gray-50 rounded-lg flex items-center justify-center relative overflow-hidden">
-                <div
-                  className="absolute inset-0"
-                  style={{
-                    background: `conic-gradient(${segments
-                      .map((segment, idx) => {
-                        const before = segments.slice(0, idx).reduce((sum, s) => sum + s.weight, 0);
-                        const share = totalWeight > 0 ? segment.weight / totalWeight : 0;
-                        const beforeShare = totalWeight > 0 ? before / totalWeight : 0;
-                        return `${segment.color} ${beforeShare * 360}deg ${(beforeShare + share) * 360}deg`;
-                      })
-                      .reverse()
-                      .join(', ')})`,
-                    WebkitMaskImage: 'radial-gradient(circle closest-side, white 70%, transparent 71%)',
-                    maskImage: 'radial-gradient(circle closest-side, white 70%, transparent 71%)',
-                  }}
-                />
-                <div className="relative z-10 flex items-center justify-center h-full w-full">
-                  <div className="h-12 w-12 rounded-full bg-white flex items-center justify-center shadow-lg">
-                    <span className="text-2xl font-bold">🎡</span>
+            <div>
+              <p className="text-[13px] font-medium leading-none text-ink">{t.games.livePreview}</p>
+              <div className="mt-2 aspect-square overflow-hidden rounded-xl border border-line bg-surface-2">
+                <div className="relative flex h-full w-full items-center justify-center">
+                  <div
+                    className="absolute inset-0"
+                    style={{
+                      background: `conic-gradient(${segments
+                        .map((segment, idx) => {
+                          const before = segments.slice(0, idx).reduce((sum, s) => sum + s.weight, 0);
+                          const share = totalWeight > 0 ? segment.weight / totalWeight : 0;
+                          const beforeShare = totalWeight > 0 ? before / totalWeight : 0;
+                          return `${segment.color} ${beforeShare * 360}deg ${(beforeShare + share) * 360}deg`;
+                        })
+                        .reverse()
+                        .join(', ')})`,
+                      WebkitMaskImage: 'radial-gradient(circle closest-side, white 70%, transparent 71%)',
+                      maskImage: 'radial-gradient(circle closest-side, white 70%, transparent 71%)',
+                    }}
+                  />
+                  <div className="relative z-10 flex h-full w-full items-center justify-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white shadow-card">
+                      <span className="text-2xl">🎡</span>
+                    </div>
                   </div>
                 </div>
               </div>
-              <p className="mt-2 text-xs text-gray-500 text-center">
-                Wheel preview - slice sizes mirror the live reward weights
-              </p>
+              <p className="mt-2 text-center text-xs text-ink-subtle">{t.games.wheelPreviewNote}</p>
             </div>
 
-            <div className="mb-6">
-              <label htmlFor="segments" className="block text-sm font-medium text-gray-700 mb-1">
-                Wheel Segments
-              </label>
-              <div className="space-y-3">
+            <div>
+              <p id="segments" className="text-[13px] font-medium leading-none text-ink">
+                {t.games.wheelSegments}
+              </p>
+              <div className="mt-2 space-y-2.5">
                 {segments.map((segment) => (
-                  <div key={segment.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                    <div className="flex-shrink-0 h-8 w-8" style={{ backgroundColor: segment.color }} />
-                    <div className="flex-1">
-                      <div className="flex justify-between">
-                        <input
-                          type="text"
-                          aria-label="Segment label"
-                          value={segment.label}
-                          onChange={(e) => updateSegment(segment.id, { label: e.target.value })}
-                          className="block w-full rounded-md border-0 px-2 py-1 text-sm text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600"
+                  <div
+                    key={segment.id}
+                    className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface-2/60 p-3"
+                  >
+                    <span
+                      className="h-8 w-8 shrink-0 rounded-md ring-1 ring-inset ring-black/10"
+                      style={{ backgroundColor: segment.color }}
+                      aria-hidden
+                    />
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <Input
+                        inputSize="sm"
+                        type="text"
+                        aria-label={t.games.segmentLabel}
+                        value={segment.label}
+                        onChange={(e) => updateSegment(segment.id, { label: e.target.value })}
+                        className="flex-1"
+                      />
+                      <div className="flex items-center gap-2">
+                        <span className="numeric text-xs text-ink-subtle">
+                          {totalWeight > 0 ? Math.round((segment.weight / totalWeight) * 100) : 0}%
+                        </span>
+                        <Input
+                          inputSize="sm"
+                          type="number"
+                          min="0"
+                          aria-label={t.games.segmentWeight}
+                          value={segment.weight}
+                          onChange={(e) =>
+                            updateSegment(segment.id, {
+                              weight: Math.max(0, parseInt(e.target.value, 10) || 0),
+                            })
+                          }
+                          className="numeric w-20"
                         />
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs text-gray-500">
-                            {totalWeight > 0 ? Math.round((segment.weight / totalWeight) * 100) : 0}%
-                          </span>
-                          <input
-                            type="number"
-                            min="0"
-                            aria-label="Segment weight"
-                            value={segment.weight}
-                            onChange={(e) => updateSegment(segment.id, { weight: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-                            className="w-24 rounded-md border-0 px-2 py-1 text-sm text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600"
-                          />
-                        </div>
                       </div>
                     </div>
                     <Button
-                      variant="destructive"
+                      variant="danger"
                       size="sm"
                       onClick={() => setSegments((current) => current.filter((item) => item.id !== segment.id))}
                     >
-                      Remove
+                      {t.games.remove}
                     </Button>
                   </div>
                 ))}
 
-                <div className="mt-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setSegments((current) => [
-                        ...current,
-                        {
-                          id: `new-${Date.now()}`,
-                          label: 'New Segment',
-                          color: SEGMENT_COLORS[current.length % SEGMENT_COLORS.length] ?? '#80deea',
-                          weight: 10,
-                          active: true,
-                          type: 'custom_reward',
-                          value: 0,
-                          quantity: 0,
-                        },
-                      ])
-                    }
-                  >
-                    Add Segment
-                  </Button>
-                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setSegments((current) => [
+                      ...current,
+                      {
+                        id: `new-${Date.now()}`,
+                        label: t.games.newSegment,
+                        color: SEGMENT_COLORS[current.length % SEGMENT_COLORS.length] ?? '#80deea',
+                        weight: 10,
+                        active: true,
+                        type: 'custom_reward',
+                        value: 0,
+                        quantity: 0,
+                      },
+                    ])
+                  }
+                >
+                  {t.games.addSegment}
+                </Button>
               </div>
 
-              <div className="mt-6 pt-4 border-t border-gray-200">
-                <Button onClick={handleSaveGameConfiguration} disabled={saving}>
-                  {saving ? 'Saving...' : 'Save Game Configuration'}
+              <div className="mt-6 border-t border-line pt-4">
+                <Button onClick={handleSaveGameConfiguration} disabled={saving} loading={saving}>
+                  {saving ? t.games.saving : t.games.saveConfig}
                 </Button>
               </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

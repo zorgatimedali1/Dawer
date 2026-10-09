@@ -1,0 +1,47 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "campaignflow-platform",
+	"main": "./Backend/src/platform/index.ts",
+	"compatibility_date": "2026-09-30",
+	// Custom domain (once a DNS zone is added to this Cloudflare account):
+	//   "routes": [{ "pattern": "admin.example.tn", "custom_domain": true }]
+	// then `npm run deploy:platform`.
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"assets": {
+		"binding": "STATIC_ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": [
+			"/api/*",
+			"/health"
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "campaignflow",
+			"database_id": "beb8dee4-de63-4ea8-815d-11120c54c44d",
+			"migrations_dir": "Backend/migrations",
+			"remote": true
+		}
+	],
+	// Same bucket as the main worker: operators upload partner logos here,
+	// the landing page serves them from the main worker's origin.
+	"r2_buckets": [
+		{
+			"binding": "PARTNER_LOGOS",
+			"bucket_name": "partner-logos"
+		}
+	],
+	"ratelimits": [
+		{
+			"name": "API_RATE_LIMITER",
+			"namespace_id": "92609302",
+			"simple": {
+				"limit": 60,
+				"period": 60
+			}
+		}
+	]
+}

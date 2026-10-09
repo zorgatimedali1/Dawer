@@ -52,7 +52,11 @@ describe('oauth callback page', () => {
 
     const stored = window.localStorage.getItem(AUTH_KEY);
     expect(stored).toBeTruthy();
-    expect(JSON.parse(stored ?? '{}')).toMatchObject({ token: 'cf_abc.def' });
+    // Only the profile is cached — even if a token appeared in the body it
+    // must never land in storage (P1-1).
+    const parsed = JSON.parse(stored ?? '{}') as { token?: string; user?: { email: string } };
+    expect(parsed.token).toBeUndefined();
+    expect(parsed.user).toMatchObject({ email: 'ada@example.test' });
   });
 
   it('shows a recoverable error when the cookie is missing or expired', async () => {
@@ -63,9 +67,9 @@ describe('oauth callback page', () => {
 
     renderPage();
 
-    await screen.findByText(/sign in failed/i);
-    expect(screen.getByText(/session has expired/i)).toBeTruthy();
-    expect(screen.getByRole('link', { name: /back to sign in/i })).toBeTruthy();
+    await screen.findByText(/échec de la connexion/i);
+    expect(screen.getByText(/session a expiré/i)).toBeTruthy();
+    expect(screen.getByRole('link', { name: /retour à la connexion/i })).toBeTruthy();
     expect(window.localStorage.getItem(AUTH_KEY)).toBeNull();
   });
 });

@@ -6,8 +6,20 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
+	// Custom domain (once a DNS zone is added to this Cloudflare account):
+	//   1. Uncomment and set the pattern below, then `npm run deploy`.
+	//   2. Update vars.GOOGLE_REDIRECT_URI to the new origin.
+	// The SPA and /api are served by THIS worker on the same origin, so no
+	// CORS configuration is ever needed; __Host- cookies require HTTPS, which
+	// both workers.dev and custom domains provide.
+	// "routes": [
+	// 	{ "pattern": "app.example.tn", "custom_domain": true }
+	// ],
 	"assets": {
 		"binding": "STATIC_ASSETS",
+		// Required for direct `wrangler dev/deploy --config wrangler.jsonc`
+		// (the Vite build rewrites this for its own generated config).
+		"directory": "dist/client",
 		"not_found_handling": "single-page-application",
 		"run_worker_first": [
 			"/api/*",
@@ -16,9 +28,50 @@
 	},
 	"vars": {
 		"APP_ENV": "development",
-		"GOOGLE_CLIENT_ID": "",
-		"GOOGLE_CLIENT_SECRET": "",
-		"GOOGLE_REDIRECT_URI": "http://localhost:8787/api/auth/google/callback"
+		// Google OAuth client id/secret are secrets, not vars:
+		//   npx wrangler secret put GOOGLE_CLIENT_ID
+		//   npx wrangler secret put GOOGLE_CLIENT_SECRET
+		// Places autocomplete is a secret too:
+		//   npx wrangler secret put GOOGLE_MAPS_API_KEY
+		// WhatsApp Cloud API credentials are secrets too:
+		//   npx wrangler secret put WHATSAPP_TOKEN
+		//   npx wrangler secret put WHATSAPP_PHONE_ID
+		// Mailjet API keys for email broadcasts (https://app.mailjet.com >
+		// Account Settings > SMTP and API > API Keys; Sender validated under
+		// Senders and Domains):
+		//   npx wrangler secret put MAILJET_API_KEY
+		//   npx wrangler secret put MAILJET_API_SECRET
+		// Verified sender address (validated once in the Mailjet dashboard):
+		//   npx wrangler secret put EMAIL_FROM
+		// Mailjet event-callback auth token (Event Tracking URL appended with
+		// ?token=... — Mailjet signs nothing, so the token is the auth):
+		//   npx wrangler secret put MAILJET_WEBHOOK_TOKEN
+		// Dormant providers (EMAIL_PROVIDER=brevo|resend switches them in):
+		//   npx wrangler secret put BREVO_WEBHOOK_SECRET
+		//   npx wrangler secret put BREVO_API_KEY
+		//   npx wrangler secret put RESEND_API_KEY
+		// Optional email tuning knobs (defaults live in lib/email.ts —
+		// EMAIL_MARKETING_DAILY_CAP=190, EMAIL_MONTHLY_SOFT_CAP=5800,
+		// EMAIL_DAILY_LIMIT=200):
+		//   npx wrangler secret put EMAIL_MARKETING_DAILY_CAP
+		//   npx wrangler secret put EMAIL_MONTHLY_SOFT_CAP
+		//   npx wrangler secret put EMAIL_DAILY_LIMIT
+		// Meta App Secret (validates X-Hub-Signature-256 on webhook POSTs):
+		//   npx wrangler secret put META_APP_SECRET
+		// Webhook verify token (pasted into Meta App Dashboard > Webhooks):
+		//   npx wrangler secret put WHATSAPP_WEBHOOK_VERIFY_TOKEN
+		// Local dev reads them from .dev.vars instead.
+		// Google OAuth redirect — must match the final serving origin
+		// (update it alongside any custom_domain route change above).
+		"GOOGLE_REDIRECT_URI": "https://campaignflow-backend.mhoudou098.workers.dev/api/auth/google/callback",
+		// Absolute origin used for links inside outbound emails (unsubscribe
+		// URLs, inline campaign images) — relative links break in inboxes.
+		"APP_ORIGIN": "https://campaignflow-backend.mhoudou098.workers.dev",
+		// ISO country codes allowed to reach /api/public (comma separated).
+		"GEOFENCE_COUNTRIES": "TN"
+	},
+	"triggers": {
+		"crons": ["*/10 * * * *"]
 	},
 	"d1_databases": [
 		{
@@ -29,11 +82,37 @@
 			"remote": true
 		}
 	],
+	// Partner logos for the landing-page marquee (uploaded from the platform
+	// admin panel, served back through GET /api/public/partners/:id/logo).
+	// Campaign email attachments (photo/PDF from the composer, served back
+	// through GET /api/email-assets/:id for inline images in inboxes).
+	"r2_buckets": [
+		{
+			"binding": "PARTNER_LOGOS",
+			"bucket_name": "partner-logos"
+		},
+		{
+			"binding": "CAMPAIGN_ASSETS",
+			"bucket_name": "campaign-assets"
+		}
+	],
 	"durable_objects": {
 		"bindings": [
 			{
 				"name": "CAMPAIGN_LOCK",
 				"class_name": "CampaignParticipationLock"
+			},
+			{
+				"name": "WHATSAPP_SENDER",
+				"class_name": "WhatsAppBroadcastSender"
+			},
+			{
+				"name": "EMAIL_SENDER",
+				"class_name": "EmailBroadcastSender"
+			},
+			{
+				"name": "WHATSAPP_PACING",
+				"class_name": "WhatsAppPacingGate"
 			}
 		]
 	},
@@ -42,6 +121,19 @@
 			"tag": "v1",
 			"new_sqlite_classes": [
 				"CampaignParticipationLock"
+			]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": [
+				"WhatsAppBroadcastSender"
+			]
+		},
+		{
+			"tag": "v3",
+			"new_sqlite_classes": [
+				"EmailBroadcastSender",
+				"WhatsAppPacingGate"
 			]
 		}
 	],
@@ -57,6 +149,32 @@
 			"namespace_id": "92609301",
 			"simple": {
 				"limit": 120,
+				"period": 60
+			}
+		},
+		{
+			"name": "WEBHOOK_RATE_LIMITER",
+			"namespace_id": "92609302",
+			"simple": {
+				"limit": 1200,
+				"period": 60
+			}
+		},
+		{
+			"name": "PUBLIC_RATE_LIMITER",
+			"namespace_id": "92609303",
+			"simple": {
+				"limit": 300,
+				"period": 60
+			}
+		},
+		{
+			// Login/register brute force: tight per-IP bucket on /api/auth,
+			// enforced fail-closed (P1-4/P1-5).
+			"name": "AUTH_RATE_LIMITER",
+			"namespace_id": "92609304",
+			"simple": {
+				"limit": 20,
 				"period": 60
 			}
 		}
