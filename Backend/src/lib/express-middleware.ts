@@ -2,6 +2,55 @@ import type { RequestHandler } from 'express';
 import type { RateLimit } from '@cloudflare/workers-types';
 
 /**
+ * CSRF backstop for every mutating request (POST/PUT/PATCH/DELETE): browsers
+ * attach `Origin` to cross-origin writes, so a mismatching host is an attack.
+ * Requests without an Origin header (server-to-server: webhook providers,
+ * the WhatsApp bridge, curl) pass — they hold no victim cookie jar, and
+ * SameSite=Lax already covers the browser case. GETs are skipped so top-level
+ * navigations (OAuth callback, one-click unsubscribe) keep working.
+ */
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/** Server-to-server callback paths: signed/token-authenticated, never browser-POSTed. */
+const CROSS_ORIGIN_SKIP_PATHS = ['/api/webhooks'];
+
+export function createCrossOriginGuard(): RequestHandler {
+  return (request, response, next) => {
+    if (!UNSAFE_METHODS.has(request.method)) {
+      next();
+      return;
+    }
+
+    const fullPath = (request.originalUrl || request.url || '').split('?')[0] ?? '';
+    if (CROSS_ORIGIN_SKIP_PATHS.some((skip) => fullPath === skip || fullPath.startsWith(`${skip}/`))) {
+      next();
+      return;
+    }
+
+    const origin = request.get('origin');
+    if (!origin) {
+      next();
+      return;
+    }
+
+    const host = request.get('host');
+    let matches: boolean;
+    try {
+      matches = Boolean(host) && new URL(origin).host === host;
+    } catch {
+      matches = false;
+    }
+
+    if (matches) {
+      next();
+      return;
+    }
+
+    response.status(403).json({ success: false, error: 'Cross-site request rejected.' });
+  };
+}
+
+/**
  * Dynamic path segments collapse to placeholders so rotating ids/codes cannot
  * mint a fresh bucket per request (path-rotation bypass).
  */

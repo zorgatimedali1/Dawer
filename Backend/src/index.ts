@@ -1,7 +1,7 @@
 import express from 'express';
 import { httpServerHandler } from 'cloudflare:node';
 import { env } from 'cloudflare:workers';
-import { createGeofenceMiddleware, createRateLimitMiddleware } from './lib/express-middleware';
+import { createCrossOriginGuard, createGeofenceMiddleware, createRateLimitMiddleware } from './lib/express-middleware';
 import { createWorkerRoute } from './lib/express-adapter';
 import { runReconcile } from './lib/reconcile';
 import { CampaignParticipationLock } from './durable/campaign-lock';
@@ -27,16 +27,27 @@ const app = express();
 
 app.disable('x-powered-by');
 // Baseline security headers for every API response; the SPA document gets the
-// same set (plus CSP) from the static assets `_headers` file.
+// same set (plus CSP) from the static assets `_headers` file. The API CSP
+// allows inline styles only: the one-click unsubscribe page (text/html) styles
+// itself with attribute styles and ships no script.
 app.use((_request, response, next) => {
+  response.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   response.set('X-Content-Type-Options', 'nosniff');
   response.set('X-Frame-Options', 'DENY');
   response.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   response.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
   response.set('Cross-Origin-Opener-Policy', 'same-origin');
   response.set('Cross-Origin-Resource-Policy', 'same-origin');
+  response.set(
+    'Content-Security-Policy',
+    "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
+  );
   next();
 });
+// CSRF backstop for state-changing requests; runs before any body parsing so a
+// cross-site write is refused without paying for it. Skips GET (OAuth
+// callback, one-click unsubscribe) and the signed webhook callbacks.
+app.use(createCrossOriginGuard());
 // Meta webhook POSTs must reach the route as the exact raw bytes it signed,
 // so this runs before express.json and keeps the body a plain string.
 app.use('/api/webhooks/whatsapp', express.text({ type: '*/*', limit: '1mb' }));

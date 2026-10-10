@@ -12,6 +12,7 @@ import {
 import { getEmailConfig, sendPasswordResetEmail } from '../lib/email';
 import { getPlatformFeatures } from '../lib/feature-access';
 import { getUserByToken } from '../lib/tenant';
+import { isCrossSitePost } from '../lib/security';
 import {
   createBusinessForUser,
   ensureStarterTrialForUser,
@@ -36,23 +37,6 @@ function oauthError(request: Request, message: string, status: number, details?:
   const response = errorResponse(message, status, details);
   response.headers.append('set-cookie', buildCookie(request, OAUTH_STATE_COOKIE, '', 0));
   return response;
-}
-
-/**
- * Login CSRF: a cross-site page must not be able to POST credentials to
- * sign the victim into an attacker session. Browsers attach `Origin` to
- * cross-origin POSTs; requests without one (non-browser clients) pass and
- * rely on the SameSite=Lax session cookie for the same protection.
- */
-function crossSitePost(request: Request): boolean {
-  const origin = request.headers.get('origin');
-  if (!origin) return false;
-  if (origin === 'null') return true;
-  try {
-    return new URL(origin).host !== new URL(request.url).host;
-  } catch {
-    return true;
-  }
 }
 
 /**
@@ -619,7 +603,7 @@ export async function handleAuthRoute(request: Request, env: Env): Promise<Respo
       || url.pathname === '/api/auth/register'
       || url.pathname === '/api/auth/forgot-password'
       || url.pathname === '/api/auth/reset-password')
-    && crossSitePost(request)
+    && isCrossSitePost(request)
   ) {
     return errorResponse('Cross-site request rejected.', 403);
   }

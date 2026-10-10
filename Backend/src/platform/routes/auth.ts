@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { hashPassword, sha256Hex, verifyPassword } from '../../lib/crypto';
 import { errorResponse, jsonResponse } from '../../lib/http';
+import { isCrossSitePost } from '../../lib/security';
 import { loginSchema, passwordChangeSchema } from '../../lib/validation';
 import {
   clearedOperatorSessionCookie,
@@ -208,6 +209,16 @@ async function changeOperatorPassword(request: Request, env: Env): Promise<Respo
 export async function handleOperatorAuthRoute(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
+
+  // Login CSRF: mirrors the merchant auth route — a cross-site page must not
+  // be able to POST credentials to sign the operator into an attacker session.
+  if (
+    request.method === 'POST'
+    && (path === `${AUTH_PREFIX}/login` || path === `${AUTH_PREFIX}/password`)
+    && isCrossSitePost(request)
+  ) {
+    return errorResponse('Cross-site request rejected.', 403);
+  }
 
   if (request.method === 'POST' && path === `${AUTH_PREFIX}/login`) {
     return loginOperator(request, env);

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import type { RateLimit } from '@cloudflare/workers-types';
-import { createGeofenceMiddleware, createRateLimitMiddleware } from '../lib/express-middleware';
+import { createCrossOriginGuard, createGeofenceMiddleware, createRateLimitMiddleware } from '../lib/express-middleware';
 
 function fakeRequest(overrides: Partial<Record<string, unknown>> = {}): ExpressRequest {
   const headers = (overrides.headers as Record<string, string> | undefined) ?? {};
@@ -246,5 +246,92 @@ describe('createGeofenceMiddleware', () => {
     expect(response.statusCode).toBe(403);
     expect(response.body).toEqual({ success: false, error: 'Unavailable in your region.' });
     expect(next).not.toHaveBeenCalled();
+  });
+});
+
+describe('createCrossOriginGuard', () => {
+  it('passes a same-origin POST (Origin host equals Host)', () => {
+    const next = vi.fn();
+    const request = fakeRequest({
+      method: 'POST',
+      headers: { origin: 'https://campaignflow.example', host: 'campaignflow.example' },
+    });
+
+    createCrossOriginGuard()(request, asExpressResponse(new FakeResponse()), next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('403s a cross-site POST', () => {
+    const next = vi.fn();
+    const response = new FakeResponse();
+    const request = fakeRequest({
+      method: 'POST',
+      headers: { origin: 'https://evil.example', host: 'campaignflow.example' },
+    });
+
+    createCrossOriginGuard()(request, asExpressResponse(response), next);
+
+    expect(response.statusCode).toBe(403);
+    expect(response.body).toEqual({ success: false, error: 'Cross-site request rejected.' });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('403s an opaque (null) Origin on a POST', () => {
+    const next = vi.fn();
+    const response = new FakeResponse();
+    const request = fakeRequest({ method: 'POST', headers: { origin: 'null', host: 'campaignflow.example' } });
+
+    createCrossOriginGuard()(request, asExpressResponse(response), next);
+
+    expect(response.statusCode).toBe(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('passes a POST with no Origin header (server-to-server callers)', () => {
+    const next = vi.fn();
+    const request = fakeRequest({ method: 'POST', headers: { host: 'campaignflow.example' } });
+
+    createCrossOriginGuard()(request, asExpressResponse(new FakeResponse()), next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes GET navigation regardless of Origin (OAuth callback, unsubscribe)', () => {
+    const next = vi.fn();
+    const request = fakeRequest({
+      method: 'GET',
+      headers: { origin: 'https://evil.example', host: 'campaignflow.example' },
+    });
+
+    createCrossOriginGuard()(request, asExpressResponse(new FakeResponse()), next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes signed webhook callbacks even when they carry an Origin', () => {
+    const next = vi.fn();
+    const request = fakeRequest({
+      method: 'POST',
+      originalUrl: '/api/webhooks/mailjet?token=abc',
+      headers: { origin: 'https://mailjet.com', host: 'campaignflow.example' },
+    });
+
+    createCrossOriginGuard()(request, asExpressResponse(new FakeResponse()), next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('403s cross-site writes on the other unsafe methods', () => {
+    for (const method of ['PUT', 'PATCH', 'DELETE']) {
+      const next = vi.fn();
+      const response = new FakeResponse();
+      const request = fakeRequest({ method, headers: { origin: 'https://evil.example', host: 'campaignflow.example' } });
+
+      createCrossOriginGuard()(request, asExpressResponse(response), next);
+
+      expect(response.statusCode).toBe(403);
+      expect(next).not.toHaveBeenCalled();
+    }
   });
 });

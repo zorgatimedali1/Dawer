@@ -166,6 +166,33 @@ describe('POST /api/auth/login', () => {
 
     expect(response.status).toBe(401);
   });
+
+  it('rejects a cross-site login POST (login CSRF)', async () => {
+    await createOperatorWithPassword();
+    const request = new Request('https://example.test/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+      body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+    });
+
+    const response = await handleOperatorAuthRoute(request, env);
+
+    expect(response.status).toBe(403);
+    expect((await body(response)).error).toContain('Cross-site');
+  });
+
+  it('allows a same-origin login POST', async () => {
+    await createOperatorWithPassword();
+    const request = new Request('https://example.test/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://example.test' },
+      body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+    });
+
+    const response = await handleOperatorAuthRoute(request, env);
+
+    expect(response.status).toBe(200);
+  });
 });
 
 describe('GET /api/auth/session', () => {

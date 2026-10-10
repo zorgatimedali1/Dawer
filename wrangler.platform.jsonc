@@ -42,6 +42,16 @@
 				"limit": 60,
 				"period": 60
 			}
+		},
+		{
+			// Tight, IP-keyed, fail-closed bucket for operator auth — mirrors
+			// the merchant worker's AUTH_RATE_LIMITER.
+			"name": "AUTH_RATE_LIMITER",
+			"namespace_id": "92609305",
+			"simple": {
+				"limit": 20,
+				"period": 60
+			}
 		}
 	]
 }
