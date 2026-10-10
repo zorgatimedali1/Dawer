@@ -109,7 +109,7 @@ export default function Home() {
 
           <div className="flex items-center gap-2">
             {isAuthenticated ? (
-              <Button asChild variant="ghost" size="sm">
+              <Button asChild variant="primary" size="sm">
                 <Link to="/dashboard/overview">{t.auth.openDashboard}</Link>
               </Button>
             ) : (
