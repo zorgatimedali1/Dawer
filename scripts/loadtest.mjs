@@ -23,6 +23,29 @@ const CAMPAIGN_URL = `${base}/api/public/campaigns/${CODE}`;
 const hex = (bytes) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
 const uuid = () => crypto.randomUUID();
 
+const COOKIE_SIGNING_KEY = process.env.COOKIE_SIGNING_KEY ?? 'loadtest-cookie-signing-key';
+
+async function hmacSha256Hex(secret, value) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(signature))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/** Mints the signed `<id>.<mac>` value the app's `verifySpinVisitorValue` expects. */
+async function mintVisitorCookie() {
+  const id = hex(32);
+  const mac = await hmacSha256Hex(COOKIE_SIGNING_KEY, `spin:${id}`);
+  return `${id}.${mac}`;
+}
+
 let transportRetries = 0;
 
 async function participateOnce({ anonymousId, email, cookie }) {
@@ -103,7 +126,7 @@ async function main() {
   }
 
   // ---- Scenario A: 50 concurrent spins from ONE visitor -------------------
-  const shared = { anonymousId: uuid(), cookie: hex(16) };
+  const shared = { anonymousId: uuid(), cookie: await mintVisitorCookie() };
   const aStarted = performance.now();
   const aResults = await Promise.all(Array.from({ length: SCENARIO_A_CONCURRENCY }, () => participate(shared)));
   const aWall = performance.now() - aStarted;
@@ -130,7 +153,7 @@ async function main() {
           await participate({
             anonymousId: uuid(),
             email: `load-${i}-${hex(4)}@example.test`,
-            cookie: hex(16),
+            cookie: await mintVisitorCookie(),
           }),
         );
       }

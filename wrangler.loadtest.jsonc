@@ -8,7 +8,8 @@
 	],
 	"vars": {
 		"APP_ENV": "development",
-		"GEOFENCE_COUNTRIES": "TN"
+		"GEOFENCE_COUNTRIES": "TN",
+		"COOKIE_SIGNING_KEY": "loadtest-cookie-signing-key"
 	},
 	"d1_databases": [
 		{

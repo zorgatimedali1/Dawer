@@ -2,6 +2,9 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RouteBoundary, RouteErrorBoundary } from '@/components/route-error-boundary';
+import { reportError } from '@/lib/monitoring';
+
+vi.mock('@/lib/monitoring', () => ({ reportError: vi.fn() }));
 
 describe('RouteErrorBoundary', () => {
   let shouldThrow = true;
@@ -13,6 +16,7 @@ describe('RouteErrorBoundary', () => {
 
   beforeEach(() => {
     shouldThrow = true;
+    vi.clearAllMocks();
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
@@ -31,6 +35,22 @@ describe('RouteErrorBoundary', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('Une erreur est survenue');
     expect(screen.queryByText('recovered content')).not.toBeInTheDocument();
+  });
+
+  it('reports the render error to the monitoring registry', () => {
+    render(
+      <MemoryRouter>
+        <RouteErrorBoundary>
+          <Bomb />
+        </RouteErrorBoundary>
+      </MemoryRouter>,
+    );
+
+    expect(vi.mocked(reportError)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(reportError)).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'boom' }),
+      expect.objectContaining({ componentStack: expect.any(String) }),
+    );
   });
 
   it('recovers when the user retries and the error is gone', () => {
