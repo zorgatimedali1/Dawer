@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            Backend/package-lock.json
+
+      - name: Install (root)
+        run: npm ci
+
+      - name: Install (backend)
+        run: npm ci
+        working-directory: Backend
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Frontend tests
+        run: npm run test:frontend
+
+      - name: Backend tests
+        run: npm run test:backend
+
+      - name: Build (merchant SPA + API)
+        run: npm run build
+
+      - name: Build (platform SPA)
+        run: npm run build:platform

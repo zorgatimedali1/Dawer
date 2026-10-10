@@ -1,0 +1,47 @@
+name: Health monitor
+
+on:
+  schedule:
+    # Every 10 minutes, offset by 3 so it never lands exactly on our cron.
+    - cron: '3/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Merchant API /health (body + cron heartbeat)
+        id: merchant
+        run: |
+          set -euo pipefail
+          body=$(curl -fsS --max-time 30 https://campaignflow-backend.mhoudou098.workers.dev/health)
+          echo "merchant: $body"
+          last=$(jq -r '.lastCronAt // empty' <<<"$body")
+          if [ -z "$last" ]; then
+            echo "::error::merchant /health has no lastCronAt"
+            exit 1
+          fi
+          age=$(( $(date -u +%s) - $(date -u -d "$last" +%s) ))
+          echo "cron heartbeat age: ${age}s"
+          if [ "$age" -gt 1200 ]; then
+            echo "::error::merchant cron heartbeat is stale (>20 min): $last"
+            exit 1
+          fi
+
+      - name: Platform API /health
+        run: |
+          set -euo pipefail
+          body=$(curl -fsS --max-time 30 https://campaignflow-platform.mhoudou098.workers.dev/health)
+          echo "platform: $body"
+          jq -e '.success == true' <<<"$body" > /dev/null
+
+      - name: SPA serves index.html
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' https://campaignflow-backend.mhoudou098.workers.dev/)
+          echo "landing: HTTP $code"
+          test "$code" = "200"
