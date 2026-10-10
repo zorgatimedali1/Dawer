@@ -11,6 +11,12 @@ import { RouteBoundary } from './components/route-error-boundary';
 import { BrandLoader } from './components/brand/brand-loader';
 import './app/globals.css';
 
+// Fire-and-forget: only loads the SDK chunk when a DSN was baked in at build
+// time, so unconfigured builds ship no Sentry bytes at all.
+if (import.meta.env.VITE_SENTRY_DSN) {
+  void import('./lib/sentry.client').then((m) => m.initSentry('merchant'));
+}
+
 const LandingPage = lazy(() => import('./app/page'));
 const PrivacyPage = lazy(() => import('./app/privacy/page'));
 const LoginPage = lazy(() => import('./app/auth/login/page'));

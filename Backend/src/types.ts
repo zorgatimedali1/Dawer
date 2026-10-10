@@ -32,6 +32,10 @@ export type Env = Cloudflare.Env & {
   COOKIE_SIGNING_KEY?: string;
   /** Public origin of the SPA, used to build links in outbound emails. */
   APP_ORIGIN?: string;
+  /** Sentry DSN (secret). Absent = error tracking stays disabled. */
+  SENTRY_DSN?: string;
+  /** Sentry environment label (defaults to 'production'). */
+  SENTRY_ENVIRONMENT?: string;
   /** `true`/`1` makes the public geofence reject requests with no country signal. */
   GEOFENCE_STRICT?: string;
   /** Base URL of the standalone WhatsApp Web gateway container. */

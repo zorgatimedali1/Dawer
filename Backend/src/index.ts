@@ -1,13 +1,14 @@
 import express from 'express';
 import { httpServerHandler } from 'cloudflare:node';
 import { env } from 'cloudflare:workers';
+import * as Sentry from '@sentry/cloudflare';
 import { createCrossOriginGuard, createGeofenceMiddleware, createRateLimitMiddleware } from './lib/express-middleware';
 import { createWorkerRoute } from './lib/express-adapter';
 import { runReconcile } from './lib/reconcile';
-import { CampaignParticipationLock } from './durable/campaign-lock';
-import { EmailBroadcastSender } from './durable/email-sender';
-import { WhatsAppPacingGate } from './durable/pacing-gate';
-import { WhatsAppBroadcastSender } from './durable/whatsapp-sender';
+import { CampaignParticipationLock as CampaignParticipationLockBase } from './durable/campaign-lock';
+import { EmailBroadcastSender as EmailBroadcastSenderBase } from './durable/email-sender';
+import { WhatsAppPacingGate as WhatsAppPacingGateBase } from './durable/pacing-gate';
+import { WhatsAppBroadcastSender as WhatsAppBroadcastSenderBase } from './durable/whatsapp-sender';
 import { handleAnalyticsRoute } from './routes/analytics';
 import { handleAuthRoute } from './routes/auth';
 import { handleBusinessRoute } from './routes/business';
@@ -21,7 +22,27 @@ import { handleWhatsAppWebRoute } from './routes/whatsapp-web';
 import { handleWebhookRoute } from './routes/webhooks';
 import type { Env } from './types';
 
-export { CampaignParticipationLock, EmailBroadcastSender, WhatsAppPacingGate, WhatsAppBroadcastSender };
+// No SENTRY_DSN secret -> dsn is undefined and the SDK stays a no-op, so the
+// wiring costs nothing until a DSN is configured.
+const sentryOptions = (sentryEnv: Env) => ({
+  dsn: sentryEnv.SENTRY_DSN,
+  environment: sentryEnv.SENTRY_ENVIRONMENT || 'production',
+  tracesSampleRate: 0.2,
+});
+
+export const CampaignParticipationLock = Sentry.instrumentDurableObjectWithSentry(
+  sentryOptions,
+  CampaignParticipationLockBase,
+);
+export const EmailBroadcastSender = Sentry.instrumentDurableObjectWithSentry(
+  sentryOptions,
+  EmailBroadcastSenderBase,
+);
+export const WhatsAppPacingGate = Sentry.instrumentDurableObjectWithSentry(sentryOptions, WhatsAppPacingGateBase);
+export const WhatsAppBroadcastSender = Sentry.instrumentDurableObjectWithSentry(
+  sentryOptions,
+  WhatsAppBroadcastSenderBase,
+);
 
 const app = express();
 
@@ -186,7 +207,7 @@ export async function scheduled(
 // handler object exists, the runtime dispatches cron events through it and
 // ignores module-level named exports, so `scheduled` hangs off the same
 // object (otherwise every tick dies with "Handler does not export a
-// scheduled() function").
+// scheduled() function"). withSentry instruments fetch + scheduled in place.
 const handler = httpServerHandler({ port: 3000 });
 
-export default { ...handler, scheduled };
+export default Sentry.withSentry(sentryOptions, { ...handler, scheduled });

@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import type { Env } from '../types';
 
 const DAY_MS = 86_400_000;
 
@@ -38,8 +39,8 @@ function normalize(state: ClaimState | undefined): { claims: number[]; wins: num
   };
 }
 
-export class CampaignParticipationLock extends DurableObject<never> {
-  constructor(ctx: DurableObjectState, _env: never) {
+export class CampaignParticipationLock extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, _env: Env) {
     super(ctx, _env);
   }
 

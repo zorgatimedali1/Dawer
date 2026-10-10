@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/hooks/use-t';
+import { reportError } from '@/lib/monitoring';
 
 export type ErrorFallbackProps = { error: Error; reset: () => void };
 
@@ -37,8 +38,9 @@ export class RouteErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // eslint-disable-next-line no-console -- crash diagnostics until real monitoring lands
+    // eslint-disable-next-line no-console -- crash diagnostics even when monitoring is off
     console.error('Route error boundary caught an error', error, info.componentStack);
+    reportError(error, { componentStack: info.componentStack ?? undefined });
   }
 
   render() {

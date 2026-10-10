@@ -1,6 +1,7 @@
 import express from 'express';
 import { httpServerHandler } from 'cloudflare:node';
 import { env } from 'cloudflare:workers';
+import * as Sentry from '@sentry/cloudflare';
 import { createCrossOriginGuard, createRateLimitMiddleware } from '../lib/express-middleware';
 import { createWorkerRoute } from '../lib/express-adapter';
 import { handleOperatorAuthRoute } from './routes/auth';
@@ -11,6 +12,14 @@ import { handleAdminRoute } from './routes/admin';
 import { handlePartnerAdminRoute } from './routes/partners';
 import { handlePlanAdminRoute } from './routes/plans';
 import { handlePublicPartnerRoute } from '../routes/partners';
+import type { Env } from '../types';
+
+// No SENTRY_DSN secret -> no-op (same pattern as the merchant worker).
+const sentryOptions = (sentryEnv: Env) => ({
+  dsn: sentryEnv.SENTRY_DSN,
+  environment: sentryEnv.SENTRY_ENVIRONMENT || 'production',
+  tracesSampleRate: 0.2,
+});
 
 const app = express();
 
@@ -68,4 +77,4 @@ const expressServer = app.listen(3001);
 const viteHot = (import.meta as ImportMeta & { hot?: { dispose: (callback: () => void) => void } }).hot;
 viteHot?.dispose(() => expressServer.close());
 
-export default httpServerHandler({ port: 3001 });
+export default Sentry.withSentry(sentryOptions, httpServerHandler({ port: 3001 }));
