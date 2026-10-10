@@ -20,6 +20,7 @@ import { Card, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/toast';
 import { cn } from '@/lib/cn';
 import { useLocale, useT } from '@/hooks/use-t';
+import { useOptionalAppContext } from '@/contexts/app-context';
 
 const weekBars = [38, 52, 46, 68, 74, 92, 64];
 
@@ -37,6 +38,8 @@ export default function Home() {
   const locale = useLocale();
   const weekDays = locale === 'fr' ? weekDaysFr : weekDaysEn;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const app = useOptionalAppContext();
+  const isAuthenticated = app?.isAuthenticated ?? false;
 
   // Arriving with a #demo hash (e.g. right after sign-out): the browser's own
   // fragment scroll fires before this SPA renders, so re-run it once the
@@ -105,9 +108,15 @@ export default function Home() {
           </nav>
 
           <div className="flex items-center gap-2">
-            <Button asChild variant="ghost" size="sm">
-              <Link to="/auth/login">{t.auth.signIn}</Link>
-            </Button>
+            {isAuthenticated ? (
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/dashboard/overview">{t.auth.openDashboard}</Link>
+              </Button>
+            ) : (
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/auth/login">{t.auth.signIn}</Link>
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon-sm"
@@ -444,7 +453,7 @@ export default function Home() {
                     </ul>
 
                     <Button asChild className="mt-7 w-full" variant={featured ? 'primary' : 'outline'}>
-                      <Link to="/auth/register">
+                      <Link to={isAuthenticated ? '/dashboard/overview' : '/auth/register'}>
                         {t.landing.trialCta}
                         <ArrowRight aria-hidden className="h-4 w-4" />
                       </Link>

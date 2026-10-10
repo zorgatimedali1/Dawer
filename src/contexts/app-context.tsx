@@ -57,6 +57,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(readStoredLocale);
   const [user, setUser] = useState<UserSession | null>(readStoredUser);
 
+  // The cached profile in localStorage can outlive the server session (3-day
+  // TTL): revalidate the HttpOnly cookie once on bootstrap so a logged-out
+  // visitor never keeps seeing "open dashboard" or passing the route guards.
+  useEffect(() => {
+    if (!user) return undefined;
+    let cancelled = false;
+    AuthService.revalidateSession()
+      .then((fresh) => {
+        if (cancelled) return;
+        if (fresh) {
+          setUser(fresh.user);
+          window.localStorage.setItem(AUTH_KEY, JSON.stringify({ user: fresh.user }));
+        } else {
+          setUser(null);
+          window.localStorage.removeItem(AUTH_KEY);
+        }
+      })
+      .catch(() => undefined); // offline or transient failure — keep cached state
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
+  }, []);
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.style.colorScheme = theme;

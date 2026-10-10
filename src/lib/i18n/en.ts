@@ -82,6 +82,7 @@ export const auth: D<typeof frDict.auth> = {
   rememberMe: 'Remember me',
   forgotPassword: 'Forgot password?',
   signIn: 'Sign in',
+  openDashboard: 'Open dashboard',
   signingIn: 'Signing in…',
   noAccount: "Don't have an account?",
   createAccount: 'Create account',

@@ -78,6 +78,26 @@ export class AuthService {
   }
 
   /**
+   * Revalidates the HttpOnly session cookie against the server on app bootstrap.
+   * Returns the fresh profile, `null` when the session is gone (401 — expired or
+   * revoked), and throws on network failures so callers keep their cached state.
+   */
+  static async revalidateSession(): Promise<AuthResponse | null> {
+    const response = await fetch(`${this.API_URL}/auth/session`, {
+      method: 'GET',
+      credentials: 'same-origin',
+    });
+    if (response.status === 401) return null;
+
+    const text = await response.text();
+    const result = (text ? JSON.parse(text) : {}) as AuthResponse & { message?: string; error?: string };
+    if (!response.ok) {
+      throw new Error(result.message ?? result.error ?? 'The request failed.');
+    }
+    return result;
+  }
+
+  /**
    * POST /api/auth/forgot-password — the backend always answers success for
    * unknown emails (no account enumeration), so this resolves for any input
    * the server accepted.

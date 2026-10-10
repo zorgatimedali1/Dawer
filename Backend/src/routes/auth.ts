@@ -27,7 +27,8 @@ function normalizeEmail(value: string): string {
 }
 
 const OAUTH_STATE_COOKIE = 'cf_oauth_state';
-const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
+/** Merchant sessions last 3 days; after that the user must sign in again. */
+const SESSION_MAX_AGE = 60 * 60 * 24 * 3;
 const OAUTH_STATE_MAX_AGE = 60 * 15;
 const PASSWORD_RESET_TTL_MS = 15 * 60_000;
 const RESET_LINK_MESSAGE = 'If that email is registered, a password reset link has been sent.';

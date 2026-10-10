@@ -78,6 +78,7 @@ export const auth = {
   rememberMe: 'Se souvenir de moi',
   forgotPassword: 'Mot de passe oublié ?',
   signIn: 'Se connecter',
+  openDashboard: 'Ouvrir le tableau de bord',
   signingIn: 'Connexion…',
   noAccount: 'Pas encore inscrit ?',
   createAccount: 'Créer un compte',
