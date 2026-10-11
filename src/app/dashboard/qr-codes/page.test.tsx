@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import QRCodesPage from '@/app/dashboard/qr-codes/page';
@@ -77,6 +77,10 @@ describe('QR codes page', () => {
     render(<QRCodesPage />);
 
     const button = await screen.findByRole('button', { name: /télécharger le qr code/i });
+    // The button is disabled until the async QRCode.toDataURL() resolves;
+    // clicking before that is a no-op. Wait for the enabled state instead of
+    // racing the promise (CI parallel load made the race visible).
+    await waitFor(() => expect(button).toBeEnabled());
     await userEvent.click(button);
 
     expect(downloaded).not.toBeNull();
