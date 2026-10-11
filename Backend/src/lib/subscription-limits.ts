@@ -1,10 +1,14 @@
 import type { Env } from '../types';
-import { getBusinessAccess } from './subscription-access';
+import { getBusinessAccess, type BusinessAccess } from './subscription-access';
+
+/** Pure: customer storage quota from an already-fetched access object. */
+export function customerLimitFromAccess(access: BusinessAccess | null | undefined): number {
+  const limit = Number(access?.plan.features.limits.customers ?? 100);
+  return Number.isFinite(limit) ? limit : 100;
+}
 
 export async function getCustomerLimit(env: Env, businessId: string): Promise<number> {
-  const access = await getBusinessAccess(env, businessId);
-  const limit = Number(access.plan.features.limits.customers ?? 100);
-  return Number.isFinite(limit) ? limit : 100;
+  return customerLimitFromAccess(await getBusinessAccess(env, businessId));
 }
 
 /** Monthly WhatsApp broadcast quota by plan slug; absent slug = no access. */

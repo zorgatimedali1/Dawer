@@ -37,6 +37,27 @@ interface SubscriptionRow extends PlanRow {
   current_period_end: string | null;
 }
 
+/**
+ * A subscription row whose plan columns may all be NULL (LEFT JOIN against a
+ * deleted or dangling plan_id). `id` doubles as the "plan row exists" flag.
+ */
+interface NullableSubscriptionRow {
+  status: string;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  id: string | null;
+  name: string | null;
+  slug: string | null;
+  price_cents: number | null;
+  interval: string | null;
+  features: string | null;
+}
+
+const EMPTY_PLAN: EffectivePlan = {
+  id: '', name: 'Starter', slug: 'starter', priceCents: 0, interval: '3_months',
+  features: { limits: {}, features: [] },
+};
+
 function mapPlan(row: PlanRow): EffectivePlan {
   let features: EffectivePlan['features'] = { limits: {}, features: [] };
   try {
@@ -59,28 +80,18 @@ function mapPlan(row: PlanRow): EffectivePlan {
   };
 }
 
-export async function getBusinessAccess(env: Env, businessId: string): Promise<BusinessAccess> {
-  const subscription = await env.DB.prepare(
-    `SELECT s.status, s.updated_at AS current_period_start, s.current_period_end,
-            p.id, p.name, p.slug, p.price_cents, p.interval, p.features
-     FROM subscriptions s
-     LEFT JOIN plans p ON p.id = s.plan_id
-     WHERE s.business_id = ?
-     ORDER BY s.created_at DESC LIMIT 1`,
-  )
-    .bind(businessId)
-    .first<SubscriptionRow>();
-
-  const fallback = await env.DB.prepare(
-    `SELECT id, name, slug, price_cents, interval, features
-     FROM plans WHERE slug = 'starter' AND active = 1 LIMIT 1`,
-  ).first<PlanRow>();
-
-  const plan = subscription?.id ? mapPlan(subscription) : fallback ? mapPlan(fallback) : null;
+/** Pure state machine over a (possibly plan-less) subscription row + fallback plan. */
+export function accessFromSubscriptionRow(
+  subscription: NullableSubscriptionRow | null,
+  fallback: PlanRow | null,
+): BusinessAccess {
+  const plan = subscription?.id
+    ? mapPlan(subscription as PlanRow)
+    : fallback
+      ? mapPlan(fallback)
+      : null;
   if (!plan) {
-    return { state: 'none', canManage: false, startsAt: null, endsAt: null, plan: {
-      id: '', name: 'Starter', slug: 'starter', priceCents: 0, interval: '3_months', features: { limits: {}, features: [] },
-    } };
+    return { state: 'none', canManage: false, startsAt: null, endsAt: null, plan: EMPTY_PLAN };
   }
 
   if (!subscription) {
@@ -103,4 +114,30 @@ export async function getBusinessAccess(env: Env, businessId: string): Promise<B
     endsAt: subscription.current_period_end,
     plan,
   };
+}
+
+/** Starter fallback row; only needed when the business has no usable plan. */
+export async function readStarterPlan(env: Env): Promise<PlanRow | null> {
+  return env.DB.prepare(
+    `SELECT id, name, slug, price_cents, interval, features
+     FROM plans WHERE slug = 'starter' AND active = 1 LIMIT 1`,
+  ).first<PlanRow>();
+}
+
+export async function getBusinessAccess(env: Env, businessId: string): Promise<BusinessAccess> {
+  const subscription = await env.DB.prepare(
+    `SELECT s.status, s.updated_at AS current_period_start, s.current_period_end,
+            p.id, p.name, p.slug, p.price_cents, p.interval, p.features
+     FROM subscriptions s
+     LEFT JOIN plans p ON p.id = s.plan_id
+     WHERE s.business_id = ?
+     ORDER BY s.created_at DESC LIMIT 1`,
+  )
+    .bind(businessId)
+    .first<SubscriptionRow>();
+
+  // The fallback is only a real plan source when the subscription is missing
+  // or its plan row is gone — skip the query entirely for a healthy sub.
+  const fallback = subscription?.id ? null : await readStarterPlan(env);
+  return accessFromSubscriptionRow(subscription, fallback);
 }

@@ -6,10 +6,47 @@ import { secureRandomHex, sha256Hex } from '../lib/crypto';
 import { buildCookie, mintSpinVisitorValue, readSpinVisitor, spinVisitorCookieName, verifySpinVisitorValue } from '../lib/cookie';
 import { mintActionTicket, verifyActionTicket } from '../lib/action-ticket';
 import { distanceMetersBetween } from '../lib/geo';
-import { getCustomerLimit, wheelCenterLogoAllowed, wheelDesignAllowed } from '../lib/subscription-limits';
-import { getBusinessAccess } from '../lib/subscription-access';
+import { getCustomerLimit, customerLimitFromAccess, wheelCenterLogoAllowed, wheelDesignAllowed } from '../lib/subscription-limits';
+import { accessFromSubscriptionRow, readStarterPlan, type BusinessAccess } from '../lib/subscription-access';
 import { handlePublicLogoRoute, handlePublicWheelLogoRoute, businessWheelLogoPath } from './settings';
 import type { Env } from '../types';
+
+/** Campaign + business branding + subscription/plan columns from the shared fetch. */
+interface SharedCampaignRow {
+  id: string;
+  name: string;
+  description: string | null;
+  public_code: string;
+  status: string;
+  start_at: string | null;
+  end_at: string | null;
+  game_type: string;
+  require_action: string | null;
+  require_customer_information: number;
+  play_rules: string | null;
+  google_maps_name: string | null;
+  google_maps_url: string | null;
+  google_place_id: string | null;
+  facebook_url: string | null;
+  instagram_url: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  business_id: string;
+  business_play_policy: string | null;
+  business_name: string | null;
+  business_logo: string | null;
+  business_wheel_theme: string | null;
+  business_wheel_theme_override: string | null;
+  sub_status: string | null;
+  sub_period_start: string | null;
+  sub_period_end: string | null;
+  plan_id: string | null;
+  plan_name: string | null;
+  plan_slug: string | null;
+  plan_price_cents: number | null;
+  plan_interval: string | null;
+  plan_features: string | null;
+}
 
 export async function handlePublicCampaignRoute(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -23,16 +60,57 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
   }
 
   const publicCampaign = /^\/api\/public\/campaigns\/([^/]+)(?:\/|$)/.exec(url.pathname);
-  let campaignAccess: Awaited<ReturnType<typeof getBusinessAccess>> | null = null;
+  let sharedCampaign: SharedCampaignRow | null = null;
+  let campaignAccess: BusinessAccess | null = null;
   if (publicCampaign?.[1]) {
-    const owner = await env.DB.prepare(
-      `SELECT business_id FROM campaigns WHERE public_code = ? OR id = ? LIMIT 1`,
+    // One fetch feeds the wrapper's access gate AND every handler below —
+    // the campaign row, business branding, subscription and plan all ride
+    // on this query so the spin path never re-reads them.
+    const row = await env.DB.prepare(
+      `SELECT c.*,
+              b.play_policy AS business_play_policy,
+              b.name AS business_name,
+              b.logo AS business_logo,
+              b.wheel_theme AS business_wheel_theme,
+              b.wheel_theme_override AS business_wheel_theme_override,
+              s.status AS sub_status,
+              s.updated_at AS sub_period_start,
+              s.current_period_end AS sub_period_end,
+              p.id AS plan_id,
+              p.name AS plan_name,
+              p.slug AS plan_slug,
+              p.price_cents AS plan_price_cents,
+              p.interval AS plan_interval,
+              p.features AS plan_features
+       FROM campaigns c
+       LEFT JOIN businesses b ON b.id = c.business_id
+       LEFT JOIN subscriptions s ON s.business_id = c.business_id
+       LEFT JOIN plans p ON p.id = s.plan_id
+       WHERE (c.public_code = ? OR c.id = ?)
+       LIMIT 1`,
     )
       .bind(publicCampaign[1], publicCampaign[1])
-      .first<{ business_id: string }>();
+      .first<SharedCampaignRow>();
 
-    if (owner) {
-      campaignAccess = await getBusinessAccess(env, owner.business_id);
+    if (row) {
+      sharedCampaign = row;
+      const fallback = row.plan_id ? null : await readStarterPlan(env);
+      campaignAccess = accessFromSubscriptionRow(
+        row.sub_status == null
+          ? null
+          : {
+              status: row.sub_status,
+              current_period_start: row.sub_period_start,
+              current_period_end: row.sub_period_end,
+              id: row.plan_id,
+              name: row.plan_name,
+              slug: row.plan_slug,
+              price_cents: row.plan_price_cents,
+              interval: row.plan_interval,
+              features: row.plan_features,
+            },
+        fallback,
+      );
       if (!campaignAccess.canManage) {
         return errorResponse('Campaign not found.', 404);
       }
@@ -43,59 +121,67 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
 
   if (request.method === 'GET' && campaignMatch) {
     const now = new Date().toISOString();
-    const campaign = await env.DB.prepare(
-      `SELECT c.id, c.name, c.description, c.public_code, c.status, c.start_at, c.end_at, c.game_type,
-              c.require_action, c.require_customer_information, c.play_rules,
-              c.google_maps_name, c.google_maps_url, c.google_place_id, c.facebook_url, c.instagram_url,
-              c.latitude, c.longitude, c.business_id,
-              b.name AS business_name, b.logo AS business_logo, b.play_policy AS business_play_policy,
-              b.wheel_theme AS business_wheel_theme, b.wheel_theme_override AS business_wheel_theme_override
-       FROM campaigns c
-       LEFT JOIN businesses b ON b.id = c.business_id
-       WHERE (c.public_code = ? OR c.id = ?) AND c.status = 'ACTIVE'
-         AND (c.start_at IS NULL OR c.start_at <= ?)
-         AND (c.end_at IS NULL OR c.end_at >= ?)
-       LIMIT 1`,
-    )
-      .bind(campaignMatch[1], campaignMatch[1], now, now)
-      .first<Record<string, unknown>>();
-
-    if (!campaign) {
+    const shared = sharedCampaign;
+    if (
+      !shared ||
+      shared.status !== 'ACTIVE' ||
+      (shared.start_at && shared.start_at > now) ||
+      (shared.end_at && shared.end_at < now)
+    ) {
       return errorResponse('Campaign not found.', 404);
     }
+
+    const campaign: Record<string, unknown> = {
+      id: shared.id,
+      name: shared.name,
+      description: shared.description,
+      public_code: shared.public_code,
+      status: shared.status,
+      start_at: shared.start_at,
+      end_at: shared.end_at,
+      game_type: shared.game_type,
+      require_action: shared.require_action,
+      require_customer_information: shared.require_customer_information,
+      play_rules: shared.play_rules,
+      google_maps_name: shared.google_maps_name,
+      google_maps_url: shared.google_maps_url,
+      google_place_id: shared.google_place_id,
+      facebook_url: shared.facebook_url,
+      instagram_url: shared.instagram_url,
+      latitude: shared.latitude,
+      longitude: shared.longitude,
+      business_id: shared.business_id,
+      business_name: shared.business_name,
+      business_logo: shared.business_logo,
+    };
 
     // The operator's account policy overrides the merchant's own rules, so
     // the client must see the effective mode — a forced "once" campaign
     // shows the already-played card, a forced "windowed" one never does.
     const effectiveRules = applyAccountPlayPolicy(
-      parsePlayRules(campaign.play_rules),
-      campaign.business_play_policy,
+      parsePlayRules(shared.play_rules),
+      shared.business_play_policy,
     );
     campaign.play_rules = effectiveRules ? JSON.stringify(effectiveRules) : null;
-    delete campaign.business_play_policy;
 
     // Same operator-wins shape for the wheel design: without the plan flag
     // (Starter, Pro, or a locked plan) colors and motion stay default, while
     // the hub logo resolves separately so Pro can show it on the default wheel.
-    const access = campaignAccess ?? (campaign.business_id
-      ? await getBusinessAccess(env, String(campaign.business_id))
-      : null);
+    const access = campaignAccess;
     const designAllowed = wheelDesignAllowed(access?.plan.slug, access?.plan.features.limits);
     const centerLogoAllowed = wheelCenterLogoAllowed(access?.plan.slug, access?.plan.features.limits);
     const wheelTheme: WheelTheme = resolveWheelTheme({
-      merchantTheme: campaign.business_wheel_theme,
-      overrideTheme: campaign.business_wheel_theme_override,
+      merchantTheme: shared.business_wheel_theme,
+      overrideTheme: shared.business_wheel_theme_override,
       designAllowed,
       centerLogoAllowed,
     });
-    delete campaign.business_wheel_theme;
-    delete campaign.business_wheel_theme_override;
     campaign.wheel_theme = wheelTheme;
     // Only ship the center-hub URL when the theme asks for it; the visitor
     // then 404s gracefully via onError if no image was ever uploaded.
     campaign.wheel_logo =
-      wheelTheme.centerLogo && campaign.business_id
-        ? businessWheelLogoPath(String(campaign.business_id))
+      wheelTheme.centerLogo && shared.business_id
+        ? businessWheelLogoPath(String(shared.business_id))
         : null;
     delete campaign.business_id;
 
@@ -166,7 +252,10 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       return errorResponse('Method not allowed.', 405);
     }
 
-    return handleActionClaim(env, actionMatch[1], request);
+    if (!sharedCampaign || sharedCampaign.public_code !== actionMatch[1]) {
+      return errorResponse('Campaign not found.', 404);
+    }
+    return handleActionClaim(env, sharedCampaign, request);
   }
 
   const detailsMatch = /^\/api\/public\/campaigns\/([^/]+)\/participations\/([^/]+)\/customer$/.exec(url.pathname);
@@ -213,14 +302,9 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     const body = participationSchema.parse(await request.json());
     const nowIso = new Date().toISOString();
 
-    const campaign = await env.DB.prepare(
-      `SELECT c.*, b.play_policy AS business_play_policy
-       FROM campaigns c
-       LEFT JOIN businesses b ON b.id = c.business_id
-       WHERE c.public_code = ? LIMIT 1`,
-    )
-      .bind(publicCode)
-      .first<any>();
+    // The shared fetch resolved this campaign during wrapper gating; the
+    // strict public_code match preserves the old "id-only POSTs 404" shape.
+    const campaign = sharedCampaign?.public_code === publicCode ? sharedCampaign : null;
 
     if (!campaign) {
       return errorResponse('Campaign not found.', 404);
@@ -359,26 +443,38 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       windowed && playRules
         ? { mode: 'windowed' as const, perDay: playRules.perDay, cooldownMinutes: playRules.cooldownMinutes }
         : undefined;
-    const lockResult = await lock.claim(campaign.id, claimKey, claimPolicy);
-    let denialReason: string | null = lockResult.allowed ? null : String(lockResult.reason ?? 'duplicate_spin');
-    if (denialReason !== null) lock = null;
 
-    // Second, independent claim on the sticky client identity: it holds in
-    // every mode (a fresh cookie is free for a script to obtain) and carries
-    // the same windowed policy as the browser-identity claim.
-    let stickyLock: LockStub | null = null;
+    // The browser-identity and sticky-identity claims are independent Durable
+    // Objects, so they are claimed in parallel; a denial on either is undone
+    // against the other before returning, same as the old sequential order.
+    const useStickyClaim = Boolean(stickyKey && stickyKey !== claimKey);
+    let stickyLock: LockStub | null = useStickyClaim
+      ? env.CAMPAIGN_LOCK.getByName(`campaign:${campaign.id}:${stickyKey}`)
+      : null;
     let stickyLockClaimed = false;
 
-    if (denialReason === null) {
+    const [lockResult, stickyResult] = await Promise.all([
+      lock.claim(campaign.id, claimKey, claimPolicy),
+      stickyLock ? stickyLock.claim(campaign.id, stickyKey ?? '', claimPolicy) : Promise.resolve(null),
+    ]);
+
+    let denialReason: string | null = lockResult.allowed ? null : String(lockResult.reason ?? 'duplicate_spin');
+    if (denialReason !== null) {
+      // The speculative sticky claim must be handed back when the primary
+      // claim lost its race.
+      if (stickyResult?.allowed && stickyLock && stickyKey) {
+        await stickyLock.release(campaign.id, stickyKey);
+      }
+      lock = null;
+      stickyLock = null;
+    } else {
       lockClaimed = true;
-      if (stickyKey && stickyKey !== claimKey) {
-        stickyLock = env.CAMPAIGN_LOCK.getByName(`campaign:${campaign.id}:${stickyKey}`);
-        const stickyResult = await stickyLock.claim(campaign.id, stickyKey, claimPolicy);
-        if (stickyResult.allowed) {
+      if (stickyLock && stickyKey) {
+        if (stickyResult?.allowed) {
           stickyLockClaimed = true;
         } else {
-          denialReason = String(stickyResult.reason ?? 'duplicate_spin');
-          await lock?.release(campaign.id, claimKey);
+          denialReason = String(stickyResult?.reason ?? 'duplicate_spin');
+          await lock.release(campaign.id, claimKey);
           lockClaimed = false;
           lock = null;
           stickyLock = null;
@@ -426,7 +522,7 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       resolvedCustomerId = customerResult?.id ?? customerId;
 
       if (!customerResult) {
-        const limit = await getCustomerLimit(env, campaign.business_id);
+        const limit = customerLimitFromAccess(campaignAccess);
         const inserted = await env.DB.prepare(
           `INSERT OR IGNORE INTO customers (id, business_id, first_name, last_name, email, phone, marketing_consent, created_at, updated_at)
            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
@@ -600,17 +696,19 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     if (!isNoWin && selectedReward.quantityInitial > 0) {
       const decremented = await env.DB.prepare(
         `UPDATE rewards SET quantity = MAX(quantity - 1, 0), updated_at = ?
-         WHERE id = ? AND quantity > 0`,
+         WHERE id = ? AND quantity > 0
+         RETURNING quantity`,
       )
         .bind(nowIso, selectedReward.id)
-        .run();
+        .first<{ quantity: number }>();
 
-      if (Number(decremented.meta.changes ?? 0) === 0) {
+      if (!decremented) {
         await dropSpinClaimRows();
         await releaseClaims();
         return errorResponse('No reward available for this campaign.', 409);
       }
       decrementedRewardId = selectedReward.id;
+      selectedReward.quantity = Number(decremented.quantity ?? 0);
     }
 
     const couponCode = isNoWin ? '' : `CF-${secureRandomHex(8).toUpperCase()}`;
@@ -686,13 +784,6 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       if (cookieIdentity) await lock?.recordWin(campaign.id, cookieIdentity);
     }
 
-    if (!isNoWin && selectedReward.quantityInitial > 0) {
-      const refreshed = await env.DB.prepare(`SELECT quantity FROM rewards WHERE id = ? LIMIT 1`)
-        .bind(selectedReward.id)
-        .first<{ quantity: number }>();
-      selectedReward.quantity = Number(refreshed?.quantity ?? 0);
-    }
-
     return jsonResponse({
       success: true,
       participation: {
@@ -729,19 +820,9 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
   }
 }
 
-async function handleActionClaim(env: Env, publicCode: string, request: Request): Promise<Response> {
+async function handleActionClaim(env: Env, campaign: { id: string; require_action: string | null }, request: Request): Promise<Response> {
   try {
     const body = actionClaimSchema.parse(await request.json());
-
-    const campaign = await env.DB.prepare(
-      `SELECT id, require_action FROM campaigns WHERE public_code = ? LIMIT 1`,
-    )
-      .bind(publicCode)
-      .first<{ id: string; require_action: string | null }>();
-
-    if (!campaign) {
-      return errorResponse('Campaign not found.', 404);
-    }
 
     const requiredAction = campaign.require_action ?? 'NONE';
 
