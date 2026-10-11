@@ -197,6 +197,24 @@ describe('GET /api/auth/google/callback', () => {
     expect(raw.DB.query<{ name: string }>(`SELECT name FROM businesses`)).toEqual([{ name: 'Existing Shop' }]);
   });
 
+  it('refuses to absorb an unverified password account (account-takeover guard)', async () => {
+    stubGoogleFetch();
+    await seedMerchant(raw.DB, { email: 'ada@example.test', businessName: 'Pre-registered Shop' });
+    // Password registration never verifies the email; a Google sign-in with
+    // the same address must not silently take the account over.
+    raw.DB.prepare(`UPDATE users SET email_verified = 0 WHERE email = ?`).bind('ada@example.test').run();
+
+    const { cookies, state } = await startFlow();
+    const response = await handleAuthRoute(
+      new Request(`https://example.test${callbackUrl(state)}`, { headers: { cookie: cookieHeader(cookies) } }),
+      env,
+    );
+
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { error: string }).error).toMatch(/password/i);
+    expect(raw.DB.query(`SELECT id FROM accounts`)).toHaveLength(0);
+  });
+
   it('cannot be replayed once the state has been consumed', async () => {
     stubGoogleFetch();
     const { cookies, state } = await startFlow();

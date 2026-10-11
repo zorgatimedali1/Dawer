@@ -224,6 +224,40 @@ describe('PUT /api/business/campaign-config', () => {
     expect(after[0]!.quantity).toBe(9);
   });
 
+  it('keeps live stock and cap when a save omits quantity (wheel editor)', async () => {
+    const created = await body(
+      await handleBusinessRoute(
+        jsonRequest(CONFIG, 'PUT', baseConfig({
+          rewards: [{ name: 'Rare', type: 'custom_reward', value: 1, weight: 100, quantity: 2 }],
+        }), owner.token),
+        env,
+      ),
+    );
+
+    // A visitor burn takes the stock down, then the wheel builder saves
+    // without a quantity field — sold-out state and the original cap must
+    // survive instead of being restocked to the default of 100.
+    db.prepare(`UPDATE rewards SET quantity = 0 WHERE campaign_id = ?`).bind(created.campaign.id).run();
+    const rewardId = db.query<{ id: string }>(
+      `SELECT id FROM rewards WHERE campaign_id = ?`,
+      created.campaign.id,
+    )[0]!.id;
+
+    await handleBusinessRoute(
+      jsonRequest(CONFIG, 'PUT', baseConfig({
+        rewards: [{ id: rewardId, name: 'Rare renamed', type: 'custom_reward', value: 1, weight: 100 }],
+      }), owner.token),
+      env,
+    );
+
+    expect(
+      db.query<{ quantity: number; quantity_initial: number }>(
+        `SELECT quantity, quantity_initial FROM rewards WHERE campaign_id = ?`,
+        created.campaign.id,
+      ),
+    ).toEqual([{ quantity: 0, quantity_initial: 2 }]);
+  });
+
   it('rejects an unknown reward type with 400', async () => {
     const response = await handleBusinessRoute(
       jsonRequest(CONFIG, 'PUT', baseConfig({

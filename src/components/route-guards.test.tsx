@@ -1,20 +1,37 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RedirectIfAuthenticated, RequireAuth } from '@/components/route-guards';
 import { AppProvider } from '@/contexts/app-context';
 
 const AUTH_KEY = 'campaign-engage-auth';
+const cachedUser = {
+  id: 'u1',
+  email: 'a@b.co',
+  firstName: 'Ada',
+  lastName: 'Lovelace',
+  role: 'merchant' as const,
+};
 
 function seedSession() {
-  window.localStorage.setItem(
-    AUTH_KEY,
-    JSON.stringify({
-      token: 'cf_abc.def',
-      user: { id: 'u1', email: 'a@b.co', firstName: 'Ada', lastName: 'Lovelace', role: 'merchant' },
-    }),
-  );
+  window.localStorage.setItem(AUTH_KEY, JSON.stringify({ user: cachedUser }));
 }
+
+function stubSession(handler: () => Promise<Response>) {
+  vi.stubGlobal('fetch', vi.fn(handler));
+}
+
+const okSession = async () =>
+  new Response(JSON.stringify({ success: true, user: cachedUser }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+
+const deadSession = async () =>
+  new Response(JSON.stringify({ success: false, error: 'Your session has expired. Sign in again.' }), {
+    status: 401,
+    headers: { 'content-type': 'application/json' },
+  });
 
 function renderAt(path: string) {
   return render(
@@ -49,23 +66,46 @@ describe('route guards', () => {
     window.localStorage.clear();
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('redirects unauthenticated visitors away from the dashboard', () => {
     renderAt('/dashboard/settings');
     expect(screen.getByText('login form')).toBeInTheDocument();
     expect(screen.queryByText('secret dashboard')).not.toBeInTheDocument();
   });
 
-  it('lets authenticated users render the dashboard on first paint', () => {
+  it('holds the loader while the bootstrap session check is in flight', () => {
     seedSession();
+    stubSession(() => new Promise<Response>(() => undefined));
     renderAt('/dashboard/settings');
-    expect(screen.getByText('secret dashboard')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.queryByText('secret dashboard')).not.toBeInTheDocument();
     expect(screen.queryByText('login form')).not.toBeInTheDocument();
   });
 
-  it('redirects authenticated users away from the auth pages', () => {
+  it('lets authenticated users render the dashboard once the session check passes', async () => {
     seedSession();
+    stubSession(okSession);
+    renderAt('/dashboard/settings');
+    expect(await screen.findByText('secret dashboard')).toBeInTheDocument();
+    expect(screen.queryByText('login form')).not.toBeInTheDocument();
+  });
+
+  it('bounces to sign-in when the cached session has expired', async () => {
+    seedSession();
+    stubSession(deadSession);
+    renderAt('/dashboard/settings');
+    expect(await screen.findByText('login form')).toBeInTheDocument();
+    expect(screen.queryByText('secret dashboard')).not.toBeInTheDocument();
+  });
+
+  it('redirects authenticated users away from the auth pages', async () => {
+    seedSession();
+    stubSession(okSession);
     renderAt('/auth/login');
-    expect(screen.getByText('overview page')).toBeInTheDocument();
+    expect(await screen.findByText('overview page')).toBeInTheDocument();
     expect(screen.queryByText('login form')).not.toBeInTheDocument();
   });
 

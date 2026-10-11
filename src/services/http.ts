@@ -26,8 +26,11 @@ export async function apiRequest<T>(
   if (!response.ok) {
     if (response.status === 401) {
       // The session cookie is gone or expired: drop the cached user so route
-      // guards bounce to sign-in on the next render.
+      // guards bounce to sign-in on the next render, and tell the AppProvider
+      // to clear its React state too — localStorage alone leaves `user` stale
+      // and the guards never redirect mid-visit.
       window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      window.dispatchEvent(new Event('session-expired'));
     }
     throw new Error(result.message ?? result.error ?? fallbackError);
   }

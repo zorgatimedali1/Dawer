@@ -74,7 +74,7 @@ export async function registerUser(request: Request, env: Env): Promise<Response
     const now = new Date().toISOString();
     const token = `cf_${secureRandomHex(16)}.${secureRandomHex(16)}`;
     const tokenHash = await sha256Hex(token);
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
+    const expiresAt = new Date(Date.now() + 1000 * SESSION_MAX_AGE).toISOString();
 
     const statements = [
       env.DB.prepare(
@@ -208,7 +208,7 @@ export async function loginUser(request: Request, env: Env): Promise<Response> {
 
     const token = `cf_${secureRandomHex(16)}.${secureRandomHex(16)}`;
     const tokenHash = await sha256Hex(token);
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
+    const expiresAt = new Date(Date.now() + 1000 * SESSION_MAX_AGE).toISOString();
 
     await env.DB.prepare(
       `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
@@ -356,10 +356,33 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
       return oauthError(request, 'Google email is required.', 400);
     }
 
-    const existingUser = await env.DB.prepare('SELECT id, status FROM users WHERE email = ? LIMIT 1').bind(email).first<{ id: string; status: string }>();
+    const existingUser = await env.DB.prepare('SELECT id, status, email_verified FROM users WHERE email = ? LIMIT 1')
+      .bind(email)
+      .first<{ id: string; status: string; email_verified: number }>();
 
     if (existingUser && existingUser.status !== 'ACTIVE') {
       return oauthError(request, 'This account has been suspended.', 403);
+    }
+
+    // Account-takeover guard: password registration never verifies the email
+    // (email_verified = 0), so a Google sign-in with the same address must not
+    // silently absorb that account — otherwise anyone can pre-register a
+    // victim's address and later walk in through Google. Only a verified
+    // email, or an identity whose Google row is already linked, may pass.
+    if (existingUser && !existingUser.email_verified) {
+      const alreadyLinked = await env.DB.prepare(
+        'SELECT 1 AS hit FROM accounts WHERE provider = ? AND provider_account_id = ? LIMIT 1',
+      )
+        .bind('google', googleUser.sub)
+        .first<{ hit: number }>();
+
+      if (!alreadyLinked) {
+        return oauthError(
+          request,
+          'This email is already registered with a password. Sign in with your password instead.',
+          409,
+        );
+      }
     }
 
     const userId = existingUser?.id ?? crypto.randomUUID();

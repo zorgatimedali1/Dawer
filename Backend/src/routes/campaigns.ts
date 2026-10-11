@@ -114,11 +114,16 @@ async function syncRewards(
     keptIds.add(id);
 
     if (existingSet.has(id)) {
+      // Editors that do not model stock (the wheel builder) send no quantity;
+      // keep the live remaining stock and the original cap instead of
+      // restocking sold-out prizes to DEFAULT_REWARD_STOCK on every save.
       statements.push(
         env.DB.prepare(
           `UPDATE rewards
-           SET name = ?, type = ?, value = ?, description = ?, weight = ?, quantity = ?,
-               quantity_initial = ?, active = ?, updated_at = ?
+           SET name = ?, type = ?, value = ?, description = ?, weight = ?,
+               quantity = COALESCE(?, quantity),
+               quantity_initial = COALESCE(?, quantity_initial),
+               active = ?, updated_at = ?
            WHERE id = ? AND campaign_id = ?`,
         ).bind(
           reward.name,
@@ -126,8 +131,8 @@ async function syncRewards(
           String(reward.value),
           reward.description,
           reward.weight,
-          reward.quantity ?? DEFAULT_REWARD_STOCK,
-          reward.quantity ?? DEFAULT_REWARD_STOCK,
+          reward.quantity ?? null,
+          reward.quantity ?? null,
           reward.active ? 1 : 0,
           now,
           id,

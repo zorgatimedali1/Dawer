@@ -1,17 +1,20 @@
 'use client';
 
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Locale } from '@/lib/i18n';
 import { AuthService, type AuthResponse } from '@/services/auth.service';
 
 type ThemeMode = 'light' | 'dark';
 type UserSession = AuthResponse['user'];
+export type SessionStatus = 'checking' | 'ready';
 
 type AppContextValue = {
   theme: ThemeMode;
   locale: Locale;
   user: UserSession | null;
   isAuthenticated: boolean;
+  /** 'checking' while the bootstrap session revalidation is still in flight. */
+  sessionStatus: SessionStatus;
   setTheme: (theme: ThemeMode) => void;
   setLocale: (locale: Locale) => void;
   login: (response: AuthResponse) => void;
@@ -56,16 +59,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<ThemeMode>(readStoredTheme);
   const [locale, setLocaleState] = useState<Locale>(readStoredLocale);
   const [user, setUser] = useState<UserSession | null>(readStoredUser);
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus>(() => (readStoredUser() ? 'checking' : 'ready'));
+
+  // Bumped by login()/logout() so a still-in-flight bootstrap revalidation
+  // can never resurrect a session the user already signed out of (or
+  // overwrite a fresh login with a stale response).
+  const sessionEpoch = useRef(0);
 
   // The cached profile in localStorage can outlive the server session (3-day
   // TTL): revalidate the HttpOnly cookie once on bootstrap so a logged-out
   // visitor never keeps seeing "open dashboard" or passing the route guards.
   useEffect(() => {
     if (!user) return undefined;
+    const epoch = sessionEpoch.current;
     let cancelled = false;
     AuthService.revalidateSession()
       .then((fresh) => {
-        if (cancelled) return;
+        if (cancelled || epoch !== sessionEpoch.current) return;
         if (fresh) {
           setUser(fresh.user);
           window.localStorage.setItem(AUTH_KEY, JSON.stringify({ user: fresh.user }));
@@ -74,11 +84,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           window.localStorage.removeItem(AUTH_KEY);
         }
       })
-      .catch(() => undefined); // offline or transient failure — keep cached state
+      .catch(() => undefined) // offline or transient failure — keep cached state
+      .finally(() => {
+        if (!cancelled && epoch === sessionEpoch.current) setSessionStatus('ready');
+      });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
+  }, []);
+
+  // Any /api 401 (http.ts) means the HttpOnly cookie is gone: drop the React
+  // state too so the route guards redirect on the next render instead of
+  // leaving the merchant stuck in a dashboard full of failing calls.
+  useEffect(() => {
+    const onSessionExpired = () => {
+      sessionEpoch.current += 1;
+      setUser(null);
+      setSessionStatus('ready');
+      window.localStorage.removeItem(AUTH_KEY);
+    };
+    window.addEventListener('session-expired', onSessionExpired);
+    return () => window.removeEventListener('session-expired', onSessionExpired);
   }, []);
 
   useEffect(() => {
@@ -93,7 +120,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [locale]);
 
   const login = (response: AuthResponse) => {
+    sessionEpoch.current += 1;
     setUser(response.user);
+    setSessionStatus('ready');
     // Only the profile is cached for guards — the session token stays inside
     // the HttpOnly cookie and is never written to storage (P1-1).
     window.localStorage.setItem(AUTH_KEY, JSON.stringify({ user: response.user }));
@@ -102,7 +131,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     // Local state clears immediately; the caller can await the server-side
     // session revocation before navigating away (e.g. after sign-out).
+    sessionEpoch.current += 1;
     setUser(null);
+    setSessionStatus('ready');
     window.localStorage.removeItem(AUTH_KEY);
     await AuthService.logout().catch(() => undefined);
   };
@@ -113,12 +144,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       locale,
       user,
       isAuthenticated: !!user,
+      sessionStatus,
       setTheme: setThemeState,
       setLocale: setLocaleState,
       login,
       logout,
     }),
-    [theme, locale, user],
+    [theme, locale, user, sessionStatus],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

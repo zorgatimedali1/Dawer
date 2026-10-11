@@ -77,6 +77,19 @@ describe('POST /api/auth/register', () => {
     expect(Date.parse(trials[0]!.current_period_end) - Date.parse(trials[0]!.created_at)).toBe(7 * 86_400_000);
   });
 
+  it('stores the session row with the same 3-day TTL as the cookie', async () => {
+    await handleAuthRoute(jsonRequest('/api/auth/register', 'POST', registerBody()), env);
+
+    // The HttpOnly cookie is capped at 3 days; the DB row must not outlive
+    // it or a replayed Bearer token would stay valid for a week.
+    const session = db.query<{ created_at: string; expires_at: string }>(
+      `SELECT created_at, expires_at FROM sessions`,
+    )[0]!;
+    const ttl = Date.parse(session.expires_at) - Date.parse(session.created_at);
+    expect(ttl).toBeLessThanOrEqual(3 * 86_400_000);
+    expect(ttl).toBeGreaterThan(3 * 86_400_000 - 10_000);
+  });
+
   it('seeds the new business channel switches from the platform-wide controls', async () => {
     db.prepare(
       `INSERT INTO platform_settings (key, value, updated_at) VALUES ('whatsapp_enabled', '0', ?)`,
@@ -328,6 +341,19 @@ describe('POST /api/auth/login', () => {
       env,
     );
     expect(guarded.status).toBe(200);
+  });
+
+  it('stores the login session row with the same 3-day TTL as the cookie', async () => {
+    await handleAuthRoute(jsonRequest('/api/auth/register', 'POST', registerBody()), env);
+
+    await handleAuthRoute(jsonRequest('/api/auth/login', 'POST', { email, password: 'Sup3rSecret!' }), env);
+
+    const session = db.query<{ created_at: string; expires_at: string }>(
+      `SELECT created_at, expires_at FROM sessions ORDER BY created_at DESC`,
+    )[0]!;
+    const ttl = Date.parse(session.expires_at) - Date.parse(session.created_at);
+    expect(ttl).toBeLessThanOrEqual(3 * 86_400_000);
+    expect(ttl).toBeGreaterThan(3 * 86_400_000 - 10_000);
   });
 
   it('rejects a wrong password', async () => {

@@ -286,6 +286,10 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
   let lockClaimed = false;
   let undoRelease: (() => Promise<void>) | null = null;
   let decrementedRewardId: string | null = null;
+  // Set only when *this* attempt materialized the customer row: the rollback
+  // path deletes it so a failed spin never leaves an orphan that counts
+  // against the merchant's storage quota.
+  let createdCustomerId: string | null = null;
   // Every durable `spin_claims` row this attempt wrote (browser key first,
   // then the advisory contact key) — all of them go back on any failure.
   const claimRowIds: string[] = [];
@@ -453,47 +457,10 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       : null;
     let stickyLockClaimed = false;
 
-    const [lockResult, stickyResult] = await Promise.all([
-      lock.claim(campaign.id, claimKey, claimPolicy),
-      stickyLock ? stickyLock.claim(campaign.id, stickyKey ?? '', claimPolicy) : Promise.resolve(null),
-    ]);
-
-    let denialReason: string | null = lockResult.allowed ? null : String(lockResult.reason ?? 'duplicate_spin');
-    if (denialReason !== null) {
-      // The speculative sticky claim must be handed back when the primary
-      // claim lost its race.
-      if (stickyResult?.allowed && stickyLock && stickyKey) {
-        await stickyLock.release(campaign.id, stickyKey);
-      }
-      lock = null;
-      stickyLock = null;
-    } else {
-      lockClaimed = true;
-      if (stickyLock && stickyKey) {
-        if (stickyResult?.allowed) {
-          stickyLockClaimed = true;
-        } else {
-          denialReason = String(stickyResult?.reason ?? 'duplicate_spin');
-          await lock.release(campaign.id, claimKey);
-          lockClaimed = false;
-          lock = null;
-          stickyLock = null;
-        }
-      }
-    }
-
-    if (denialReason !== null) {
-      const message =
-        denialReason === 'cooldown'
-          ? 'Please wait before spinning again.'
-          : denialReason === 'daily_limit'
-            ? "You have reached today's spin limit. Come back tomorrow."
-            : 'This customer has already participated in this campaign.';
-      return errorResponse(message, 409);
-    }
-
     // Hands back whichever claims are still held — used by every early return
-    // below and by the catch block if a later write fails.
+    // below and by the catch block if a later write fails. Defined (and wired
+    // into `undoRelease`) *before* the claims so a throw mid-claim can never
+    // leak a slot that was granted: the catch block retries this same path.
     const releaseClaims = async () => {
       if (stickyLockClaimed && stickyLock && stickyKey) {
         await stickyLock.release(campaign.id, stickyKey);
@@ -503,8 +470,69 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
         await lock.release(campaign.id, claimKey);
         lockClaimed = false;
       }
+      // A contact row this attempt created goes with the failed spin: keeping
+      // it would let scripted failures (random emails at a sold-out wheel)
+      // fill the merchant's customer-storage quota with unreachable rows.
+      if (createdCustomerId) {
+        await env.DB.prepare('DELETE FROM customers WHERE id = ?').bind(createdCustomerId).run();
+        createdCustomerId = null;
+      }
     };
     undoRelease = releaseClaims;
+
+    // A Durable Object error must never leak a claim: the throw collapses to
+    // a denial, and whichever sibling claim was granted is handed back by the
+    // release path above.
+    const claimSafely = async (stub: LockStub | null, key: string) => {
+      if (!stub) return null;
+      try {
+        return await stub.claim(campaign.id, key, claimPolicy);
+      } catch (error) {
+        console.error('Campaign claim failed.', error);
+        return { allowed: false as const, reason: 'unavailable' };
+      }
+    };
+
+    const [lockResult, stickyResult] = await Promise.all([
+      claimSafely(lock, claimKey),
+      claimSafely(stickyLock, stickyKey ?? ''),
+    ]);
+
+    let denialReason: string | null = lockResult && !lockResult.allowed ? String(lockResult.reason ?? 'duplicate_spin') : null;
+    if (lockResult?.allowed) {
+      lockClaimed = true;
+    }
+    if (stickyResult?.allowed && stickyLock && stickyKey) {
+      stickyLockClaimed = true;
+    }
+
+    if (denialReason !== null) {
+      // The speculative sticky claim must be handed back when the primary
+      // claim lost its race.
+      if (stickyLockClaimed) {
+        await releaseClaims();
+      }
+      lock = null;
+      stickyLock = null;
+    } else if (stickyLock && stickyKey && !stickyResult?.allowed) {
+      denialReason = String(stickyResult?.reason ?? 'duplicate_spin');
+      await releaseClaims();
+      lock = null;
+      stickyLock = null;
+    }
+
+    if (denialReason !== null) {
+      if (denialReason === 'unavailable') {
+        return errorResponse('The wheel is busy. Please try again.', 503);
+      }
+      const message =
+        denialReason === 'cooldown'
+          ? 'Please wait before spinning again.'
+          : denialReason === 'daily_limit'
+            ? "You have reached today's spin limit. Come back tomorrow."
+            : 'This customer has already participated in this campaign.';
+      return errorResponse(message, 409);
+    }
 
     // P2-5: the customer row is materialized only for a real contact. The
     // quota therefore only ever counts rows the merchant can actually reach,
@@ -551,6 +579,8 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
             409,
           );
         }
+
+        createdCustomerId = customerId;
       }
     }
 
@@ -768,10 +798,13 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     await env.DB.batch(chain);
 
     // The chain committed — from here nothing is worth unwinding, and the
-    // lock claim must stay held: that is what blocks the next spin.
+    // lock claims must stay held: that is what blocks the next spin. The
+    // customer row is now legitimate CRM data, not a rollback target.
     claimRowIds.length = 0;
     decrementedRewardId = null;
     lockClaimed = false;
+    stickyLockClaimed = false;
+    createdCustomerId = null;
 
     // The spin landed: count it toward the campaign's win budget on each
     // identity's own claim — the sticky non-contact id (or the browser key
@@ -804,7 +837,9 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
           .run();
         decrementedRewardId = null;
       }
-      if (lockClaimed && undoRelease) {
+      if (undoRelease) {
+        // releaseClaims checks each held flag itself, so a sticky-only claim
+        // (primary denied mid-flight) is handed back too.
         await undoRelease();
       }
     } catch (rollbackError) {

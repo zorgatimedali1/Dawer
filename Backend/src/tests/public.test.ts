@@ -555,6 +555,23 @@ describe('reward stock loop', () => {
     expect(payload.participation.reward.quantity).toBe(0);
     expect(db.query(`SELECT quantity FROM rewards`)).toEqual([{ quantity: 0 }]);
   });
+
+  it('never leaves an orphan customer row when a spin fails after capture', async () => {
+    const code = await createCampaign({ rewards: [{ name: 'Rare', weight: 100, quantity: 1 }] });
+
+    const winner = await spin(code, 'keep-row@example.test');
+    expect(winner.status).toBe(200);
+
+    const loser = await spin(code, 'drop-row@example.test');
+    expect(loser.status).toBe(400);
+
+    // The winning spin keeps its CRM row; the failed spin's freshly created
+    // row is rolled back so scripted failures (random emails at a sold-out
+    // wheel) cannot fill the merchant's customer-storage quota.
+    expect(db.query<{ email: string }>(`SELECT email FROM customers`)).toEqual([
+      { email: 'keep-row@example.test' },
+    ]);
+  });
 });
 
 describe('anonymous spins', () => {

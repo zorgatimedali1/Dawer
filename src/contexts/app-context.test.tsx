@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from '@/contexts/app-context';
 
@@ -13,6 +13,25 @@ const cachedUser = {
 function Probe() {
   const { isAuthenticated } = useAppContext();
   return <p>{isAuthenticated ? 'authed' : 'anonymous'}</p>;
+}
+
+function LogoutProbe() {
+  const { isAuthenticated, logout } = useAppContext();
+  return (
+    <>
+      <p>{isAuthenticated ? 'authed' : 'anonymous'}</p>
+      <button type="button" onClick={() => void logout()}>
+        sign out
+      </button>
+    </>
+  );
+}
+
+function json(body: unknown, status: number) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 function renderProbeWithSessionResponse(handler: () => Promise<Response>) {
@@ -32,24 +51,14 @@ afterEach(() => {
 
 describe('session revalidation on bootstrap', () => {
   it('keeps the cached user when the server session is still valid', async () => {
-    renderProbeWithSessionResponse(async () =>
-      new Response(JSON.stringify({ success: true, user: cachedUser }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
+    renderProbeWithSessionResponse(async () => json({ success: true, user: cachedUser }, 200));
 
     expect(await screen.findByText('authed')).toBeInTheDocument();
     expect(window.localStorage.getItem('campaign-engage-auth')).not.toBeNull();
   });
 
   it('clears the cached user when the server session has expired (401)', async () => {
-    renderProbeWithSessionResponse(async () =>
-      new Response(JSON.stringify({ success: false, error: 'Your session has expired. Sign in again.' }), {
-        status: 401,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
+    renderProbeWithSessionResponse(async () => json({ success: false, error: 'Your session has expired. Sign in again.' }, 401));
 
     expect(await screen.findByText('anonymous')).toBeInTheDocument();
     expect(window.localStorage.getItem('campaign-engage-auth')).toBeNull();
@@ -69,12 +78,7 @@ describe('session revalidation on bootstrap', () => {
   it('stays anonymous for visitors without a cached session', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(JSON.stringify({ success: true, partners: [] }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
-      ),
+      vi.fn(async () => json({ success: true, partners: [] }, 200)),
     );
     render(
       <AppProvider>
@@ -83,5 +87,56 @@ describe('session revalidation on bootstrap', () => {
     );
 
     expect(await screen.findByText('anonymous')).toBeInTheDocument();
+  });
+});
+
+describe('session-expired event (mid-session 401)', () => {
+  it('drops the React state so route guards can redirect', async () => {
+    renderProbeWithSessionResponse(async () => json({ success: true, user: cachedUser }, 200));
+    expect(await screen.findByText('authed')).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new Event('session-expired'));
+    });
+
+    expect(screen.getByText('anonymous')).toBeInTheDocument();
+    expect(window.localStorage.getItem('campaign-engage-auth')).toBeNull();
+  });
+});
+
+describe('logout vs in-flight revalidation race', () => {
+  it('never resurrects a session the user signed out of', async () => {
+    window.localStorage.setItem('campaign-engage-auth', JSON.stringify({ user: cachedUser }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes('/auth/session')) {
+          // Held open until after the logout so the race is deterministic.
+          return new Promise<Response>((resolve) => {
+            window.setTimeout(() => resolve(json({ success: true, user: cachedUser }, 200)), 0);
+          });
+        }
+        return json({ success: true }, 200);
+      }),
+    );
+
+    render(
+      <AppProvider>
+        <LogoutProbe />
+      </AppProvider>,
+    );
+
+    expect(screen.getByText('authed')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('sign out'));
+    expect(screen.getByText('anonymous')).toBeInTheDocument();
+
+    // Let the late session 200 land, then assert it was ignored.
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 10));
+    });
+
+    expect(screen.getByText('anonymous')).toBeInTheDocument();
+    expect(window.localStorage.getItem('campaign-engage-auth')).toBeNull();
   });
 });
