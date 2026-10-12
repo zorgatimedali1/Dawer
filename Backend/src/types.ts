@@ -38,6 +38,11 @@ export type Env = Cloudflare.Env & {
   SENTRY_ENVIRONMENT?: string;
   /** `true`/`1` makes the public geofence reject requests with no country signal. */
   GEOFENCE_STRICT?: string;
+  /** Platform-wide safety valve: max participations accepted per campaign per
+   *  UTC day (default 5000). Bounds how much of the shared D1 write budget a
+   *  single viral wheel can consume, so one hot campaign cannot make every
+   *  other merchant's spins start failing. 0/empty disables the cap. */
+  CAMPAIGN_DAILY_SPIN_CAP?: string;
   /** Base URL of the standalone WhatsApp Web gateway container. */
   GATEWAY_URL?: string;
   /** HMAC key for per-tenant gateway tokens; never sent to the gateway as-is. */

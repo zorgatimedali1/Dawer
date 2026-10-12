@@ -68,7 +68,11 @@
 		// URLs, inline campaign images) — relative links break in inboxes.
 		"APP_ORIGIN": "https://campaignflow-backend.mhoudou098.workers.dev",
 		// ISO country codes allowed to reach /api/public (comma separated).
-		"GEOFENCE_COUNTRIES": "TN"
+		"GEOFENCE_COUNTRIES": "TN",
+		// Per-campaign spin ceiling per UTC day. Bounds one campaign's share of
+		// the account-wide D1 write quota on the free plan (no card on file).
+		// Set to "0" to disable the cap.
+		"CAMPAIGN_DAILY_SPIN_CAP": "5000"
 	},
 	"triggers": {
 		"crons": ["*/10 * * * *"]

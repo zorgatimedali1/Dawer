@@ -131,6 +131,10 @@ export const errors = {
   "You have reached today's spin limit. Come back tomorrow.": 'Vous avez atteint la limite de tours du jour. Revenez demain.',
   'Too many spins from this network. Please try again later.': 'Trop de tours depuis ce réseau. Réessayez plus tard.',
   "You have reached today's win limit. Come back tomorrow.": 'Vous avez atteint la limite de gains du jour. Revenez demain.',
+  'The wheel is at capacity today. Please come back tomorrow.':
+    'La roue a atteint sa capacité pour aujourd’hui. Revenez demain !',
+  'This customer has already participated in this campaign.':
+    'Ce client a déjà participé à cette campagne.',
   'You can create at most 4 campaigns. Delete or archive a campaign first.':
     'Vous pouvez créer au maximum 4 campagnes. Supprimez ou archivez d’abord une campagne.',
   'Unable to load WhatsApp status.': 'Impossible de charger l’état WhatsApp.',

@@ -417,11 +417,16 @@ describe('POST /api/public/campaigns/:code/participate', () => {
 
     expect(db.query(`SELECT id FROM participations`)).toHaveLength(1);
     expect(db.query(`SELECT status FROM coupons`)).toEqual([{ status: 'ISSUED' }]);
-    expect(
-      db
-        .query<{ event_type: string }>(`SELECT event_type FROM analytics_events ORDER BY event_type`)
-        .map((row) => row.event_type),
-    ).toEqual(['PARTICIPATION', 'REWARD_CLAIMED']);
+    // Wins are no longer double-written as a REWARD_CLAIMED event — the
+    // PARTICIPATION row carries the win flag and coupon code, and analytics
+    // counts wins from the coupons table.
+    const events = db.query<{ event_type: string; event_data: string }>(
+      `SELECT event_type, event_data FROM analytics_events ORDER BY event_type`,
+    );
+    expect(events.map((row) => row.event_type)).toEqual(['PARTICIPATION']);
+    const participationEvent = JSON.parse(events[0]!.event_data) as { isWin: boolean; couponCode: string | null };
+    expect(participationEvent.isWin).toBe(true);
+    expect(participationEvent.couponCode).toMatch(/^CF-[0-9A-F]{16}$/);
     expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'ada@example.test')).toHaveLength(1);
   });
 
@@ -571,6 +576,21 @@ describe('reward stock loop', () => {
     expect(db.query<{ email: string }>(`SELECT email FROM customers`)).toEqual([
       { email: 'keep-row@example.test' },
     ]);
+  });
+
+  it('refuses spins past the campaign daily cap with a friendly capacity error', async () => {
+    Object.assign(env, { CAMPAIGN_DAILY_SPIN_CAP: '2' });
+    const code = await createCampaign({ rewards: [{ name: 'Free coffee', weight: 100 }] });
+
+    expect((await spin(code, 'cap-1@example.test')).status).toBe(200);
+    expect((await spin(code, 'cap-2@example.test')).status).toBe(200);
+
+    const capped = await spin(code, 'cap-3@example.test');
+    expect(capped.status).toBe(429);
+    expect((await body(capped)).message).toBe('The wheel is at capacity today. Please come back tomorrow.');
+    // The cap is checked before the DO claim, so the refused visitor's slot
+    // is never burned and the campaign stays at its accepted count.
+    expect(db.query(`SELECT id FROM participations`)).toHaveLength(2);
   });
 });
 

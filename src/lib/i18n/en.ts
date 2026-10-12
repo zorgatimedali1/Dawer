@@ -134,6 +134,10 @@ export const errors: D<typeof frDict.errors> = {
   "You have reached today's spin limit. Come back tomorrow.": "You have reached today's spin limit. Come back tomorrow.",
   'Too many spins from this network. Please try again later.': 'Too many spins from this network. Please try again later.',
   "You have reached today's win limit. Come back tomorrow.": "You have reached today's win limit. Come back tomorrow.",
+  'The wheel is at capacity today. Please come back tomorrow.':
+    'The wheel is at capacity today. Please come back tomorrow.',
+  'This customer has already participated in this campaign.':
+    'This customer has already participated in this campaign.',
   'You can create at most 4 campaigns. Delete or archive a campaign first.':
     'You can create at most 4 campaigns. Delete or archive a campaign first.',
   'Unable to load WhatsApp status.': 'Unable to load WhatsApp status.',

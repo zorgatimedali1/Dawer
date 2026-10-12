@@ -410,6 +410,31 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       }
     }
 
+    // Platform safety valve: all tenants share one D1 write budget on the
+    // free plan, so a single viral wheel could otherwise burn it and make
+    // every other merchant's spins fail for the rest of the UTC day. The cap
+    // is deliberately generous (5000/day default) — real campaigns never see
+    // it; it only exists to bound the blast radius of an outlier. Counted with
+    // the other refusals, before the durable claim, so a rejected attempt
+    // never holds a slot.
+    const dailySpinCap = Number(env.CAMPAIGN_DAILY_SPIN_CAP ?? 5000);
+    if (Number.isFinite(dailySpinCap) && dailySpinCap > 0) {
+      const dayStart = new Date().toISOString().slice(0, 10);
+      const todaySpins = await env.DB.prepare(
+        `SELECT COUNT(*) AS total FROM participations WHERE campaign_id = ? AND created_at >= ?`,
+      )
+        .bind(campaign.id, `${dayStart}T00:00:00.000Z`)
+        .first<{ total: number }>();
+
+      if ((todaySpins?.total ?? 0) >= dailySpinCap) {
+        return errorResponse(
+          'The wheel is at capacity today. Please come back tomorrow.',
+          429,
+          { code: 'campaign_capacity' },
+        );
+      }
+    }
+
     const customerKey = (
       body.email ??
       body.phone ??
@@ -584,15 +609,61 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       }
     }
 
-    const rewardRows = await env.DB.prepare(
-      `SELECT id, name, description, type, value, weight, quantity, quantity_initial
-       FROM rewards
-       WHERE campaign_id = ? AND active = 1
-         AND (quantity_initial IS NULL OR quantity_initial = 0 OR quantity > 0)
-       ORDER BY weight DESC, created_at ASC`,
-    )
-      .bind(campaign.id)
-      .all<any>();
+    // The reward listing and the win-budget reads are independent of each
+    // other (and of the customer block above), so they run in parallel: the
+    // Durable Object win counts and the per-IP budget query overlap the
+    // rewards SELECT instead of stacking after it on every spin.
+    const budgetFlow = (async () => {
+      // Win budget: once the identity holds its daily wins, force the "no win"
+      // slice so a farm can never drain the campaign's value — or refuse the
+      // spin outright when the campaign has no such slice configured.
+      let exhausted = false;
+      if (playRules && playRules.winBudget > 0) {
+        // Per-identity budgets key on the sticky non-contact id and the verified
+        // cookie — never on email/phone (P2-4: pre-spending a victim's budget
+        // would only ever hand them the "no win" slice). Each identity's wins
+        // are read from the Durable Object that holds its claim, so a rotating
+        // cookie cannot reset the device budget.
+        if (windowed) {
+          const stickyWins = stickyLock
+            ? ((await stickyLock.getWinCount(campaign.id, stickyKey ?? '')) ?? 0)
+            : stickyKey && stickyKey === claimKey
+              ? ((await lock?.getWinCount(campaign.id, claimKey)) ?? 0)
+              : 0;
+          const cookieWins = cookieIdentity ? ((await lock?.getWinCount(campaign.id, cookieIdentity)) ?? 0) : 0;
+          exhausted = stickyWins >= playRules.winBudget || cookieWins >= playRules.winBudget;
+        }
+
+        // Per-network budget in every mode: however many identities one address
+        // rotates through, it can only spend the configured wins per rolling
+        // day. `spin_events.is_win` backs it, so the count survives DO loss.
+        if (!exhausted && ipHash) {
+          const windowStart = new Date(Date.now() - 86_400_000).toISOString();
+          const ipWins = await env.DB.prepare(
+            `SELECT COUNT(*) AS total FROM spin_events
+              WHERE campaign_id = ? AND ip_hash = ? AND created_at >= ? AND is_win = 1`,
+          )
+            .bind(campaign.id, ipHash, windowStart)
+            .first<{ total: number }>();
+
+          exhausted = (ipWins?.total ?? 0) >= playRules.winBudget;
+        }
+      }
+      return exhausted;
+    })();
+
+    const [rewardRows, budgetExhausted] = await Promise.all([
+      env.DB.prepare(
+        `SELECT id, name, description, type, value, weight, quantity, quantity_initial
+         FROM rewards
+         WHERE campaign_id = ? AND active = 1
+           AND (quantity_initial IS NULL OR quantity_initial = 0 OR quantity > 0)
+         ORDER BY weight DESC, created_at ASC`,
+      )
+        .bind(campaign.id)
+        .all<any>(),
+      budgetFlow,
+    ]);
 
     const mappedRewards = (rewardRows.results ?? []).map((reward) => ({
       id: reward.id,
@@ -604,42 +675,6 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       quantity: Number(reward.quantity ?? 0),
       quantityInitial: Number(reward.quantity_initial ?? 0),
     }));
-
-    // Win budget: once the identity holds its daily wins, force the "no win"
-    // slice so a farm can never drain the campaign's value — or refuse the
-    // spin outright when the campaign has no such slice configured.
-    let budgetExhausted = false;
-    if (playRules && playRules.winBudget > 0) {
-      // Per-identity budgets key on the sticky non-contact id and the verified
-      // cookie — never on email/phone (P2-4: pre-spending a victim's budget
-      // would only ever hand them the "no win" slice). Each identity's wins
-      // are read from the Durable Object that holds its claim, so a rotating
-      // cookie cannot reset the device budget.
-      if (windowed) {
-        const stickyWins = stickyLock
-          ? ((await stickyLock.getWinCount(campaign.id, stickyKey ?? '')) ?? 0)
-          : stickyKey && stickyKey === claimKey
-            ? ((await lock?.getWinCount(campaign.id, claimKey)) ?? 0)
-            : 0;
-        const cookieWins = cookieIdentity ? ((await lock?.getWinCount(campaign.id, cookieIdentity)) ?? 0) : 0;
-        budgetExhausted = stickyWins >= playRules.winBudget || cookieWins >= playRules.winBudget;
-      }
-
-      // Per-network budget in every mode: however many identities one address
-      // rotates through, it can only spend the configured wins per rolling
-      // day. `spin_events.is_win` backs it, so the count survives DO loss.
-      if (!budgetExhausted && ipHash) {
-        const windowStart = new Date(Date.now() - 86_400_000).toISOString();
-        const ipWins = await env.DB.prepare(
-          `SELECT COUNT(*) AS total FROM spin_events
-            WHERE campaign_id = ? AND ip_hash = ? AND created_at >= ? AND is_win = 1`,
-        )
-          .bind(campaign.id, ipHash, windowStart)
-          .first<{ total: number }>();
-
-        budgetExhausted = (ipWins?.total ?? 0) >= playRules.winBudget;
-      }
-    }
 
     // Fail closed: without the server-set HttpOnly visitor cookie there is no
     // identity that survives across spins (email, phone, device hash and
@@ -776,17 +811,19 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       env.DB.prepare(
         `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
          VALUES (?, ?, ?, 'PARTICIPATION', ?, ?)`,
-      ).bind(crypto.randomUUID(), campaign.business_id, campaign.id, JSON.stringify({ rewardId: selectedReward.id, customerKey }), now),
+      ).bind(
+        crypto.randomUUID(),
+        campaign.business_id,
+        campaign.id,
+        JSON.stringify({ rewardId: selectedReward.id, customerKey, isWin: !isNoWin, couponCode: couponCode || null }),
+        now,
+      ),
     );
 
-    if (!isNoWin) {
-      chain.push(
-        env.DB.prepare(
-          `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
-           VALUES (?, ?, ?, 'REWARD_CLAIMED', ?, ?)`,
-        ).bind(crypto.randomUUID(), campaign.business_id, campaign.id, JSON.stringify({ rewardId: selectedReward.id, couponCode }), now),
-      );
-    }
+    // A win also writes its `coupons` row above; analytics derives
+    // `rewardsClaimed` from that table, so a separate REWARD_CLAIMED event is
+    // not written. Fewer event rows = faster analytics reads + smaller
+    // storage footprint per spin.
 
     chain.push(
       env.DB.prepare(

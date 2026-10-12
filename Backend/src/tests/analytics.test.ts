@@ -65,7 +65,6 @@ beforeEach(async () => {
 
   // Distinct ages so `ORDER BY created_at DESC` has a defined order.
   seedEvent(alice.businessId, aliceCampaign, 'PARTICIPATION', 1_000);
-  seedEvent(alice.businessId, aliceCampaign, 'REWARD_CLAIMED', 2_000);
   seedEvent(bob.businessId, bobCampaign, 'PARTICIPATION', 3_000);
 });
 
@@ -90,16 +89,27 @@ describe('analytics authentication', () => {
 
 describe('GET /api/analytics/overview', () => {
   it('only counts events belonging to the caller businesses', async () => {
+    // A coupon row is the live source of truth for a win (no REWARD_CLAIMED
+    // event is written anymore), so seed one to drive the derived rewards count.
+    db.prepare(
+      `INSERT INTO coupons (id, business_id, campaign_id, code, status, issued_at)
+       VALUES (?, ?, ?, 'COUPON-OVERVIEW-ALICE', 'ISSUED', ?)`,
+    )
+      .bind(crypto.randomUUID(), alice.businessId, aliceCampaign, new Date().toISOString())
+      .run();
+
     const payload = await body(
       await handleAnalyticsRoute(jsonRequest('/api/analytics/overview', 'GET', undefined, alice.token), env),
     );
 
     expect(payload.success).toBe(true);
+    // REWARD_CLAIMED is derived from the coupons table (1 issued coupon), not
+    // from a stored event — it no longer appears in analytics_events.
     expect(payload.totals).toEqual([
       { event_type: 'PARTICIPATION', count: 1 },
       { event_type: 'REWARD_CLAIMED', count: 1 },
     ]);
-    expect(payload.summary).toMatchObject({ participations: 1, coupons: 0, customers: 1 });
+    expect(payload.summary).toMatchObject({ participations: 1, coupons: 1, customers: 1 });
   });
 
   it('returns an empty result for a user with no business', async () => {
@@ -138,6 +148,15 @@ describe('GET /api/analytics/timeseries', () => {
     });
 
   it('fills every day bucket for the requested window', async () => {
+    // Seed a coupon so the today bucket has a reward to report — wins are
+    // counted from the coupons table now, not from a REWARD_CLAIMED event.
+    db.prepare(
+      `INSERT INTO coupons (id, business_id, campaign_id, code, status, issued_at)
+       VALUES (?, ?, ?, 'COUPON-TIMESERIES-ALICE', 'ISSUED', ?)`,
+    )
+      .bind(crypto.randomUUID(), alice.businessId, aliceCampaign, new Date().toISOString())
+      .run();
+
     const payload = await body(
       await handleAnalyticsRoute(
         jsonRequest('/api/analytics/timeseries?days=7', 'GET', undefined, alice.token),
@@ -174,11 +193,17 @@ describe('GET /api/analytics/timeseries', () => {
         env,
       ),
     );
+    // Only Alice's own participations count; Bob's are scoped out. `total` is
+    // the participation count, so a winning spin counts once (not once per
+    // participation and reward).
     const totals = payload.series.reduce(
       (sum: number, day: { total: number }) => sum + day.total,
       0,
     );
-    expect(totals).toBe(2);
+    expect(totals).toBe(1);
+    expect(
+      payload.series.reduce((sum: number, day: { participations: number }) => sum + day.participations, 0),
+    ).toBe(1);
   });
 
   it('returns zero-filled buckets for a user with no business', async () => {
@@ -201,6 +226,15 @@ describe('GET /api/analytics/funnel', () => {
        VALUES (?, ?, ?, 'COUPON_REDEEMED', '{}', ?)`,
     ).bind(crypto.randomUUID(), alice.businessId, aliceCampaign, new Date().toISOString()).run();
 
+    // Wins are counted from the coupons table — one issued row per reward —
+    // not from a per-win analytics event.
+    db.prepare(
+      `INSERT INTO coupons (id, business_id, campaign_id, participation_id, reward_id, code, status, issued_at)
+       VALUES (?, ?, ?, NULL, NULL, 'CF-FUNNEL000000001', 'ISSUED', ?)`,
+    )
+      .bind(crypto.randomUUID(), alice.businessId, aliceCampaign, new Date().toISOString())
+      .run();
+
     const payload = await body(
       await handleAnalyticsRoute(
         jsonRequest('/api/analytics/funnel?days=7', 'GET', undefined, alice.token),
@@ -210,6 +244,9 @@ describe('GET /api/analytics/funnel', () => {
 
     expect(payload.stages).toHaveLength(3);
     expect(payload.stages[0]).toMatchObject({ key: 'participations', value: 1, rateFromPrevious: 100 });
+    // The seeded REWARD_CLAIMED event (historical format) is intentionally
+    // ignored here: exactly 1 comes from the coupons row, proving the count
+    // no longer depends on the per-win event.
     expect(payload.stages[1]).toMatchObject({ key: 'rewardsClaimed', value: 1, rateFromPrevious: 100 });
     expect(payload.stages[2]).toMatchObject({ key: 'couponsRedeemed', value: 1 });
     expect(payload.conversion).toMatchObject({
@@ -281,10 +318,12 @@ describe('GET /api/analytics/campaigns/:id', () => {
       ),
     );
 
-    expect(payload.events).toHaveLength(2);
+    // A spin writes a PARTICIPATION event with isWin/couponCode in event_data;
+    // a win no longer adds a separate REWARD_CLAIMED row (the coupon row is
+    // the source of truth for wins).
+    expect(payload.events).toHaveLength(1);
     expect(payload.events.map((event: { event_type: string }) => event.event_type)).toEqual([
       'PARTICIPATION',
-      'REWARD_CLAIMED',
     ]);
   });
 

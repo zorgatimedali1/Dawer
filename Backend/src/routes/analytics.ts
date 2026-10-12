@@ -50,6 +50,24 @@ async function handleTimeSeries(request: Request, env: Env, businessIds: string[
       bucket[row.event_type] = (bucket[row.event_type] ?? 0) + Number(row.count);
       byDay.set(row.day, bucket);
     }
+
+    // Wins are counted from the coupons table (one row per issued reward) —
+    // the participate chain no longer writes a redundant REWARD_CLAIMED event
+    // per win, which saved a D1 row-write on every winning spin.
+    const couponRows = await analyticsDb(env).prepare(
+      `SELECT substr(issued_at, 1, 10) AS day, COUNT(*) AS count
+       FROM coupons
+       WHERE business_id IN (${placeholders}) AND issued_at >= ?
+       GROUP BY day`,
+    )
+      .bind(...businessIds, since)
+      .all<{ day: string; count: number }>();
+
+    for (const row of couponRows.results ?? []) {
+      const bucket = byDay.get(row.day) ?? {};
+      bucket.COUPON_ISSUED = (bucket.COUPON_ISSUED ?? 0) + Number(row.count);
+      byDay.set(row.day, bucket);
+    }
   }
 
   const series: Array<Record<string, unknown>> = [];
@@ -61,9 +79,14 @@ async function handleTimeSeries(request: Request, env: Env, businessIds: string[
     series.push({
       day: key,
       participations: counts.PARTICIPATION ?? 0,
-      rewardsClaimed: counts.REWARD_CLAIMED ?? 0,
+      // New wins come from coupons; historical REWARD_CLAIMED rows still
+      // count until they age out of retention, so old windows stay stable.
+      rewardsClaimed: (counts.COUPON_ISSUED ?? 0) + (counts.REWARD_CLAIMED ?? 0),
       couponsRedeemed: counts.COUPON_REDEEMED ?? 0,
-      total: Object.values(counts).reduce((sum, value) => sum + value, 0),
+      // `total` stays the participation count: wins are a subset of
+      // participations (every win also writes one), so adding the coupon
+      // bucket here would render a single winning spin as 2.
+      total: counts.PARTICIPATION ?? 0,
     });
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
@@ -121,8 +144,17 @@ async function handleFunnel(request: Request, env: Env, businessIds: string[]): 
     .bind(...businessIds, since)
     .first<{ total: number }>();
 
+  // One coupon row per issued reward — the durable source of truth for wins
+  // (participations include the no-win slice, so they cannot stand in).
+  const issued = await analyticsDb(env).prepare(
+    `SELECT COUNT(*) AS total FROM coupons
+     WHERE business_id IN (${placeholders}) AND issued_at >= ?`,
+  )
+    .bind(...businessIds, since)
+    .first<{ total: number }>();
+
   const participations = counts.PARTICIPATION ?? 0;
-  const rewardsClaimed = counts.REWARD_CLAIMED ?? 0;
+  const rewardsClaimed = Number(issued?.total ?? 0);
   const couponsRedeemed = counts.COUPON_REDEEMED ?? 0;
 
   const rate = (value: number, base: number): number =>
@@ -270,9 +302,21 @@ export async function handleAnalyticsRoute(request: Request, env: Env): Promise<
       .bind(...businessIds, ...businessIds, ...businessIds)
       .first();
 
+    // Wins are no longer written as a REWARD_CLAIMED event (the coupon row
+    // below is the source of truth), so derive that count from coupons to
+    // keep the "Rewards won" card live instead of frozen at its pre-change
+    // total. Every redeemed coupon was also issued, so `coupons` is an exact
+    // stand-in for issued count.
+    const rewardsIssued = Number(summary?.coupons ?? 0);
+    const totals = (counts.results ?? []).filter((row) => row.event_type !== 'REWARD_CLAIMED');
+    if (rewardsIssued > 0) {
+      totals.push({ event_type: 'REWARD_CLAIMED', count: rewardsIssued });
+    }
+    totals.sort((a, b) => String(a.event_type).localeCompare(String(b.event_type)));
+
     return jsonResponse({
       success: true,
-      totals: counts.results ?? [],
+      totals,
       summary: summary ?? { participations: 0, coupons: 0, customers: 0 },
     });
   }

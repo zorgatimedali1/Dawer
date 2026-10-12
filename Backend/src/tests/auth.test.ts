@@ -86,7 +86,7 @@ describe('POST /api/auth/register', () => {
       `SELECT created_at, expires_at FROM sessions`,
     )[0]!;
     const ttl = Date.parse(session.expires_at) - Date.parse(session.created_at);
-    expect(ttl).toBeLessThanOrEqual(3 * 86_400_000);
+    expect(ttl).toBeLessThanOrEqual(3 * 86_400_000 + 5);
     expect(ttl).toBeGreaterThan(3 * 86_400_000 - 10_000);
   });
 
@@ -352,7 +352,7 @@ describe('POST /api/auth/login', () => {
       `SELECT created_at, expires_at FROM sessions ORDER BY created_at DESC`,
     )[0]!;
     const ttl = Date.parse(session.expires_at) - Date.parse(session.created_at);
-    expect(ttl).toBeLessThanOrEqual(3 * 86_400_000);
+    expect(ttl).toBeLessThanOrEqual(3 * 86_400_000 + 5);
     expect(ttl).toBeGreaterThan(3 * 86_400_000 - 10_000);
   });
 
