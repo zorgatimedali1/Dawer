@@ -752,7 +752,7 @@ function PosterPreview({
           />
 
           <span
-            className={moveableClass('logo', 'absolute bottom-[7cqw] left-[6cqw] select-none font-semibold italic')}
+            className={moveableClass('logo', 'absolute bottom-[7cqw] left-[6cqw] max-w-[36cqw] select-none font-semibold italic')}
             style={{
               ...moveableStyle('logo', { color: '#ffffff', fontSize: '4cqw' }),
               transform: `${moveableStyle('logo').transform} rotate(-7deg)`,
@@ -764,7 +764,7 @@ function PosterPreview({
           </span>
 
           <div
-            className={moveableClass('logo', 'absolute bottom-[5cqw] right-[5cqw] flex items-center gap-[1.4cqw]')}
+            className={moveableClass('logo', 'absolute bottom-[5cqw] right-[5cqw] flex items-center gap-[2cqw]')}
             style={moveableStyle('logo')}
             data-testid="poster-logo"
             onPointerDown={moveMode ? (event) => startDrag('logo', event) : undefined}
@@ -772,14 +772,14 @@ function PosterPreview({
             onPointerUp={moveMode ? (event) => endDrag('logo', event) : undefined}
             onPointerCancel={moveMode ? (event) => endDrag('logo', event) : undefined}
           >
-            <span className="font-semibold text-white/90" style={{ fontSize: '2.6cqw' }}>
+            <span className="font-semibold text-white/90" style={{ fontSize: '3.4cqw' }}>
               Powered by
             </span>
             <DawerLogo
               alt={t.poster.logoAlt}
               tone="white"
               draggable={false}
-              className="block h-[4.4cqw] w-auto object-contain drop-shadow-[0_0.2cqw_0.4cqw_rgba(20,60,20,0.25)]"
+              className="block h-[7cqw] w-auto object-contain drop-shadow-[0_0.2cqw_0.4cqw_rgba(20,60,20,0.25)]"
             />
           </div>
           {qrError && <p className="absolute bottom-1 left-2 right-2 text-[10px] text-rose-700">{qrError}</p>}
