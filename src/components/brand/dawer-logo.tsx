@@ -1,15 +1,15 @@
 import * as React from 'react';
 import dawerLogo from '@/assets/dawer-logo.png';
-import dawerLogoWhite from '@/assets/logo dawer blanc.png';
 
 /**
  * The official Dawer wordmark.
  *
  * The default asset is a flat #7DAB4B logotype on a fully transparent
  * background, so it stays legible on the light (#FFFFFF / #F5F9EF) surfaces
- * without any filter, plate or recolouring. `tone="white"` swaps in the
- * identical white wordmark for dark or saturated backgrounds (never recoloured
- * with a CSS filter). It is never cropped or scaled non-proportionally.
+ * as-is. `tone="white"` re-renders the same logotype as a pure white
+ * silhouette via a `brightness-0 invert` filter — there is no separate white
+ * wordmark asset (the "blanc" files in src/assets are wheel icons). It is
+ * never cropped or scaled non-proportionally.
  *
  * Size it with a height class and let width follow the intrinsic aspect
  * ratio: `<DawerLogo className="h-9 w-auto" />`
@@ -22,18 +22,17 @@ export interface DawerLogoProps extends Omit<React.ImgHTMLAttributes<HTMLImageEl
 }
 
 export const DAWER_LOGO_SRC = dawerLogo;
-export const DAWER_LOGO_WHITE_SRC = dawerLogoWhite;
 
 export function DawerLogo({ alt = 'Dawer', className, tone = 'green', ...props }: DawerLogoProps) {
-  const src = tone === 'white' ? dawerLogoWhite : dawerLogo;
+  const cls = `${className ?? 'h-9 w-auto'}${tone === 'white' ? ' brightness-0 invert' : ''}`;
   return (
     <img
-      src={src}
+      src={dawerLogo}
       alt={alt}
       width={953}
       height={232}
       decoding="async"
-      className={className ?? 'h-9 w-auto'}
+      className={cls}
       {...props}
     />
   );
