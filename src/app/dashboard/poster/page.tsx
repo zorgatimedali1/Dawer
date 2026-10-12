@@ -1,9 +1,25 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from 'react';
-import { Loader2, Megaphone, Minus, Move, Plus, Printer, RotateCcw, Save, X } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from 'react';
+import {
+  ChevronRight,
+  Gift,
+  Loader2,
+  Megaphone,
+  Minus,
+  Move,
+  Plus,
+  Printer,
+  QrCode,
+  RotateCcw,
+  Save,
+  Smartphone,
+  Star,
+  UserRound,
+  X,
+} from 'lucide-react';
 import QRCode from 'qrcode';
-import logoDawer from '@/assets/dawer2.png';
+import { DawerLogo } from '@/components/brand/dawer-logo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -141,26 +157,225 @@ function contentFromPoster(poster: Poster | null, defaultBrand: string): PosterC
 }
 
 
-function GiftBox({ accent, small = false }: { accent: string; small?: boolean }) {
+/** Brand palette lifted from the reference poster so every layer stays in tune. */
+const BRAND_GREEN = '#5BA143';
+const BRAND_GREEN_DEEP = '#3E8C34';
+const BRAND_GREEN_SOFT = '#E7F3E4';
+const BRAND_INK = '#17223B';
+
+/**
+ * A softly rendered gift box: rounded body with a lid, a satin ribbon band and
+ * a looped bow, shaded with linear gradients to read as three-dimensional like
+ * the reference art (a flat fill would look like a wireframe placeholder).
+ */
+function GiftBox({
+  body,
+  ribbon,
+  className = '',
+  rotate = 0,
+}: {
+  body: string;
+  ribbon: string;
+  className?: string;
+  rotate?: number;
+}) {
   return (
     <div
       aria-hidden="true"
-      className={`relative shrink-0 ${small ? 'h-[12cqw] w-[17cqw]' : 'h-[15cqw] w-[21cqw]'}`}
+      className={`relative ${className}`}
+      style={{ transform: `rotate(${rotate}deg)` }}
     >
-      <div className="absolute inset-x-[5%] bottom-0 h-[68%] rounded-[1cqw] bg-white shadow-md ring-1 ring-slate-200/70" />
-      <div className="absolute inset-x-0 bottom-[61%] h-[18%] rounded-[1cqw] bg-white shadow-sm ring-1 ring-slate-200/70" />
-      <div className="absolute bottom-0 left-[44%] h-[75%] w-[12%]" style={{ backgroundColor: accent }} />
-      <div className="absolute bottom-[65%] left-0 h-[9%] w-full" style={{ backgroundColor: accent }} />
+      {/* bow loops sit above the lid */}
       <span
-        className="absolute left-[25%] top-[2%] h-[28%] w-[27%] -rotate-45 rounded-full border-[0.8cqw] border-current border-b-transparent"
-        style={{ color: accent }}
+        className="absolute left-[16%] top-0 h-[26%] w-[32%] rounded-full"
+        style={{
+          border: `${'0.9cqw'} solid ${ribbon}`,
+          borderBottomColor: 'transparent',
+          transform: 'rotate(-32deg)',
+          filter: 'drop-shadow(0 0.3cqw 0.4cqw rgba(20,60,20,0.18))',
+        }}
       />
       <span
-        className="absolute right-[25%] top-[2%] h-[28%] w-[27%] rotate-45 rounded-full border-[0.8cqw] border-current border-b-transparent"
-        style={{ color: accent }}
+        className="absolute right-[16%] top-0 h-[26%] w-[32%] rounded-full"
+        style={{
+          border: `${'0.9cqw'} solid ${ribbon}`,
+          borderBottomColor: 'transparent',
+          transform: 'rotate(32deg)',
+          filter: 'drop-shadow(0 0.3cqw 0.4cqw rgba(20,60,20,0.18))',
+        }}
+      />
+      {/* lid */}
+      <div
+        className="absolute inset-x-0 top-[22%] h-[22%] rounded-[1cqw]"
+        style={{
+          background: `linear-gradient(180deg, ${body} 0%, ${body} 55%, rgba(0,0,0,0.08) 100%)`,
+          boxShadow: '0 0.6cqw 1.2cqw rgba(20,60,20,0.16)',
+        }}
+      />
+      {/* body */}
+      <div
+        className="absolute inset-x-[6%] bottom-0 top-[42%] rounded-[1cqw]"
+        style={{
+          background: `linear-gradient(160deg, ${body} 0%, ${body} 60%, rgba(0,0,0,0.1) 100%)`,
+          boxShadow: 'inset 0 -1cqw 1.6cqw rgba(0,0,0,0.12), 0 1cqw 2cqw rgba(20,60,20,0.14)',
+        }}
+      />
+      {/* ribbon band down the centre */}
+      <div
+        className="absolute left-1/2 top-[22%] bottom-0 w-[14%] -translate-x-1/2"
+        style={{ background: `linear-gradient(90deg, ${ribbon} 0%, rgba(255,255,255,0.28) 45%, ${ribbon} 100%)` }}
       />
     </div>
   );
+}
+
+/** Small rotated ribbon scrap used as festive confetti. */
+function Confetti({ className, rotate = 0, tone }: { className: string; rotate?: number; tone: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`absolute rounded-[0.3cqw] ${className}`}
+      style={{ backgroundColor: tone, transform: `rotate(${rotate}deg)`, opacity: 0.85 }}
+    />
+  );
+}
+
+/** Full-bleed decorative field: gradient, corner ribbon, confetti and the bottom wave. */
+function PosterBackdrop() {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+      {/* soft green → white radial wash */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background: `radial-gradient(120% 90% at 50% 8%, #ffffff 0%, #f2f9ef 32%, ${BRAND_GREEN_SOFT} 62%, #dcefdd 100%)`,
+        }}
+      />
+      {/* top-right green ribbon sweep */}
+      <div
+        className="absolute -right-[18%] -top-[14%] h-[42cqw] w-[42cqw] rounded-full"
+        style={{
+          background: `radial-gradient(circle at 30% 30%, ${BRAND_GREEN} 0%, ${BRAND_GREEN_DEEP} 70%, rgba(62,140,52,0) 100%)`,
+          filter: 'blur(0.2cqw)',
+          opacity: 0.92,
+        }}
+      />
+      {/* left ribbon curl */}
+      <div
+        className="absolute -left-[16%] -top-[6%] h-[26cqw] w-[26cqw] rounded-full"
+        style={{
+          background: `radial-gradient(circle at 60% 40%, #8ec96f 0%, ${BRAND_GREEN} 55%, rgba(91,161,67,0) 100%)`,
+          opacity: 0.5,
+        }}
+      />
+      {/* bottom wave */}
+      <svg
+        viewBox="0 0 100 26"
+        preserveAspectRatio="none"
+        className="absolute inset-x-0 bottom-0 h-[24%] w-full"
+      >
+        <defs>
+          <linearGradient id="poster-wave" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={BRAND_GREEN} />
+            <stop offset="100%" stopColor={BRAND_GREEN_DEEP} />
+          </linearGradient>
+        </defs>
+        <path
+          d="M0 10 C 22 2, 40 16, 62 12 C 82 8, 92 2, 100 6 L100 26 L0 26 Z"
+          fill="url(#poster-wave)"
+        />
+        <path
+          d="M0 12 C 24 5, 42 18, 64 14 C 83 10, 93 5, 100 8"
+          fill="none"
+          stroke="#ffffff"
+          strokeOpacity="0.35"
+          strokeWidth="0.6"
+        />
+      </svg>
+      {/* confetti */}
+      <Confetti className="left-[6%] top-[52%] h-[1.6cqw] w-[4cqw]" rotate={-24} tone="#7cc158" />
+      <Confetti className="left-[2%] top-[58%] h-[1.4cqw] w-[3.4cqw]" rotate={38} tone="#ffffff" />
+      <Confetti className="right-[7%] top-[54%] h-[1.5cqw] w-[3.8cqw]" rotate={22} tone="#7cc158" />
+      <Confetti className="right-[3%] top-[61%] h-[1.3cqw] w-[3cqw]" rotate={-40} tone="#ffffff" />
+      <Confetti className="left-[12%] top-[66%] h-[1.2cqw] w-[3cqw]" rotate={12} tone="#a9d98c" />
+      <Confetti className="right-[14%] top-[68%] h-[1.2cqw] w-[2.8cqw]" rotate={-16} tone="#a9d98c" />
+    </div>
+  );
+}
+
+/** The two gift boxes flanking the QR block in the reference art. */
+function GiftPair() {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+      <GiftBox
+        body="#ffffff"
+        ribbon={BRAND_GREEN}
+        rotate={-8}
+        className="absolute left-[-2%] top-[48%] h-[22cqw] w-[26cqw]"
+      />
+      <GiftBox
+        body={BRAND_GREEN}
+        ribbon="#ffffff"
+        rotate={9}
+        className="absolute right-[-2%] top-[50%] h-[21cqw] w-[25cqw]"
+      />
+    </div>
+  );
+}
+
+/** Decorative accent chevrons that flank the headline and QR caption. */
+function AccentChevrons({ side, tone }: { side: 'left' | 'right'; tone: string }) {
+  return (
+    <span aria-hidden="true" className="inline-flex shrink-0 items-center gap-[0.4cqw]">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <span
+          key={i}
+          style={{
+            width: '0.9cqw',
+            height: `${2.4 - i * 0.5}cqw`,
+            backgroundColor: tone,
+            borderRadius: '0.4cqw',
+            transform: `rotate(${(side === 'left' ? -1 : 1) * (18 + i * 6)}deg)`,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** Chevron used between the three step cards. */
+function StepArrow() {
+  return <ChevronRight aria-hidden className="shrink-0 text-[#8fc97a]" style={{ width: '4.5cqw', height: '4.5cqw', strokeWidth: 3 }} />;
+}
+
+function StepIcon({ kind }: { kind: 0 | 1 | 2 }) {
+  const tone = BRAND_GREEN;
+  if (kind === 0) {
+    return (
+      <span className="relative grid h-full w-full place-items-center">
+        <Smartphone style={{ width: '5.2cqw', height: '5.2cqw' }} color={tone} strokeWidth={1.8} />
+        <QrCode
+          style={{ width: '2.6cqw', height: '2.6cqw', position: 'absolute', top: '18%', left: '32%' }}
+          color={tone}
+          strokeWidth={2.4}
+        />
+      </span>
+    );
+  }
+  if (kind === 1) {
+    return (
+      <span className="relative grid h-full w-full place-items-center">
+        <UserRound style={{ width: '5.4cqw', height: '5.4cqw' }} color={tone} strokeWidth={1.8} />
+        <Star
+          style={{ width: '2.6cqw', height: '2.6cqw', position: 'absolute', bottom: '18%', right: '26%' }}
+          color={tone}
+          fill={tone}
+          strokeWidth={1.5}
+        />
+      </span>
+    );
+  }
+  return <Gift style={{ width: '5.4cqw', height: '5.4cqw' }} color={tone} strokeWidth={1.8} />;
 }
 
 interface PosterPreviewProps {
@@ -389,8 +604,9 @@ function PosterPreview({
         ref={articleRef}
         data-testid="poster-preview"
         className="poster-print-area relative mx-auto flex aspect-[5/7] w-full max-w-[620px] flex-col overflow-hidden border border-slate-200 text-center shadow-lg"
-        style={{ backgroundColor: background, containerType: 'inline-size' }}
+        style={{ backgroundColor: '#f2f9ef', containerType: 'inline-size' }}
       >
+        <PosterBackdrop />
         {bgUsable ? (
           <img
             src={backgroundUrl.trim()}
@@ -401,16 +617,10 @@ function PosterPreview({
             onError={() => setFailedBackgroundUrl(backgroundUrl.trim())}
           />
         ) : null}
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-          <span className="absolute -left-[13%] top-[36%] h-[28cqw] w-[28cqw] rounded-full bg-white/35" />
-          <span className="absolute -right-[14%] top-[53%] h-[36cqw] w-[36cqw] rounded-full bg-white/30" />
-          <span className="absolute left-[18%] top-[76%] h-[1.2cqw] w-[1.2cqw] rounded-full bg-amber-300/80" />
-          <span className="absolute right-[19%] top-[74%] h-[1cqw] w-[1cqw] rounded-full bg-amber-300/80" />
-        </div>
 
-        <div className="relative z-10 flex h-full flex-col items-center px-[7cqw] pb-[3cqw] pt-[3cqw]">
+        <div className="relative z-10 flex h-full flex-col items-center px-[7cqw] pb-[5cqw] pt-[5cqw]">
           <header
-            className={moveableClass('brand', 'flex items-center justify-center gap-[2cqw]')}
+            className={moveableClass('brand', 'flex flex-col items-center gap-[1.6cqw]')}
             style={moveableStyle('brand')}
             onPointerDown={moveMode ? (event) => startDrag('brand', event) : undefined}
             onPointerMove={moveMode ? (event) => moveDrag('brand', event) : undefined}
@@ -418,22 +628,27 @@ function PosterPreview({
             onPointerCancel={moveMode ? (event) => endDrag('brand', event) : undefined}
           >
             <span
-              className="grid h-[8cqw] w-[8cqw] shrink-0 place-items-center rounded-full text-white"
-              style={{ backgroundColor: theme, fontSize: '3.8cqw', fontWeight: 700 }}
+              className="grid h-[11cqw] w-[11cqw] shrink-0 place-items-center rounded-full text-white ring-[0.5cqw] ring-white/70"
+              style={{
+                background: `linear-gradient(145deg, ${BRAND_GREEN} 0%, ${BRAND_GREEN_DEEP} 100%)`,
+                boxShadow: '0 1cqw 2cqw rgba(20,60,20,0.22)',
+                fontSize: '5cqw',
+                fontWeight: 800,
+              }}
             >
               {brandName.trim().charAt(0).toUpperCase() || 'C'}
             </span>
             <span
-              className="max-w-[75cqw] min-w-0 overflow-wrap-anywhere font-bold uppercase tracking-[0.08em]"
-              style={{ color: theme, fontSize: '3.4cqw' }}
+              className="max-w-[80cqw] min-w-0 truncate font-bold uppercase tracking-[0.14em]"
+              style={{ color: BRAND_GREEN_DEEP, fontSize: '3cqw' }}
             >
               {brandName || t.poster.brandFallback}
             </span>
           </header>
 
           <h3
-            className={moveableClass('title', 'mt-[4cqw] max-w-[94%] font-extrabold leading-[1.04]')}
-            style={moveableStyle('title', { color: theme, fontSize: 'clamp(1.15rem, 5.6cqw, 2rem)', overflowWrap: 'anywhere' })}
+            className={moveableClass('title', 'mt-[3cqw] max-w-[96%] text-center font-extrabold leading-[1.02]')}
+            style={moveableStyle('title', { color: BRAND_INK, fontSize: 'clamp(1.4rem, 7.6cqw, 2.9rem)', overflowWrap: 'anywhere', letterSpacing: '-0.02em' })}
             onPointerDown={moveMode ? (event) => startDrag('title', event) : undefined}
             onPointerMove={moveMode ? (event) => moveDrag('title', event) : undefined}
             onPointerUp={moveMode ? (event) => endDrag('title', event) : undefined}
@@ -441,19 +656,24 @@ function PosterPreview({
           >
             {title || defaults.title}
           </h3>
-          <p
-            className={moveableClass('subtitle', 'mt-[2cqw] max-w-[92%] leading-[1.2] text-slate-600')}
-            style={moveableStyle('subtitle', { fontSize: 'clamp(0.72rem, 3.1cqw, 1rem)' })}
+
+          <div
+            className={moveableClass('subtitle', 'mt-[2.4cqw] flex max-w-[94%] items-center justify-center gap-[2.4cqw]')}
+            style={moveableStyle('subtitle')}
             onPointerDown={moveMode ? (event) => startDrag('subtitle', event) : undefined}
             onPointerMove={moveMode ? (event) => moveDrag('subtitle', event) : undefined}
             onPointerUp={moveMode ? (event) => endDrag('subtitle', event) : undefined}
             onPointerCancel={moveMode ? (event) => endDrag('subtitle', event) : undefined}
           >
-            {subtitle || defaults.subtitle}
-          </p>
+            <AccentChevrons side="left" tone={BRAND_GREEN} />
+            <span className="text-center leading-[1.25] text-slate-500" style={{ fontSize: 'clamp(0.7rem, 3.3cqw, 1.05rem)' }}>
+              {subtitle || defaults.subtitle}
+            </span>
+            <AccentChevrons side="right" tone={BRAND_GREEN} />
+          </div>
 
           <ol
-            className={moveableClass('steps', 'mt-[4cqw] flex w-full flex-col gap-[1.4cqw] text-left')}
+            className={moveableClass('steps', 'mt-[4.5cqw] flex w-full items-stretch justify-center gap-[1cqw]')}
             style={moveableStyle('steps')}
             onPointerDown={moveMode ? (event) => startDrag('steps', event) : undefined}
             onPointerMove={moveMode ? (event) => moveDrag('steps', event) : undefined}
@@ -461,61 +681,104 @@ function PosterPreview({
             onPointerCancel={moveMode ? (event) => endDrag('steps', event) : undefined}
           >
             {steps.map((step, index) => (
-              <li
-                key={index}
-                className="flex min-h-[10cqw] items-center gap-[3cqw] rounded-[2.5cqw] bg-white/80 px-[3cqw] py-[1.5cqw] shadow-sm ring-1 ring-white"
-              >
-                <span
-                  className="grid h-[8cqw] w-[8cqw] shrink-0 place-items-center rounded-full font-bold text-white"
-                  style={{ backgroundColor: '#d1aa51', fontSize: '3.5cqw' }}
+              <Fragment key={index}>
+                {index > 0 ? (
+                  <li className="flex shrink-0 items-center" aria-hidden="true">
+                    <StepArrow />
+                  </li>
+                ) : null}
+                <li
+                  className="flex min-w-0 flex-1 flex-col items-center gap-[1.4cqw] rounded-[3cqw] bg-white px-[1.6cqw] py-[2.4cqw] text-center"
+                  style={{ boxShadow: '0 1.4cqw 3cqw rgba(20,60,20,0.12)', border: '0.2cqw solid #ffffff' }}
                 >
-                  {index + 1}
-                </span>
-                <span className="min-w-0 font-semibold leading-tight text-slate-800" style={{ fontSize: '3.4cqw', overflowWrap: 'anywhere' }}>
-                  {step || defaults.steps[index]}
-                </span>
-              </li>
+                  <span className="flex w-full items-center justify-center gap-[1.2cqw]">
+                    <span
+                      className="grid h-[4.4cqw] w-[4.4cqw] shrink-0 place-items-center rounded-full font-bold text-white"
+                      style={{ background: `linear-gradient(145deg, ${BRAND_GREEN} 0%, ${BRAND_GREEN_DEEP} 100%)`, fontSize: '2.4cqw' }}
+                    >
+                      {index + 1}
+                    </span>
+                    <span
+                      className="grid h-[7.4cqw] w-[7.4cqw] shrink-0 place-items-center rounded-full"
+                      style={{ backgroundColor: BRAND_GREEN_SOFT }}
+                    >
+                      <StepIcon kind={index as 0 | 1 | 2} />
+                    </span>
+                  </span>
+                  <span
+                    className="min-w-0 font-bold leading-[1.15]"
+                    style={{ color: BRAND_INK, fontSize: '2.7cqw', overflowWrap: 'anywhere' }}
+                  >
+                    {step || defaults.steps[index]}
+                  </span>
+                </li>
+              </Fragment>
             ))}
           </ol>
 
           <div
-            className={moveableClass('qr', 'mt-[3cqw] flex w-full flex-col items-center')}
+            className={moveableClass('qr', 'relative mt-[5cqw] flex w-full flex-col items-center')}
             style={moveableStyle('qr')}
             onPointerDown={moveMode ? (event) => startDrag('qr', event) : undefined}
             onPointerMove={moveMode ? (event) => moveDrag('qr', event) : undefined}
             onPointerUp={moveMode ? (event) => endDrag('qr', event) : undefined}
             onPointerCancel={moveMode ? (event) => endDrag('qr', event) : undefined}
           >
-            <div className="grid aspect-square w-[34cqw] shrink-0 place-items-center rounded-[3cqw] bg-white p-[2cqw] shadow-md ring-1 ring-slate-200/70">
+            <div
+              className="relative grid aspect-square w-[42cqw] shrink-0 place-items-center rounded-[3.4cqw] bg-white p-[3.2cqw]"
+              style={{
+                border: `0.35cqw dashed ${BRAND_GREEN}`,
+                boxShadow: '0 1.8cqw 4cqw rgba(20,60,20,0.16)',
+                backgroundColor: '#ffffff',
+              }}
+            >
               {qrDataUrl ? (
                 <img
                   className="h-full w-full object-contain"
                   src={qrDataUrl}
-                   alt={interpolate(t.poster.qrAlt, { brand: brandName })}
+                  alt={interpolate(t.poster.qrAlt, { brand: brandName })}
                   draggable={false}
                 />
               ) : (
-                 <Loader2 className="h-[16%] w-[16%] animate-spin text-slate-400" aria-label={t.poster.qrLoading} />
+                <Loader2 className="h-[16%] w-[16%] animate-spin text-slate-400" aria-label={t.poster.qrLoading} />
               )}
             </div>
-            <p className="mt-[2cqw] max-w-full font-bold leading-tight" style={{ color: theme, fontSize: '3.2cqw' }}>
-              {qrCaption || defaults.qrCaption}
-            </p>
+            <div className="mt-[2.6cqw] flex items-center justify-center gap-[1.6cqw]">
+              <AccentChevrons side="left" tone={BRAND_GREEN} />
+              <p className="text-center font-bold leading-[1.15]" style={{ color: BRAND_GREEN_DEEP, fontSize: '3.4cqw' }}>
+                {qrCaption || defaults.qrCaption}
+              </p>
+              <AccentChevrons side="right" tone={BRAND_GREEN} />
+            </div>
           </div>
 
+          {/* Fixed decorative gift boxes pinned to the composition, behind the interactive layer. */}
+          <GiftPair />
+
           <div
-            className={moveableClass('gifts', 'mt-auto flex w-full items-start justify-start gap-[6cqw] px-[5cqw] pt-[2cqw]')}
+            className={moveableClass('gifts', 'pointer-events-none absolute inset-0')}
             style={moveableStyle('gifts')}
+            aria-hidden="true"
             onPointerDown={moveMode ? (event) => startDrag('gifts', event) : undefined}
             onPointerMove={moveMode ? (event) => moveDrag('gifts', event) : undefined}
             onPointerUp={moveMode ? (event) => endDrag('gifts', event) : undefined}
             onPointerCancel={moveMode ? (event) => endDrag('gifts', event) : undefined}
+          />
+
+          <span
+            className={moveableClass('logo', 'absolute bottom-[7cqw] left-[6cqw] select-none font-semibold italic')}
+            style={{
+              ...moveableStyle('logo', { color: '#ffffff', fontSize: '4cqw' }),
+              transform: `${moveableStyle('logo').transform} rotate(-7deg)`,
+              textShadow: '0 0.2cqw 0.6cqw rgba(15,50,15,0.35)',
+            }}
+            data-testid="poster-slogan"
           >
-            <GiftBox accent={theme} />
-            <GiftBox accent="#d1aa51" small />
-          </div>
+            {t.poster.posterSlogan}
+          </span>
+
           <div
-            className={moveableClass('logo', 'absolute bottom-[4cqw] right-[4cqw]')}
+            className={moveableClass('logo', 'absolute bottom-[5cqw] right-[5cqw] flex items-center gap-[1.4cqw]')}
             style={moveableStyle('logo')}
             data-testid="poster-logo"
             onPointerDown={moveMode ? (event) => startDrag('logo', event) : undefined}
@@ -523,11 +786,14 @@ function PosterPreview({
             onPointerUp={moveMode ? (event) => endDrag('logo', event) : undefined}
             onPointerCancel={moveMode ? (event) => endDrag('logo', event) : undefined}
           >
-            <img
-              src={logoDawer}
+            <span className="font-semibold text-white/90" style={{ fontSize: '2.6cqw' }}>
+              Powered by
+            </span>
+            <DawerLogo
               alt={t.poster.logoAlt}
+              tone="white"
               draggable={false}
-              className="block h-[7cqw] w-auto max-w-[34cqw] object-contain"
+              className="block h-[4.4cqw] w-auto object-contain drop-shadow-[0_0.2cqw_0.4cqw_rgba(20,60,20,0.25)]"
             />
           </div>
           {qrError && <p className="absolute bottom-1 left-2 right-2 text-[10px] text-rose-700">{qrError}</p>}

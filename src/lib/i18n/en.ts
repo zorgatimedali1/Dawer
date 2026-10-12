@@ -549,6 +549,7 @@ export const poster: D<typeof frDict.poster> = {
   defaultStep2: 'Leave your review',
   defaultStep3: 'Spin the wheel and win!',
   defaultQrCaption: 'Scan to enter',
+  posterSlogan: 'Your review makes the difference!',
   qrAlt: 'QR code for {brand} campaign',
   qrLoading: 'Generating QR code…',
   qrError: 'Unable to generate the QR code.',

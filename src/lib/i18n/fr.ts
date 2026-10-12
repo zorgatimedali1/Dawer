@@ -546,6 +546,7 @@ export const poster = {
   defaultStep2: 'Donnez votre avis',
   defaultStep3: 'Tournez la roue et gagnez !',
   defaultQrCaption: 'Scannez pour participer',
+  posterSlogan: 'Votre avis fait la différence !',
   qrAlt: 'QR code de la campagne {brand}',
   qrLoading: 'Génération du QR code…',
   qrError: 'Impossible de générer le QR code.',
