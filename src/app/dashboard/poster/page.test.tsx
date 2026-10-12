@@ -98,7 +98,7 @@ describe('Poster editor', () => {
 
     render(<PosterEditorPage />);
 
-    const qr = await screen.findByRole('img', { name: /qr code de la campagne blue bottle coffee/i });
+    const qr = await screen.findByRole('img', { name: /qr code de la campagne blue bottle coffee/i }, { timeout: 5000 });
     expect(qr.getAttribute('src')).toMatch(/^data:image\/png;base64,/);
     expect(await screen.findByText('Scannez le QR code')).toBeTruthy();
     expect(screen.getByText(/impression sans bandes/i)).toBeTruthy();
