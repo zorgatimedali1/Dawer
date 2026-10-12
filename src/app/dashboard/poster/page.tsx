@@ -779,7 +779,7 @@ function PosterPreview({
               alt={t.poster.logoAlt}
               tone="white"
               draggable={false}
-              className="block h-[8.5cqw] w-auto object-contain drop-shadow-[0_0.2cqw_0.4cqw_rgba(20,60,20,0.25)]"
+              className="block h-[4.2cqw] w-auto object-contain drop-shadow-[0_0.2cqw_0.4cqw_rgba(20,60,20,0.25)]"
             />
           </div>
           {qrError && <p className="absolute bottom-1 left-2 right-2 text-[10px] text-rose-700">{qrError}</p>}
