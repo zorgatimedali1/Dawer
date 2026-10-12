@@ -80,10 +80,10 @@ describe('Poster editor', () => {
           id: 'poster-1',
           campaign_id: 'campaign-1',
           campaign_name: 'Blue Bottle Coffee',
-          template: inputBody.template,
+          template: 'gradient',
           title: inputBody.title,
           subtitle: inputBody.subtitle,
-          theme: inputBody.theme,
+          theme: '#24558f',
           configuration: JSON.stringify(inputBody.configuration),
           updated_at: '2026-01-01T00:00:00.000Z',
         };
@@ -116,62 +116,14 @@ describe('Poster editor', () => {
         String(input).startsWith('/api/business/posters') && init?.method === 'POST',
       );
       expect(saveCall).toBeTruthy();
-      const saved = JSON.parse(String(saveCall?.[1]?.body)) as { configuration: Record<string, unknown> };
+      const saved = JSON.parse(String(saveCall?.[1]?.body)) as { configuration: Record<string, unknown>; theme?: unknown; template?: unknown };
       expect(saved.configuration).toMatchObject({
         brandName: 'Roulii',
         steps: ['Scannez le QR code', 'Donnez votre avis Google', 'Tournez la roue et gagnez !'],
       });
+      expect(saved.theme).toBeUndefined();
+      expect(saved.template).toBeUndefined();
     });
-  });
-
-  it('validates and persists a background image URL', async () => {
-    let savedConfiguration: Record<string, unknown> | null = null;
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.startsWith('/api/business/campaigns')) return jsonResponse(campaignPayload());
-      if (url.startsWith('/api/business/posters') && init?.method === 'POST') {
-        const body = JSON.parse(String(init.body)) as { configuration: Record<string, unknown> };
-        savedConfiguration = body.configuration;
-        return jsonResponse({
-          success: true,
-          poster: {
-            id: 'poster-1',
-            campaign_id: 'campaign-1',
-            campaign_name: 'Blue Bottle Coffee',
-            template: 'gradient',
-            title: 't',
-            subtitle: 's',
-            theme: '#24558f',
-            configuration: JSON.stringify(body.configuration),
-            updated_at: '2026-01-01T00:00:00.000Z',
-          },
-        }, 201);
-      }
-      return jsonResponse({ success: true, posters: [] });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    render(<PosterEditorPage />);
-    const field = await screen.findByLabelText(/image de fond \(url\)/i);
-
-    await userEvent.type(field, 'not-a-url');
-    await screen.findByText(/url invalide/i);
-
-    await userEvent.clear(field);
-    await userEvent.type(field, 'https://images.example.com/bg.jpg');
-    await waitFor(() => expect(screen.queryByText(/url invalide/i)).toBeNull());
-
-    await userEvent.click(screen.getByRole('button', { name: /enregistrer l’affiche/i }));
-    await screen.findByText('Affiche enregistrée.');
-    await waitFor(() => {
-      expect(savedConfiguration).toMatchObject({
-        backgroundImage: 'https://images.example.com/bg.jpg',
-      });
-    });
-
-    const removeButton = await screen.findByRole('button', { name: /retirer l’image de fond/i });
-    await userEvent.click(removeButton);
-    expect((screen.getByLabelText(/image de fond \(url\)/i) as HTMLInputElement).value).toBe('');
   });
 
   it('renders the Dawer logo and repositions elements in move mode', async () => {
@@ -233,7 +185,7 @@ describe('Poster editor', () => {
     expect(title.style.transform).toBe('translate(0cqw, 0cqw) scale(1)');
   });
 
-  it('applies saved positions and background image on load', async () => {
+  it('applies saved positions on load', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith('/api/business/campaigns')) return jsonResponse(campaignPayload());
@@ -254,7 +206,6 @@ describe('Poster editor', () => {
               qrCaption: 'scan',
               positions: { title: { x: 5, y: 6 }, logo: { x: -2, y: 3 } },
               scale: 1.2,
-              backgroundImage: 'https://images.example.com/saved-bg.jpg',
             }),
             updated_at: '2026-01-01T00:00:00.000Z',
           }],
@@ -264,16 +215,12 @@ describe('Poster editor', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const { container } = render(<PosterEditorPage />);
+    render(<PosterEditorPage />);
 
     const title = await screen.findByText(/poster title/i);
     await waitFor(() => {
       expect(title.style.transform).toBe('translate(5cqw, 6cqw) scale(1.2)');
     });
-    expect(container.querySelector('img[src="https://images.example.com/saved-bg.jpg"]')).toBeTruthy();
-
-    const field = screen.getByLabelText(/image de fond \(url\)/i) as HTMLInputElement;
-    expect(field.value).toBe('https://images.example.com/saved-bg.jpg');
   });
 
   it('resizes all poster elements globally and persists the scale', async () => {

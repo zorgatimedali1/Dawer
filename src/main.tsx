@@ -6,7 +6,7 @@ import AuthLayout from './app/auth/layout';
 import CustomerLayout from './app/customer/layout';
 import CustomerRedirect from './app/customer/customer-redirect';
 import DashboardLayout from './app/dashboard/layout';
-import { RedirectIfAuthenticated, RequireAuth } from './components/route-guards';
+import { LandingGate, RedirectIfAuthenticated, RequireAuth } from './components/route-guards';
 import { RouteBoundary } from './components/route-error-boundary';
 import { BrandLoader } from './components/brand/brand-loader';
 import './app/globals.css';
@@ -47,7 +47,7 @@ function App() {
         <RouteBoundary>
           <Suspense fallback={<BrandLoader />}>
           <Routes>
-            <Route path="/" element={<LandingPage />} />
+            <Route path="/" element={<LandingGate><LandingPage /></LandingGate>} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/auth" element={<RedirectIfAuthenticated><AuthLayout /></RedirectIfAuthenticated>}>
               <Route path="login" element={<LoginPage />} />

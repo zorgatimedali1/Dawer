@@ -16,7 +16,6 @@ import {
   Smartphone,
   Star,
   UserRound,
-  X,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { DawerLogo } from '@/components/brand/dawer-logo';
@@ -32,8 +31,6 @@ import { cn } from '@/lib/cn';
 import { interpolate, msg, translations, type Dictionary } from '@/lib/i18n';
 import { PosterService, type Poster } from '@/services/poster.service';
 import { CampaignService, type Campaign } from '@/services/campaign.service';
-
-const THEMES = ['#24558f', '#bc9341', '#168777', '#bf5b6a'];
 
 const SECTION_LABEL = 'text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle';
 
@@ -80,14 +77,6 @@ function isElementKey(value: string): value is ElementKey {
   return (ELEMENT_KEYS as readonly string[]).includes(value);
 }
 
-function isHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'http:' || url.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
 
 function positionsFromPoster(poster: Poster | null): ElementPositions {
   const raw = poster?.configuration?.positions;
@@ -105,11 +94,6 @@ function positionsFromPoster(poster: Poster | null): ElementPositions {
     }
   }
   return result;
-}
-
-function backgroundImageFromPoster(poster: Poster | null): string {
-  const raw = poster?.configuration?.backgroundImage;
-  return typeof raw === 'string' && isHttpUrl(raw) ? raw : '';
 }
 
 const MIN_SCALE = 0.6;
@@ -385,12 +369,9 @@ interface PosterPreviewProps {
   subtitle: PosterTextState;
   steps: PosterTextState[];
   qrCaption: PosterTextState;
-  theme: string;
-  template: string;
   qrDataUrl: string;
   qrError: string;
   campaignUrl: string;
-  backgroundUrl: string;
   positions: ElementPositions;
   setPositions: Dispatch<SetStateAction<ElementPositions>>;
   elementScales: ElementScales;
@@ -419,11 +400,9 @@ function PosterPreview({
   subtitle,
   steps,
   qrCaption,
-  theme,
   qrDataUrl,
   qrError,
   campaignUrl,
-  backgroundUrl,
   positions,
   setPositions,
   elementScales,
@@ -436,11 +415,8 @@ function PosterPreview({
   const [moveMode, setMoveMode] = useState(false);
   const [activeKey, setActiveKey] = useState<ElementKey | null>(null);
   const [selectedKey, setSelectedKey] = useState<ElementKey | null>(null);
-  const [failedBackgroundUrl, setFailedBackgroundUrl] = useState('');
   const articleRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
-
-  const bgUsable = isHttpUrl(backgroundUrl.trim()) && failedBackgroundUrl !== backgroundUrl.trim();
 
   // Reference art splits the headline into an ink first line and a green
   // accent phrase. Custom titles without the accent keyword stay single-tone.
@@ -619,16 +595,6 @@ function PosterPreview({
         style={{ backgroundColor: '#f2f9ef', containerType: 'inline-size' }}
       >
         <PosterBackdrop />
-        {bgUsable ? (
-          <img
-            src={backgroundUrl.trim()}
-            alt=""
-            aria-hidden
-            draggable={false}
-            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-            onError={() => setFailedBackgroundUrl(backgroundUrl.trim())}
-          />
-        ) : null}
 
         <div className="relative z-10 flex h-full flex-col items-center px-[7cqw] pb-[5cqw] pt-[9cqw]">
           <h3
@@ -830,11 +796,6 @@ function PosterPreview({
           </Button>
         </div>
       ) : null}
-      {failedBackgroundUrl && failedBackgroundUrl === backgroundUrl.trim() ? (
-        <p className="mt-2 text-center text-xs text-danger-600 dark:text-danger-300" role="alert">
-          {t.poster.backgroundLoadError}
-        </p>
-      ) : null}
       <p className="mx-auto mt-3 max-w-[620px] break-all text-center font-mono text-[10px] text-ink-subtle">{campaignUrl}</p>
     </section>
   );
@@ -852,12 +813,9 @@ export default function PosterEditorPage() {
   const [subtitle, setSubtitle] = useState<PosterTextState>(null);
   const [steps, setSteps] = useState<PosterTextState[]>([null, null, null]);
   const [qrCaption, setQrCaption] = useState<PosterTextState>(null);
-  const [theme, setTheme] = useState('#24558f');
-  const [template, setTemplate] = useState('gradient');
   const [positions, setPositions] = useState<ElementPositions>({});
   const [elementScales, setElementScales] = useState<ElementScales>({});
   const [scale, setScale] = useState(1);
-  const [backgroundUrl, setBackgroundUrl] = useState('');
   const [qrResult, setQrResult] = useState<{ url: string; dataUrl?: string; error?: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -878,12 +836,9 @@ export default function PosterEditorPage() {
     setSubtitle(normalizePosterText(loadedPoster?.subtitle, 'defaultSubtitle'));
     setSteps(content.steps);
     setQrCaption(content.qrCaption);
-    setTheme(loadedPoster?.theme || '#24558f');
-    setTemplate(loadedPoster?.template || 'gradient');
     setPositions(positionsFromPoster(loadedPoster ?? null));
     setElementScales(elementScalesFromPoster(loadedPoster ?? null));
     setScale(scaleFromPoster(loadedPoster ?? null));
-    setBackgroundUrl(backgroundImageFromPoster(loadedPoster ?? null));
   }, []);
 
   useEffect(() => {
@@ -956,7 +911,6 @@ export default function PosterEditorPage() {
     setStatus('');
     setError('');
     try {
-      const trimmedBackground = backgroundUrl.trim();
       const configuration = {
         brandName,
         steps: steps.map((step, index) => step ?? defaults.steps[index]),
@@ -964,13 +918,12 @@ export default function PosterEditorPage() {
         positions,
         scale,
         elementScales,
-        ...(isHttpUrl(trimmedBackground) ? { backgroundImage: trimmedBackground } : {}),
       };
       const resolvedTitle = title ?? defaults.title;
       const resolvedSubtitle = subtitle ?? defaults.subtitle;
       const saved = poster
-        ? await PosterService.update(poster.id, { title: resolvedTitle, subtitle: resolvedSubtitle, theme, template, configuration })
-        : await PosterService.create({ campaignId, title: resolvedTitle, subtitle: resolvedSubtitle, theme, template, configuration });
+        ? await PosterService.update(poster.id, { title: resolvedTitle, subtitle: resolvedSubtitle, configuration })
+        : await PosterService.create({ campaignId, title: resolvedTitle, subtitle: resolvedSubtitle, configuration });
       setPoster(saved);
       setPosters(await loadPosters(campaignId));
       setStatus(t.poster.saved);
@@ -1127,69 +1080,6 @@ export default function PosterEditorPage() {
                 onChange={(event) => setQrCaption(event.target.value)}
               />
             </Field>
-
-            <Field label={t.poster.templateLabel} htmlFor="poster-template">
-              <Select id="poster-template" value={template} onChange={(event) => setTemplate(event.target.value)}>
-                <option value="gradient">{t.poster.templateGradient}</option>
-                <option value="minimal">{t.poster.templateMinimal}</option>
-                <option value="festive">{t.poster.templateFestive}</option>
-              </Select>
-            </Field>
-
-            <Field
-              label={t.poster.backgroundUrlLabel}
-              htmlFor="poster-background"
-              error={
-                backgroundUrl.trim() && !isHttpUrl(backgroundUrl.trim())
-                  ? t.poster.backgroundUrlInvalid
-                  : undefined
-              }
-              action={
-                backgroundUrl ? (
-                  <button
-                    type="button"
-                    onClick={() => setBackgroundUrl('')}
-                    className="inline-flex items-center gap-1 text-[12.5px] font-medium text-ink-subtle transition-colors hover:text-ink"
-                  >
-                    <X className="h-3.5 w-3.5" aria-hidden />
-                    {t.poster.backgroundRemove}
-                  </button>
-                ) : undefined
-              }
-            >
-              <Input
-                id="poster-background"
-                type="url"
-                inputMode="url"
-                maxLength={500}
-                placeholder={t.poster.backgroundPlaceholder}
-                value={backgroundUrl}
-                onChange={(event) => setBackgroundUrl(event.target.value)}
-              />
-            </Field>
-
-            <div className="flex flex-col gap-2">
-              <p className={SECTION_LABEL}>{t.poster.colorLabel}</p>
-              <div className="flex flex-wrap gap-2.5">
-                {THEMES.map((color) => (
-                  <button
-                    key={color}
-                    type="button"
-                    onClick={() => setTheme(color)}
-                    className={cn(
-                      'h-9 w-9 rounded-full border transition-transform duration-180 ease-swift motion-reduce:transition-none',
-                      theme === color
-                        ? 'border-ink ring-2 ring-accent/50 ring-offset-2 ring-offset-card'
-                        : 'border-line hover:scale-105 motion-reduce:hover:scale-100',
-                    )}
-                    style={{ backgroundColor: color }}
-                    aria-label={interpolate(t.poster.colorAria, { color })}
-                    aria-pressed={theme === color}
-                    title={color}
-                  />
-                ))}
-              </div>
-            </div>
           </CardContent>
 
           <CardFooter className="mt-auto flex-wrap">
@@ -1211,12 +1101,9 @@ export default function PosterEditorPage() {
           subtitle={subtitle}
           steps={steps}
           qrCaption={qrCaption}
-          theme={theme}
-          template={template}
           qrDataUrl={qrDataUrl}
           qrError={qrError}
           campaignUrl={campaignUrl}
-          backgroundUrl={backgroundUrl}
           positions={positions}
           setPositions={setPositions}
           elementScales={elementScales}

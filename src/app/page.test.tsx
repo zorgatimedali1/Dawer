@@ -2,7 +2,6 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Home from '@/app/page';
-import { AppProvider } from '@/contexts/app-context';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -27,39 +26,6 @@ function renderHome() {
   return render(
     <MemoryRouter>
       <Home />
-    </MemoryRouter>,
-  );
-}
-
-const cachedUser = {
-  id: 'user-1',
-  email: 'merchant@example.test',
-  firstName: 'Med',
-  lastName: 'Ali',
-  role: 'merchant' as const,
-};
-
-/** Seeds the cached profile the AppProvider bootstraps from, plus a session revalidation stub. */
-function renderHomeAuthenticated() {
-  window.localStorage.setItem('campaign-engage-auth', JSON.stringify({ user: cachedUser }));
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      const body = url.includes('/auth/session')
-        ? { success: true, user: cachedUser }
-        : { success: true, partners: [] };
-      return new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }),
-  );
-  return render(
-    <MemoryRouter>
-      <AppProvider>
-        <Home />
-      </AppProvider>
     </MemoryRouter>,
   );
 }
@@ -125,26 +91,8 @@ describe('home demo section', () => {
   });
 });
 
-describe('home signed-in experience', () => {
-  it('replaces “Se connecter” with a dashboard link when a session exists', () => {
-    renderHomeAuthenticated();
-
-    expect(screen.queryByRole('link', { name: 'Se connecter' })).not.toBeInTheDocument();
-    const dashboardLink = screen.getByRole('link', { name: 'Ouvrir le tableau de bord' });
-    expect(dashboardLink).toHaveAttribute('href', '/dashboard/overview');
-  });
-
-  it('sends the pricing CTAs to the dashboard instead of the register page', () => {
-    renderHomeAuthenticated();
-
-    const ctaLinks = screen.getAllByRole('link', { name: /Demander un essai gratuit/ });
-    expect(ctaLinks.length).toBeGreaterThan(0);
-    for (const link of ctaLinks) {
-      expect(link).toHaveAttribute('href', '/dashboard/overview');
-    }
-  });
-
-  it('keeps the sign-in link and register CTAs for anonymous visitors', () => {
+describe('home auth links', () => {
+  it('always shows the sign-in link and register CTAs', () => {
     renderHome();
 
     expect(screen.getByRole('link', { name: 'Se connecter' })).toHaveAttribute('href', '/auth/login');
