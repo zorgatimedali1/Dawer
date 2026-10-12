@@ -212,7 +212,7 @@ describe('Poster editor', () => {
 
     const preview = screen.getByTestId('poster-preview');
     preview.getBoundingClientRect = () => rect({ width: 400, height: 560, right: 400, bottom: 560 });
-    const title = screen.getByText(/votre avis compte pour nous/i);
+    const title = screen.getByTestId('poster-title');
     title.getBoundingClientRect = () => rect({ left: 40, top: 120, width: 320, height: 50, right: 360, bottom: 170 });
 
     fireEvent.pointerDown(title, { pointerId: 1, clientX: 100, clientY: 200 });
@@ -305,7 +305,7 @@ describe('Poster editor', () => {
 
     render(<PosterEditorPage />);
 
-    const title = await screen.findByText(/votre avis compte pour nous/i);
+    const title = await screen.findByTestId('poster-title');
     expect(title.style.transform).toBe('translate(0cqw, 0cqw) scale(1)');
 
     const grow = screen.getByRole('button', { name: /agrandir la taille des éléments/i });
@@ -358,14 +358,14 @@ describe('Poster editor', () => {
 
     render(<PosterEditorPage />);
 
-    await screen.findByText(/votre avis compte pour nous/i);
+    await screen.findByTestId('poster-title');
 
     await userEvent.click(screen.getByRole('button', { name: 'Déplacer' }));
     await screen.findByText(/glissez les éléments/i);
 
     const preview = screen.getByTestId('poster-preview');
     preview.getBoundingClientRect = () => rect({ width: 400, height: 560, right: 400, bottom: 560 });
-    const title = screen.getByText(/votre avis compte pour nous/i);
+    const title = screen.getByTestId('poster-title');
     title.getBoundingClientRect = () => rect({ left: 40, top: 120, width: 320, height: 50, right: 360, bottom: 170 });
 
     fireEvent.pointerDown(title, { pointerId: 1, clientX: 100, clientY: 200 });
@@ -373,8 +373,8 @@ describe('Poster editor', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: /agrandir : titre/i }));
     expect(title.style.transform).toContain('scale(1.1)');
-    const brandHeader = preview.querySelector('header') as HTMLElement;
-    expect(brandHeader.style.transform).toContain('scale(1)');
+    const stepsList = preview.querySelector('ol') as HTMLElement;
+    expect(stepsList.style.transform).toContain('scale(1)');
     expect(screen.queryByText('120%')).toBeNull();
 
     await userEvent.click(screen.getByRole('button', { name: /agrandir : titre/i }));
@@ -404,18 +404,19 @@ describe('Poster editor', () => {
       </AppProvider>,
     );
 
-    await screen.findByText(/votre avis compte pour nous/i);
+    const previewTitle = await screen.findByTestId('poster-title');
+    expect(previewTitle.textContent).toBe('Votre avis compte pour nous');
     expect((screen.getByLabelText('Titre') as HTMLInputElement).value).toBe('Votre avis compte pour nous');
     expect(screen.getByText('Scannez le QR code')).toBeTruthy();
 
     await userEvent.click(screen.getByRole('radio', { name: 'EN' }));
-    expect(screen.getByText('Your opinion matters to us')).toBeTruthy();
+    expect(previewTitle.textContent).toBe('Your opinion matters to us');
     expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Your opinion matters to us');
     expect(screen.getByText('Scan the QR code')).toBeTruthy();
     expect(screen.getByText('Scan to enter')).toBeTruthy();
 
     await userEvent.click(screen.getByRole('radio', { name: 'FR' }));
-    expect(screen.getByText('Votre avis compte pour nous')).toBeTruthy();
+    expect(previewTitle.textContent).toBe('Votre avis compte pour nous');
     expect(screen.getByText('Scannez le QR code')).toBeTruthy();
   });
 });

@@ -37,7 +37,7 @@ const THEMES = ['#24558f', '#bc9341', '#168777', '#bf5b6a'];
 
 const SECTION_LABEL = 'text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle';
 
-const ELEMENT_KEYS = ['brand', 'title', 'subtitle', 'steps', 'qr', 'gifts', 'logo'] as const;
+const ELEMENT_KEYS = ['title', 'subtitle', 'steps', 'qr', 'gifts', 'logo'] as const;
 type ElementKey = (typeof ELEMENT_KEYS)[number];
 
 type ElementPositions = Partial<Record<ElementKey, { x: number; y: number }>>;
@@ -58,6 +58,7 @@ const POSTER_STEP_KEYS = ['defaultStep1', 'defaultStep2', 'defaultStep3'] as con
 function posterDefaults(t: Dictionary) {
   return {
     title: t.poster.defaultTitle,
+    titleAccent: t.poster.defaultTitleAccent,
     subtitle: t.poster.defaultSubtitle,
     steps: POSTER_STEP_KEYS.map((key) => t.poster[key]),
     qrCaption: t.poster.defaultQrCaption,
@@ -419,7 +420,6 @@ function PosterPreview({
   steps,
   qrCaption,
   theme,
-  template,
   qrDataUrl,
   qrError,
   campaignUrl,
@@ -433,7 +433,6 @@ function PosterPreview({
 }: PosterPreviewProps) {
   const t = useT();
   const defaults = posterDefaults(t);
-  const background = template === 'minimal' ? '#f5fbf8' : template === 'festive' ? '#e4f5f0' : '#d9f2ea';
   const [moveMode, setMoveMode] = useState(false);
   const [activeKey, setActiveKey] = useState<ElementKey | null>(null);
   const [selectedKey, setSelectedKey] = useState<ElementKey | null>(null);
@@ -442,6 +441,20 @@ function PosterPreview({
   const dragRef = useRef<DragState | null>(null);
 
   const bgUsable = isHttpUrl(backgroundUrl.trim()) && failedBackgroundUrl !== backgroundUrl.trim();
+
+  // Reference art splits the headline into an ink first line and a green
+  // accent phrase. Custom titles without the accent keyword stay single-tone.
+  const renderTitle = () => {
+    const copy = title || defaults.title;
+    const idx = copy.toLowerCase().indexOf(defaults.titleAccent.toLowerCase());
+    if (!defaults.titleAccent || idx === -1) return copy;
+    return (
+      <>
+        <span className="block" style={{ color: BRAND_INK }}>{copy.slice(0, idx)}</span>
+        <span className="block" style={{ color: BRAND_GREEN }}>{copy.slice(idx)}</span>
+      </>
+    );
+  };
 
   const startDrag = (key: ElementKey, event: ReactPointerEvent<HTMLElement>) => {
     if (!moveMode) return;
@@ -522,7 +535,6 @@ function PosterPreview({
 
   const elementLabel = (key: ElementKey): string => {
     switch (key) {
-      case 'brand': return t.poster.brandLabel;
       case 'title': return t.poster.titleLabel;
       case 'subtitle': return t.poster.subtitleLabel;
       case 'steps': return t.poster.stepsLegend;
@@ -618,43 +630,17 @@ function PosterPreview({
           />
         ) : null}
 
-        <div className="relative z-10 flex h-full flex-col items-center px-[7cqw] pb-[5cqw] pt-[5cqw]">
-          <header
-            className={moveableClass('brand', 'flex flex-col items-center gap-[1.6cqw]')}
-            style={moveableStyle('brand')}
-            onPointerDown={moveMode ? (event) => startDrag('brand', event) : undefined}
-            onPointerMove={moveMode ? (event) => moveDrag('brand', event) : undefined}
-            onPointerUp={moveMode ? (event) => endDrag('brand', event) : undefined}
-            onPointerCancel={moveMode ? (event) => endDrag('brand', event) : undefined}
-          >
-            <span
-              className="grid h-[11cqw] w-[11cqw] shrink-0 place-items-center rounded-full text-white ring-[0.5cqw] ring-white/70"
-              style={{
-                background: `linear-gradient(145deg, ${BRAND_GREEN} 0%, ${BRAND_GREEN_DEEP} 100%)`,
-                boxShadow: '0 1cqw 2cqw rgba(20,60,20,0.22)',
-                fontSize: '5cqw',
-                fontWeight: 800,
-              }}
-            >
-              {brandName.trim().charAt(0).toUpperCase() || 'C'}
-            </span>
-            <span
-              className="max-w-[80cqw] min-w-0 truncate font-bold uppercase tracking-[0.14em]"
-              style={{ color: BRAND_GREEN_DEEP, fontSize: '3cqw' }}
-            >
-              {brandName || t.poster.brandFallback}
-            </span>
-          </header>
-
+        <div className="relative z-10 flex h-full flex-col items-center px-[7cqw] pb-[5cqw] pt-[9cqw]">
           <h3
-            className={moveableClass('title', 'mt-[3cqw] max-w-[96%] text-center font-extrabold leading-[1.02]')}
-            style={moveableStyle('title', { color: BRAND_INK, fontSize: 'clamp(1.4rem, 7.6cqw, 2.9rem)', overflowWrap: 'anywhere', letterSpacing: '-0.02em' })}
+            data-testid="poster-title"
+            className={moveableClass('title', 'max-w-[96%] text-center font-extrabold leading-[1.02]')}
+            style={moveableStyle('title', { color: BRAND_INK, fontSize: 'clamp(1.6rem, 8.4cqw, 3.2rem)', overflowWrap: 'anywhere', letterSpacing: '-0.02em' })}
             onPointerDown={moveMode ? (event) => startDrag('title', event) : undefined}
             onPointerMove={moveMode ? (event) => moveDrag('title', event) : undefined}
             onPointerUp={moveMode ? (event) => endDrag('title', event) : undefined}
             onPointerCancel={moveMode ? (event) => endDrag('title', event) : undefined}
           >
-            {title || defaults.title}
+            {renderTitle()}
           </h3>
 
           <div
@@ -673,7 +659,7 @@ function PosterPreview({
           </div>
 
           <ol
-            className={moveableClass('steps', 'mt-[4.5cqw] flex w-full items-stretch justify-center gap-[1cqw]')}
+            className={moveableClass('steps', 'mt-[5.5cqw] flex w-full items-stretch justify-center gap-[1cqw]')}
             style={moveableStyle('steps')}
             onPointerDown={moveMode ? (event) => startDrag('steps', event) : undefined}
             onPointerMove={moveMode ? (event) => moveDrag('steps', event) : undefined}
@@ -717,7 +703,7 @@ function PosterPreview({
           </ol>
 
           <div
-            className={moveableClass('qr', 'relative mt-[5cqw] flex w-full flex-col items-center')}
+            className={moveableClass('qr', 'relative mt-[6cqw] flex w-full flex-col items-center')}
             style={moveableStyle('qr')}
             onPointerDown={moveMode ? (event) => startDrag('qr', event) : undefined}
             onPointerMove={moveMode ? (event) => moveDrag('qr', event) : undefined}
