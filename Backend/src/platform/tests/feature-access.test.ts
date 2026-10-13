@@ -159,14 +159,14 @@ describe('platform-wide feature switches', () => {
     ).toBe(401);
   });
 
-  it('defaults to everything enabled on a fresh database', async () => {
+  it('defaults to everything disabled on a fresh database', async () => {
     const payload = await body(
       await handlePlatformFeaturesRoute(
         operatorRequest('/api/admin/platform-features', 'GET', undefined, operator.token),
         env,
       ),
     );
-    expect(payload.features).toMatchObject({ whatsappEnabled: true, emailEnabled: true });
+    expect(payload.features).toMatchObject({ whatsappEnabled: false, emailEnabled: false });
   });
 
   it('stores partial updates and audits them', async () => {
@@ -176,7 +176,7 @@ describe('platform-wide feature switches', () => {
         env,
       ),
     );
-    expect(payload.features).toMatchObject({ whatsappEnabled: false, emailEnabled: true });
+    expect(payload.features).toMatchObject({ whatsappEnabled: false, emailEnabled: false });
 
     const propagated = db.query<{ whatsapp_enabled: number; email_enabled: number }>(
       'SELECT whatsapp_enabled, email_enabled FROM businesses WHERE id = ?',

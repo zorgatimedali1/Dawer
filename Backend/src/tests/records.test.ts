@@ -75,8 +75,8 @@ beforeEach(async () => {
   db = testEnv.DB;
   env = testEnv as unknown as Env;
 
-  alice = await seedMerchant(db, { email: 'alice@example.test', businessName: 'Alice Shop', withActiveSubscription: true });
-  bob = await seedMerchant(db, { email: 'bob@example.test', businessName: 'Bob Shop', withActiveSubscription: true });
+  alice = await seedMerchant(db, { email: 'alice@example.test', businessName: 'Alice Shop', withActiveSubscription: true, planId: 'plan_growth' });
+  bob = await seedMerchant(db, { email: 'bob@example.test', businessName: 'Bob Shop', withActiveSubscription: true, planId: 'plan_growth' });
   aliceCampaign = seedCampaign(alice.businessId);
   bobCampaign = seedCampaign(bob.businessId);
 });

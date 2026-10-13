@@ -60,7 +60,8 @@ describe('POST /api/business', () => {
     const business = db.query<{ whatsapp_enabled: number; email_enabled: number }>(
       'SELECT whatsapp_enabled, email_enabled FROM businesses',
     )[0];
-    expect(business).toMatchObject({ whatsapp_enabled: 0, email_enabled: 1 });
+    // A missing platform row now defaults to off, so email stays disabled too.
+    expect(business).toMatchObject({ whatsapp_enabled: 0, email_enabled: 0 });
   });
 
   it('rejects an unauthenticated request', async () => {
@@ -139,5 +140,74 @@ describe('bearer auth on the new endpoint', () => {
 
     expect(response.status).toBe(201);
     expect(bearer(token).authorization).toMatch(/^Bearer /);
+  });
+});
+
+describe('rewards plan gate', () => {
+  it('blocks Starter from listing rewards', async () => {
+    const { token } = await seedMerchant(db, { withActiveSubscription: true, planId: 'plan_starter' });
+    const response = await handleBusinessRoute(
+      jsonRequest('/api/business/rewards', 'GET', undefined, token),
+      env,
+    );
+    expect(response.status).toBe(403);
+    expect(((await response.json()) as { message: string }).message).toContain('not included in your plan');
+  });
+
+  it('blocks Starter from patching a reward but still allows delete (shared with the wheel builder)', async () => {
+    const { token, businessId } = await seedMerchant(db, { withActiveSubscription: true, planId: 'plan_starter' });
+    const now = new Date().toISOString();
+    const campaignId = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO campaigns (id, business_id, name, public_code, status, created_at, updated_at)
+       VALUES (?, ?, 'Wheel', 'CODE1', 'LIVE', ?, ?)`,
+    ).bind(campaignId, businessId, now, now).run();
+    const rewardId = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO rewards (id, business_id, campaign_id, name, type, active, created_at, updated_at)
+       VALUES (?, ?, ?, 'Coupon', 'coupon', 1, ?, ?)`,
+    ).bind(rewardId, businessId, campaignId, now, now).run();
+
+    const patch = await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { quantity: 5 }, token),
+      env,
+    );
+    expect(patch.status).toBe(403);
+
+    // The wheel builder deletes persisted rewards, so DELETE stays open.
+    const del = await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'DELETE', undefined, token),
+      env,
+    );
+    expect(del.status).toBe(200);
+  });
+
+  it('lets a Pro merchant list and patch rewards', async () => {
+    const { token, businessId } = await seedMerchant(db, { withActiveSubscription: true, planId: 'plan_growth' });
+    const now = new Date().toISOString();
+    const campaignId = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO campaigns (id, business_id, name, public_code, status, created_at, updated_at)
+       VALUES (?, ?, 'Wheel', 'CODE1', 'LIVE', ?, ?)`,
+    ).bind(campaignId, businessId, now, now).run();
+    const rewardId = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO rewards (id, business_id, campaign_id, name, type, active, created_at, updated_at)
+       VALUES (?, ?, ?, 'Coupon', 'coupon', 1, ?, ?)`,
+    ).bind(rewardId, businessId, campaignId, now, now).run();
+
+    const list = await handleBusinessRoute(
+      jsonRequest('/api/business/rewards', 'GET', undefined, token),
+      env,
+    );
+    expect(list.status).toBe(200);
+    const listPayload = (await list.json()) as { rewards: { id: string }[] };
+    expect(listPayload.rewards.map((reward) => reward.id)).toContain(rewardId);
+
+    const patch = await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { quantity: 7 }, token),
+      env,
+    );
+    expect(patch.status).toBe(200);
   });
 });

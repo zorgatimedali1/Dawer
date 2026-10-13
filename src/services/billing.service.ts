@@ -53,8 +53,8 @@ export interface SubscribeRequestResult {
 }
 
 /**
- * Effective platform switches (operator console). Absent payload = everything
- * stays enabled so older deployments keep working.
+ * Effective platform switches (operator console). Absent payload = channels
+ * stay disabled so a stale deployment never silently re-enables marketing.
  */
 export interface MarketingFeatures {
   whatsappEnabled: boolean;
@@ -62,8 +62,8 @@ export interface MarketingFeatures {
 }
 
 export const DEFAULT_MARKETING_FEATURES: MarketingFeatures = {
-  whatsappEnabled: true,
-  emailEnabled: true,
+  whatsappEnabled: false,
+  emailEnabled: false,
 };
 
 export interface BillingState {

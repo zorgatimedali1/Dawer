@@ -102,7 +102,8 @@ describe('POST /api/auth/register', () => {
     const business = db.query<{ whatsapp_enabled: number; email_enabled: number }>(
       'SELECT whatsapp_enabled, email_enabled FROM businesses',
     )[0];
-    expect(business).toMatchObject({ whatsapp_enabled: 0, email_enabled: 1 });
+    // A missing platform row now defaults to off, so email stays disabled too.
+    expect(business).toMatchObject({ whatsapp_enabled: 0, email_enabled: 0 });
   });
 
   it('rejects a duplicate email with 409', async () => {

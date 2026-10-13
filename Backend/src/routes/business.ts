@@ -3,7 +3,7 @@ import { getAuthenticatedUser, getPrimaryBusinessId } from '../lib/tenant';
 import { errorResponse, jsonResponse } from '../lib/http';
 import { businessCreateSchema } from '../lib/validation';
 import { createBusinessForUser, userHasBusiness } from '../lib/business';
-import { getBusinessAccess } from '../lib/subscription-access';
+import { getBusinessAccess, type BusinessAccess } from '../lib/subscription-access';
 import { handleCampaignRoute } from './campaigns';
 import { handleRecordRoute } from './records';
 import type { Env } from '../types';
@@ -73,11 +73,26 @@ export async function handleBusinessRoute(request: Request, env: Env): Promise<R
       return jsonResponse({ success: true, businesses: businesses.results });
     }
 
-    if (request.method !== 'GET') {
+    const isRewardsPath = path === '/api/business/rewards' || path.startsWith('/api/business/rewards/');
+    // The wheel builder shares the rewards DELETE endpoint (removing a persisted
+    // reward), so only the page-only read/update verbs are plan-gated.
+    const isRewardsGatedVerb = isRewardsPath && (request.method === 'GET' || request.method === 'PATCH');
+
+    if (request.method !== 'GET' || isRewardsGatedVerb) {
       const businessId = await getPrimaryBusinessId(user.id, env);
-      const access = businessId ? await getBusinessAccess(env, businessId) : null;
-      if (businessId && !access?.canManage) {
+      const access: BusinessAccess | null = businessId ? await getBusinessAccess(env, businessId) : null;
+
+      if (request.method !== 'GET' && businessId && !access?.canManage) {
         return errorResponse('This account is read-only. Activate a plan from Billing to manage your business.', 403);
+      }
+
+      if (isRewardsGatedVerb) {
+        const hasRewards = access?.plan.features.features.some(
+          (feature: string) => /récompenses?|rewards?/i.test(feature),
+        ) ?? false;
+        if (!hasRewards) {
+          return errorResponse('Rewards management is not included in your plan.', 403);
+        }
       }
     }
 

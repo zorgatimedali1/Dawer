@@ -17,8 +17,9 @@ function toBool(value: string | number | null | undefined): boolean {
 }
 
 /**
- * Platform-wide master switches. A missing row means "on" so a fresh database
- * (or a failed migration) never silently kills marketing for everyone.
+ * Platform-wide master switches. A missing row means "off" so a fresh database
+ * (or a failed migration) leaves the marketing channels disabled until the
+ * operator explicitly turns them on.
  */
 export async function getPlatformFeatures(env: Env): Promise<FeatureFlags> {
   const rows = await env.DB.prepare('SELECT key, value FROM platform_settings').all<{
@@ -29,8 +30,8 @@ export async function getPlatformFeatures(env: Env): Promise<FeatureFlags> {
   const settings = new Map((rows.results ?? []).map((row) => [row.key, row.value]));
 
   return {
-    whatsappEnabled: settings.has(PLATFORM_KEYS.whatsapp) ? toBool(settings.get(PLATFORM_KEYS.whatsapp)) : true,
-    emailEnabled: settings.has(PLATFORM_KEYS.email) ? toBool(settings.get(PLATFORM_KEYS.email)) : true,
+    whatsappEnabled: settings.has(PLATFORM_KEYS.whatsapp) ? toBool(settings.get(PLATFORM_KEYS.whatsapp)) : false,
+    emailEnabled: settings.has(PLATFORM_KEYS.email) ? toBool(settings.get(PLATFORM_KEYS.email)) : false,
   };
 }
 
@@ -42,7 +43,7 @@ export async function getBusinessFeatures(env: Env, businessId: string): Promise
     .bind(businessId)
     .first<{ whatsapp_enabled: number; email_enabled: number }>();
 
-  if (!row) return { whatsappEnabled: true, emailEnabled: true };
+  if (!row) return { whatsappEnabled: false, emailEnabled: false };
 
   return {
     whatsappEnabled: toBool(row.whatsapp_enabled),

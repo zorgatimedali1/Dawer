@@ -141,6 +141,7 @@ export default function DashboardLayout() {
   const isBillingPage = pathname === '/dashboard/billing';
   const isDemoPage = pathname === '/dashboard/demo';
   const hasAnalytics = access?.plan.features.features.some((feature) => /analytics/i.test(feature)) ?? false;
+  const hasRewards = access?.plan.features.features.some((feature) => /récompenses?|rewards?/i.test(feature)) ?? false;
   const readOnlyNav: NavGroup[] = [
     {
       label: t.nav.account,
@@ -157,6 +158,9 @@ export default function DashboardLayout() {
           ...group,
           items: group.items.filter((item) => {
             if (item.href === '/dashboard/analytics') return hasAnalytics;
+            // Rewards management is a paid-tier feature; the wheel builder stays
+            // available to every plan, so only this nav entry is gated.
+            if (item.href === '/dashboard/rewards') return hasRewards;
             // Operator platform switches: the menu entry disappears while off
             // and comes back when the operator re-enables the channel.
             if (item.href === '/dashboard/email') return features?.emailEnabled ?? true;
@@ -204,6 +208,10 @@ export default function DashboardLayout() {
   }
 
   if (pathname === '/dashboard/analytics' && !hasAnalytics) {
+    return <Navigate to="/dashboard/billing" replace />;
+  }
+
+  if (pathname === '/dashboard/rewards' && !hasRewards) {
     return <Navigate to="/dashboard/billing" replace />;
   }
 
