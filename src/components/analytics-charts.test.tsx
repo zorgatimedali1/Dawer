@@ -9,6 +9,7 @@ function buildSeries(days: number): TimeseriesPoint[] {
     participations: index,
     rewardsClaimed: 0,
     couponsRedeemed: 0,
+    scans: 0,
     total: index,
   }));
 }
@@ -40,7 +41,7 @@ describe('TimeSeriesChart', () => {
 
   it('labels a single-day window without dividing by zero', () => {
     const { container } = render(
-      <TimeSeriesChart data={[{ day: '2026-01-01', participations: 5, rewardsClaimed: 0, couponsRedeemed: 0, total: 5 }]} />,
+      <TimeSeriesChart data={[{ day: '2026-01-01', participations: 5, rewardsClaimed: 0, couponsRedeemed: 0, scans: 0, total: 5 }]} />,
     );
     expect(container.querySelectorAll('path').length).toBe(6);
   });
@@ -52,6 +53,7 @@ describe('TimeSeriesChart', () => {
       participations: index === 15 ? 1 : 0,
       rewardsClaimed: 0,
       couponsRedeemed: 0,
+      scans: 0,
       total: index === 15 ? 1 : 0,
     }));
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

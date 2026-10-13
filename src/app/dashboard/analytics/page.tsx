@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Award,
   BarChart3,
@@ -23,9 +23,11 @@ import { Progress } from '@/components/ui/toast';
 import { FunnelChart, TimeSeriesChart } from '@/components/analytics-charts';
 import { cn } from '@/lib/cn';
 import { interpolate, msg } from '@/lib/i18n';
+import { effectiveRewardOdds } from '@/lib/wheel-odds';
 import { useT } from '@/hooks/use-t';
 import {
   AnalyticsService,
+  type AnalyticsTotals,
   type FunnelResult,
   type RangeDays,
   type Rankings,
@@ -35,6 +37,9 @@ import { RewardService } from '@/services/reward.service';
 
 const RANGES: RangeDays[] = [7, 30, 90];
 
+/** Stable empty array so the totals memo does not re-run every render. */
+const EMPTY_SERIES: TimeseriesPoint[] = [];
+
 const STAT_ICONS = [QrCode, Users, Award, Gift, Percent];
 
 interface RewardDistribution {
@@ -43,16 +48,28 @@ interface RewardDistribution {
   percent: number;
 }
 
+/** Per-section load state: one failed request must not blank the page. */
+interface Loadable<T> {
+  data: T | null;
+  loading: boolean;
+  error: string | null;
+}
+
+function pending<T>(): Loadable<T> {
+  return { data: null, loading: true, error: null };
+}
+
 export default function AnalyticsPage() {
   const t = useT();
   const [range, setRange] = useState<RangeDays>(30);
-  const [series, setSeries] = useState<TimeseriesPoint[]>([]);
-  const [funnel, setFunnel] = useState<FunnelResult | null>(null);
-  const [rankings, setRankings] = useState<Rankings | null>(null);
-  const [rewardDistribution, setRewardDistribution] = useState<RewardDistribution[]>([]);
-  const [totals, setTotals] = useState<Array<{ event_type: string; count: number }>>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [seriesState, setSeriesState] = useState<Loadable<TimeseriesPoint[]>>(pending);
+  const [funnelState, setFunnelState] = useState<Loadable<FunnelResult>>(pending);
+  const [rankingsState, setRankingsState] = useState<Loadable<Rankings>>(pending);
+  const [rewardState, setRewardState] = useState<Loadable<RewardDistribution[]>>(pending);
+  const [totalsState, setTotalsState] = useState<Loadable<AnalyticsTotals[]>>(pending);
+  // Bumped on every load: a slow response from a previous range switch must
+  // not overwrite the range the user is looking at now.
+  const requestIdRef = useRef(0);
 
   const EVENT_LABELS: Record<string, string> = {
     PARTICIPATION: t.analytics.eventParticipations,
@@ -66,44 +83,50 @@ export default function AnalyticsPage() {
     label: `${days}${t.analytics.daysShort}`,
   }));
 
-  const load = useCallback(async (days: RangeDays) => {
-    setLoading(true);
-    setError(null);
+  const load = useCallback(
+    (days: RangeDays) => {
+      const requestId = requestIdRef.current + 1;
+      requestIdRef.current = requestId;
+      const isStale = () => requestIdRef.current !== requestId;
 
-    try {
-      const [points, funnelResult, rankingResult, overview, rewards] = await Promise.all([
-        AnalyticsService.timeSeries(days),
-        AnalyticsService.funnel(days),
-        AnalyticsService.rankings(days),
-        AnalyticsService.overview(),
-        RewardService.list(),
-      ]);
+      const settle = async <T,>(task: Promise<T>, set: (value: Loadable<T>) => void): Promise<void> => {
+        try {
+          const data = await task;
+          if (!isStale()) set({ data, loading: false, error: null });
+        } catch (cause: unknown) {
+          if (!isStale()) {
+            set({ data: null, loading: false, error: msg(t, cause instanceof Error ? cause.message : 'Unable to load analytics.') });
+          }
+        }
+      };
 
-      const totalWeight = rewards.reduce((sum, reward) => sum + (reward.active ? reward.weight : 0), 0);
-      const distribution = rewards
-        .filter((reward) => reward.active)
-        .map((reward) => ({
-          id: reward.id,
-          name: reward.name,
-          percent: totalWeight > 0 ? Math.round((reward.weight / totalWeight) * 100) : 0,
-        }));
+      setSeriesState(pending());
+      setFunnelState(pending());
+      setRankingsState(pending());
+      setRewardState(pending());
+      setTotalsState(pending());
 
-      setSeries(points);
-      setFunnel(funnelResult);
-      setRankings(rankingResult);
-      setTotals(overview.totals);
-      setRewardDistribution(distribution);
-    } catch (cause: unknown) {
-      setError(msg(t, cause instanceof Error ? cause.message : 'Unable to load analytics.'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      const odds = RewardService.list().then(effectiveRewardOdds);
+
+      // Independent requests: the odds card is gated behind the rewards plan
+      // feature, so its 403 may only degrade that one section.
+      void settle(AnalyticsService.timeSeries(days), setSeriesState);
+      void settle(AnalyticsService.funnel(days), setFunnelState);
+      void settle(AnalyticsService.rankings(days), setRankingsState);
+      void settle(odds, setRewardState);
+      void settle(AnalyticsService.overview().then((overview) => overview.totals), setTotalsState);
+    },
+    [t],
+  );
 
   useEffect(() => {
+    // Deferred so the effect never flips the section states to "pending"
+    // inside the same render pass (react-hooks/set-state-in-effect).
     const timer = setTimeout(() => void load(range), 0);
     return () => clearTimeout(timer);
   }, [range, load]);
+
+  const series = seriesState.data ?? EMPTY_SERIES;
 
   const windowTotals = useMemo(() => {
     return series.reduce(
@@ -111,27 +134,26 @@ export default function AnalyticsPage() {
         participations: accumulator.participations + point.participations,
         rewardsClaimed: accumulator.rewardsClaimed + point.rewardsClaimed,
         couponsRedeemed: accumulator.couponsRedeemed + point.couponsRedeemed,
+        scans: accumulator.scans + (point.scans ?? 0),
       }),
-      { participations: 0, rewardsClaimed: 0, couponsRedeemed: 0 },
+      { participations: 0, rewardsClaimed: 0, couponsRedeemed: 0, scans: 0 },
     );
   }, [series]);
 
   const stats = useMemo(() => {
-    const count = (type: string) => totals.find((row) => row.event_type === type)?.count ?? 0;
-    const scans = count('QR_SCANNED');
     const conversion =
       windowTotals.participations > 0
-        ? Math.round((windowTotals.couponsRedeemed / windowTotals.participations) * 1000) / 10
+        ? Math.min(Math.round((windowTotals.couponsRedeemed / windowTotals.participations) * 1000) / 10, 100)
         : 0;
 
     return [
-      { label: interpolate(t.analytics.statScans, { range }), value: scans },
+      { label: interpolate(t.analytics.statScans, { range }), value: windowTotals.scans },
       { label: interpolate(t.analytics.statPlayers, { range }), value: windowTotals.participations },
       { label: interpolate(t.analytics.statRewardsIssued, { range }), value: windowTotals.rewardsClaimed },
       { label: interpolate(t.analytics.statRedeemed, { range }), value: windowTotals.couponsRedeemed },
       { label: interpolate(t.analytics.statConversion, { range }), value: `${conversion}%` },
     ];
-  }, [totals, windowTotals, range, t]);
+  }, [windowTotals, range, t]);
 
   const handleExport = () => {
     const rows = [
@@ -148,16 +170,9 @@ export default function AnalyticsPage() {
     URL.revokeObjectURL(url);
   };
 
-  if (error) {
-    return (
-      <div
-        role="alert"
-        className="rounded-xl border border-danger-300/60 bg-danger-50 p-5 text-sm text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200"
-      >
-        {error}
-      </div>
-    );
-  }
+  const retry = () => load(range);
+  const analyticsSections = [totalsState, seriesState, funnelState, rankingsState];
+  const allFailed = analyticsSections.every((section) => section.error !== null);
 
   return (
     <div className="flex flex-col gap-8">
@@ -166,7 +181,7 @@ export default function AnalyticsPage() {
         title={t.analytics.title}
         description={t.analytics.description}
         actions={
-          <Button variant="outline" size="sm" onClick={handleExport} disabled={loading || series.length === 0}>
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={seriesState.loading || series.length === 0}>
             <Download className="h-3.5 w-3.5" aria-hidden />
             {t.analytics.exportCsv}
           </Button>
@@ -189,8 +204,20 @@ export default function AnalyticsPage() {
         }
       />
 
+      {allFailed ? (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger-300/60 bg-danger-50 p-5 text-sm text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200"
+        >
+          <span>{analyticsSections[0]?.error ?? msg(t, 'Unable to load analytics.')}</span>
+          <Button variant="outline" size="sm" onClick={retry}>
+            {t.common.retry}
+          </Button>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        {loading
+        {seriesState.loading
           ? Array.from({ length: 5 }).map((_, idx) => <SkeletonCard key={idx} />)
           : stats.map((stat, index) => {
               const Icon = STAT_ICONS[index] ?? BarChart3;
@@ -222,11 +249,14 @@ export default function AnalyticsPage() {
           </span>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <Skeleton className="h-60 w-full rounded-lg" />
-          ) : (
-            <TimeSeriesChart data={series} />
-          )}
+          <SectionBody
+            state={seriesState}
+            skeleton={<Skeleton className="h-60 w-full rounded-lg" />}
+            onRetry={retry}
+            retryLabel={t.common.retry}
+          >
+            {(data) => <TimeSeriesChart data={data} />}
+          </SectionBody>
         </CardContent>
       </Card>
 
@@ -242,11 +272,14 @@ export default function AnalyticsPage() {
             </p>
           </CardHeader>
           <CardContent>
-            {loading || !funnel ? (
-              <Skeleton className="h-56 w-full rounded-lg" />
-            ) : (
-              <FunnelChart result={funnel} />
-            )}
+            <SectionBody
+              state={funnelState}
+              skeleton={<Skeleton className="h-56 w-full rounded-lg" />}
+              onRetry={retry}
+              retryLabel={t.common.retry}
+            >
+              {(data) => <FunnelChart result={data} />}
+            </SectionBody>
           </CardContent>
         </Card>
 
@@ -261,42 +294,51 @@ export default function AnalyticsPage() {
             </p>
           </CardHeader>
           <CardContent>
-            {!rankings || rankings.campaigns.length === 0 ? (
-              <EmptyState
-                size="sm"
-                icon={Megaphone}
-                title={t.analytics.rankingsEmptyTitle}
-                description={t.analytics.rankingsEmptyDescription}
-              />
-            ) : (
-              <ol className="flex flex-col gap-4">
-                {rankings.campaigns.map((campaign, index) => {
-                  const top = rankings.campaigns[0]?.participations || 1;
-                  return (
-                    <li key={campaign.id}>
-                      <div className="mb-2 flex items-baseline justify-between gap-3 text-[13.5px]">
-                        <span className="flex min-w-0 items-center gap-2.5">
-                          <span className="numeric inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[11px] font-semibold text-brand-800 dark:bg-brand-900/50 dark:text-accent-bright">
-                            {index + 1}
+            <SectionBody
+              state={rankingsState}
+              skeleton={<Skeleton className="h-56 w-full rounded-lg" />}
+              empty={
+                <EmptyState
+                  size="sm"
+                  icon={Megaphone}
+                  title={t.analytics.rankingsEmptyTitle}
+                  description={t.analytics.rankingsEmptyDescription}
+                />
+              }
+              isEmpty={(data) => data.campaigns.length === 0}
+              onRetry={retry}
+              retryLabel={t.common.retry}
+            >
+              {(rankings) => (
+                <ol className="flex flex-col gap-4">
+                  {rankings.campaigns.map((campaign, index) => {
+                    const top = rankings.campaigns[0]?.participations || 1;
+                    return (
+                      <li key={campaign.id}>
+                        <div className="mb-2 flex items-baseline justify-between gap-3 text-[13.5px]">
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            <span className="numeric inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[11px] font-semibold text-brand-800 dark:bg-brand-900/50 dark:text-accent-bright">
+                              {index + 1}
+                            </span>
+                            <span className="truncate font-medium text-ink">{campaign.name}</span>
                           </span>
-                          <span className="truncate font-medium text-ink">{campaign.name}</span>
-                        </span>
-                        <span className="numeric shrink-0 font-semibold text-ink">
-                          {campaign.participations}
-                          <span className="ml-1.5 text-xs font-normal text-ink-subtle">
-                            {interpolate(t.analytics.customersSuffix, { count: campaign.customers })}
+                          <span className="numeric shrink-0 font-semibold text-ink">
+                            {campaign.participations}
+                            <span className="ml-1.5 text-xs font-normal text-ink-subtle">
+                              {interpolate(t.analytics.customersSuffix, { count: campaign.customers })}
+                            </span>
                           </span>
-                        </span>
-                      </div>
-                      <Progress
-                        value={Math.max((campaign.participations / top) * 100, 3)}
-                        label={interpolate(t.analytics.campaignProgressLabel, { name: campaign.name })}
-                      />
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
+                        </div>
+                        <Progress
+                          value={Math.max((campaign.participations / top) * 100, 3)}
+                          label={interpolate(t.analytics.campaignProgressLabel, { name: campaign.name })}
+                        />
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </SectionBody>
           </CardContent>
         </Card>
       </div>
@@ -310,40 +352,49 @@ export default function AnalyticsPage() {
             <CardTitle className="text-lg">{t.analytics.rewardsTitle}</CardTitle>
           </CardHeader>
           <CardContent>
-            {!rankings || rankings.rewards.length === 0 ? (
-              <EmptyState
-                size="sm"
-                icon={Gift}
-                title={t.analytics.rewardsEmptyTitle}
-                description={t.analytics.rewardsEmptyDescription}
-              />
-            ) : (
-              <ol className="flex flex-col gap-4">
-                {rankings.rewards.map((reward, index) => {
-                  const top = rankings.rewards[0]?.claims || 1;
-                  return (
-                    <li key={reward.id}>
-                      <div className="mb-2 flex items-baseline justify-between gap-3 text-[13.5px]">
-                        <span className="flex min-w-0 items-center gap-2.5">
-                          <span className="numeric inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[11px] font-semibold text-brand-800 dark:bg-brand-900/50 dark:text-accent-bright">
-                            {index + 1}
+            <SectionBody
+              state={rankingsState}
+              skeleton={<Skeleton className="h-56 w-full rounded-lg" />}
+              empty={
+                <EmptyState
+                  size="sm"
+                  icon={Gift}
+                  title={t.analytics.rewardsEmptyTitle}
+                  description={t.analytics.rewardsEmptyDescription}
+                />
+              }
+              isEmpty={(data) => data.rewards.length === 0}
+              onRetry={retry}
+              retryLabel={t.common.retry}
+            >
+              {(rankings) => (
+                <ol className="flex flex-col gap-4">
+                  {rankings.rewards.map((reward, index) => {
+                    const top = rankings.rewards[0]?.claims || 1;
+                    return (
+                      <li key={reward.id}>
+                        <div className="mb-2 flex items-baseline justify-between gap-3 text-[13.5px]">
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            <span className="numeric inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[11px] font-semibold text-brand-800 dark:bg-brand-900/50 dark:text-accent-bright">
+                              {index + 1}
+                            </span>
+                            <span className="truncate font-medium text-ink">{reward.name}</span>
                           </span>
-                          <span className="truncate font-medium text-ink">{reward.name}</span>
-                        </span>
-                        <span className="numeric shrink-0 font-semibold text-ink">
-                          {interpolate(t.analytics.claimsCount, { count: reward.claims })}
-                        </span>
-                      </div>
-                      <Progress
-                        tone="ink"
-                        value={Math.max((reward.claims / top) * 100, 3)}
-                        label={interpolate(t.analytics.rewardProgressLabel, { name: reward.name })}
-                      />
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
+                          <span className="numeric shrink-0 font-semibold text-ink">
+                            {interpolate(t.analytics.claimsCount, { count: reward.claims })}
+                          </span>
+                        </div>
+                        <Progress
+                          tone="ink"
+                          value={Math.max((reward.claims / top) * 100, 3)}
+                          label={interpolate(t.analytics.rewardProgressLabel, { name: reward.name })}
+                        />
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </SectionBody>
           </CardContent>
         </Card>
 
@@ -355,29 +406,38 @@ export default function AnalyticsPage() {
             <CardTitle className="text-lg">{t.analytics.oddsTitle}</CardTitle>
           </CardHeader>
           <CardContent>
-            {rewardDistribution.length === 0 ? (
-              <EmptyState
-                size="sm"
-                icon={Award}
-                title={t.analytics.oddsEmptyTitle}
-                description={t.analytics.oddsEmptyDescription}
-              />
-            ) : (
-              <ul className="flex flex-col gap-4">
-                {rewardDistribution.map((reward) => (
-                  <li key={reward.id}>
-                    <div className="mb-2 flex items-center justify-between gap-3 text-[13.5px]">
-                      <span className="truncate text-ink">{reward.name}</span>
-                      <span className="numeric shrink-0 font-semibold text-ink">{reward.percent}%</span>
-                    </div>
-                    <Progress
-                      value={Math.max(reward.percent, 2)}
-                      label={interpolate(t.analytics.oddsProgressLabel, { name: reward.name })}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )}
+            <SectionBody
+              state={rewardState}
+              skeleton={<Skeleton className="h-56 w-full rounded-lg" />}
+              empty={
+                <EmptyState
+                  size="sm"
+                  icon={Award}
+                  title={t.analytics.oddsEmptyTitle}
+                  description={t.analytics.oddsEmptyDescription}
+                />
+              }
+              isEmpty={(data) => data.length === 0}
+              onRetry={retry}
+              retryLabel={t.common.retry}
+            >
+              {(distribution) => (
+                <ul className="flex flex-col gap-4">
+                  {distribution.map((reward) => (
+                    <li key={reward.id}>
+                      <div className="mb-2 flex items-center justify-between gap-3 text-[13.5px]">
+                        <span className="truncate text-ink">{reward.name}</span>
+                        <span className="numeric shrink-0 font-semibold text-ink">{reward.percent}%</span>
+                      </div>
+                      <Progress
+                        value={Math.max(reward.percent, 2)}
+                        label={interpolate(t.analytics.oddsProgressLabel, { name: reward.name })}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </SectionBody>
           </CardContent>
         </Card>
       </div>
@@ -387,35 +447,83 @@ export default function AnalyticsPage() {
           <CardTitle className="text-lg">{t.analytics.totalsTitle}</CardTitle>
         </CardHeader>
         <CardContent>
-          {totals.length === 0 ? (
-            <EmptyState
-              size="sm"
-              icon={BarChart3}
-              title={t.analytics.totalsEmptyTitle}
-              description={t.analytics.totalsEmptyDescription}
-            />
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {totals.map((row) => (
-                <div
-                  key={row.event_type}
-                  className={cn(
-                    'rounded-xl border border-line bg-surface-2/60 p-4',
-                    'transition-colors duration-180 hover:border-line-strong',
-                  )}
-                >
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                    {EVENT_LABELS[row.event_type] ?? row.event_type}
-                  </p>
-                  <p className="numeric mt-2.5 text-[26px] font-semibold leading-none tracking-[-0.03em] text-ink">
-                    {row.count}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
+          <SectionBody
+            state={totalsState}
+            skeleton={<Skeleton className="h-32 w-full rounded-lg" />}
+            empty={
+              <EmptyState
+                size="sm"
+                icon={BarChart3}
+                title={t.analytics.totalsEmptyTitle}
+                description={t.analytics.totalsEmptyDescription}
+              />
+            }
+            isEmpty={(data) => data.length === 0}
+            onRetry={retry}
+            retryLabel={t.common.retry}
+          >
+            {(totals) => (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {totals.map((row) => (
+                  <div
+                    key={row.event_type}
+                    className={cn(
+                      'rounded-xl border border-line bg-surface-2/60 p-4',
+                      'transition-colors duration-180 hover:border-line-strong',
+                    )}
+                  >
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                      {EVENT_LABELS[row.event_type] ?? row.event_type}
+                    </p>
+                    <p className="numeric mt-2.5 text-[26px] font-semibold leading-none tracking-[-0.03em] text-ink">
+                      {row.count}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionBody>
         </CardContent>
       </Card>
     </div>
   );
+}
+
+function SectionError({ message, onRetry, retryLabel }: { message: string; onRetry: () => void; retryLabel: string }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger-300/60 bg-danger-50 px-4 py-3 text-sm text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200">
+      <span>{message}</span>
+      <Button variant="outline" size="xs" onClick={onRetry}>
+        {retryLabel}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * Renders one card's loading / error / empty / loaded states so a failed
+ * section never takes the rest of the page down with it.
+ */
+function SectionBody<T>({
+  state,
+  skeleton,
+  empty = null,
+  isEmpty = () => false,
+  onRetry,
+  retryLabel,
+  children,
+}: {
+  state: Loadable<T>;
+  skeleton: ReactNode;
+  empty?: ReactNode;
+  isEmpty?: (data: T) => boolean;
+  onRetry: () => void;
+  retryLabel: string;
+  children: (data: T) => ReactNode;
+}) {
+  if (state.loading) return <>{skeleton}</>;
+  if (state.error) return <SectionError message={state.error} onRetry={onRetry} retryLabel={retryLabel} />;
+  if (state.data === null) return <>{skeleton}</>;
+  if (isEmpty(state.data)) return <>{empty}</>;
+  return <>{children(state.data)}</>;
 }

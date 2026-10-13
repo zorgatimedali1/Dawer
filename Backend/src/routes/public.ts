@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { pickWeightedReward } from '../lib/reward';
+import { applySoldOutOdds, ensureNoWinSlice, isSoldOutReward, pickWeightedReward } from '../lib/reward';
 import { errorResponse, jsonResponse } from '../lib/http';
 import { actionClaimSchema, customerDetailsSchema, participationSchema, parsePlayRules, applyAccountPlayPolicy, resolveWheelTheme, type PlayRules, type WheelTheme } from '../lib/validation';
 import { secureRandomHex, sha256Hex } from '../lib/crypto';
@@ -46,6 +46,106 @@ interface SharedCampaignRow {
   plan_price_cents: number | null;
   plan_interval: string | null;
   plan_features: string | null;
+}
+
+/**
+ * Counts one QR scan per visitor per UTC day on the public campaign page.
+ *
+ * The page GET is the only request a QR landing triggers, so it is the only
+ * place this fires. The pre-read keeps repeat loads (refresh, back button, SPA
+ * remount) off the D1 write path, while the unique index from migration 0040
+ * keeps concurrent first loads idempotent even if a read replica lags. A
+ * failure here must never surface to the visitor — the scan is a side effect.
+ */
+async function recordQrScan(
+  env: Env,
+  businessId: string,
+  campaignId: string,
+  visitorHash: string | null,
+): Promise<void> {
+  if (!visitorHash) return;
+
+  const now = new Date();
+  const scanKey = `${visitorHash}|${now.toISOString().slice(0, 10)}`;
+
+  try {
+    const alreadyCounted = await env.DB.prepare(
+      `SELECT 1 AS found FROM analytics_events
+       WHERE business_id = ? AND campaign_id = ? AND event_type = 'QR_SCANNED' AND event_data = ?
+       LIMIT 1`,
+    )
+      .bind(businessId, campaignId, scanKey)
+      .first();
+
+    if (alreadyCounted) return;
+
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
+       VALUES (?, ?, ?, 'QR_SCANNED', ?, ?)`,
+    )
+      .bind(crypto.randomUUID(), businessId, campaignId, scanKey, now.toISOString())
+      .run();
+  } catch (error) {
+    console.error('qr_scan_record_failed', error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** Active rewards for a wheel, normalized and with sold-out odds applied. */
+type WheelReward = {
+  id: string;
+  name: string;
+  description: string | null;
+  type: string;
+  value: string | null;
+  weight: number;
+  quantity: number;
+  quantityInitial: number;
+};
+
+const WHEEL_REWARD_FIELDS = `id, name, description, type, value, weight, quantity, quantity_initial`;
+
+function toWheelRewards(rows: unknown[]): WheelReward[] {
+  return rows.map((row) => {
+    const raw = row as Record<string, unknown>;
+    return {
+      id: String(raw.id),
+      name: String(raw.name),
+      description: raw.description == null ? null : String(raw.description),
+      type: String(raw.type),
+      value: raw.value == null ? null : String(raw.value),
+      weight: Number(raw.weight ?? 0),
+      quantity: Number(raw.quantity ?? 0),
+      quantityInitial: Number(raw.quantity_initial ?? 0),
+    };
+  });
+}
+
+/**
+ * Loads a campaign's active rewards for display and picking. Unlike the old
+ * query this keeps sold-out rows (they stay on the wheel at 0%) and moves
+ * their weight onto the campaign's "none" slice — switching that slice on the
+ * first time it has a share to absorb, and reloading once so the response
+ * already carries the boosted weight.
+ */
+async function selectWheelRewards(env: Env, campaignId: string): Promise<WheelReward[]> {
+  const load = () =>
+    env.DB
+      .prepare(
+        `SELECT ${WHEEL_REWARD_FIELDS}
+         FROM rewards
+         WHERE campaign_id = ? AND active = 1
+         ORDER BY weight DESC, created_at ASC`,
+      )
+      .bind(campaignId)
+      .all();
+
+  const rows = toWheelRewards(((await load()).results) ?? []);
+
+  if (!rows.some((row) => isSoldOutReward(row))) return applySoldOutOdds(rows);
+
+  if (!(await ensureNoWinSlice(env, campaignId))) return applySoldOutOdds(rows);
+
+  return applySoldOutOdds(toWheelRewards(((await load()).results) ?? []));
 }
 
 export async function handlePublicCampaignRoute(request: Request, env: Env): Promise<Response> {
@@ -185,16 +285,6 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
         : null;
     delete campaign.business_id;
 
-    const rewards = await env.DB.prepare(
-      `SELECT id, name, description, type, value, weight, quantity, quantity_initial
-       FROM rewards
-       WHERE campaign_id = ? AND active = 1
-         AND (quantity_initial IS NULL OR quantity_initial = 0 OR quantity > 0)
-       ORDER BY weight DESC, created_at ASC`,
-    )
-      .bind(campaign.id)
-      .all();
-
     // The visitor identity is only trusted when it carries a MAC under the
     // server key: a forged, legacy or absent cookie gets replaced with a
     // freshly signed one on every load, so rotation-from-JS never sticks.
@@ -228,10 +318,19 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       actionTicket = await mintActionTicket(env.COOKIE_SIGNING_KEY, String(campaign.id), issuedVisitorId);
     }
 
+    // Same campaign+visitor key as `participations.visitor_hash`, so one
+    // browser scans this campaign at most once per UTC day.
+    const scanHash = issuedVisitorId ? await sha256Hex(`${campaign.id}:${issuedVisitorId}`) : null;
+
+    const [wheelRewards] = await Promise.all([
+      selectWheelRewards(env, String(campaign.id)),
+      recordQrScan(env, String(shared.business_id), String(campaign.id), scanHash),
+    ]);
+
     const response = jsonResponse({
       success: true,
       campaign,
-      rewards: rewards.results ?? [],
+      rewards: wheelRewards.map(({ quantityInitial: _quantityInitial, ...row }) => row),
       ...(actionTicket ? { actionTicket } : {}),
     });
 
@@ -652,29 +751,10 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       return exhausted;
     })();
 
-    const [rewardRows, budgetExhausted] = await Promise.all([
-      env.DB.prepare(
-        `SELECT id, name, description, type, value, weight, quantity, quantity_initial
-         FROM rewards
-         WHERE campaign_id = ? AND active = 1
-           AND (quantity_initial IS NULL OR quantity_initial = 0 OR quantity > 0)
-         ORDER BY weight DESC, created_at ASC`,
-      )
-        .bind(campaign.id)
-        .all<any>(),
+    const [wheelRewards, budgetExhausted] = await Promise.all([
+      selectWheelRewards(env, String(campaign.id)),
       budgetFlow,
     ]);
-
-    const mappedRewards = (rewardRows.results ?? []).map((reward) => ({
-      id: reward.id,
-      name: reward.name,
-      description: reward.description,
-      type: reward.type,
-      value: reward.value,
-      weight: Number(reward.weight ?? 0),
-      quantity: Number(reward.quantity ?? 0),
-      quantityInitial: Number(reward.quantity_initial ?? 0),
-    }));
 
     // Fail closed: without the server-set HttpOnly visitor cookie there is no
     // identity that survives across spins (email, phone, device hash and
@@ -686,7 +766,7 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     let selectedReward;
 
     if (budgetExhausted || unverifiedVisitor) {
-      selectedReward = mappedRewards.find((reward) => reward.type === 'none');
+      selectedReward = wheelRewards.find((reward) => reward.type === 'none');
 
       if (!selectedReward) {
         await releaseClaims();
@@ -698,7 +778,9 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
         );
       }
     } else {
-      selectedReward = pickWeightedReward(mappedRewards);
+      // Sold-out slices stay on the wheel at 0%; they must never win, so the
+      // pick only considers slices that still carry weight.
+      selectedReward = pickWeightedReward(wheelRewards.filter((reward) => reward.weight > 0));
     }
 
     if (!selectedReward) {
@@ -776,7 +858,10 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       selectedReward.quantity = Number(decremented.quantity ?? 0);
     }
 
-    const couponCode = isNoWin ? '' : `CF-${secureRandomHex(8).toUpperCase()}`;
+    // No coupon is written here: the row is created only once the winner
+    // submits their details, so an abandoned form never leaves an unnamed
+    // "Unknown" coupon in the merchant's list (see handleCustomerDetails).
+    const couponCode = '';
     const participationId = crypto.randomUUID();
     const now = nowIso;
 
@@ -789,24 +874,6 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       ).bind(participationId, campaign.id, resolvedCustomerId, selectedReward.id, selectedReward.name, cookieIdentity, distanceMeters, now),
     ];
 
-    if (!isNoWin) {
-      chain.push(
-        env.DB.prepare(
-          `INSERT INTO coupons (id, business_id, campaign_id, customer_id, participation_id, reward_id, code, status, issued_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'ISSUED', ?)`,
-        ).bind(
-          crypto.randomUUID(),
-          campaign.business_id,
-          campaign.id,
-          resolvedCustomerId,
-          participationId,
-          selectedReward.id,
-          couponCode,
-          now,
-        ),
-      );
-    }
-
     chain.push(
       env.DB.prepare(
         `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
@@ -815,15 +882,15 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
         crypto.randomUUID(),
         campaign.business_id,
         campaign.id,
-        JSON.stringify({ rewardId: selectedReward.id, customerKey, isWin: !isNoWin, couponCode: couponCode || null }),
+        JSON.stringify({ rewardId: selectedReward.id, customerKey, isWin: !isNoWin, couponCode: null }),
         now,
       ),
     );
 
-    // A win also writes its `coupons` row above; analytics derives
-    // `rewardsClaimed` from that table, so a separate REWARD_CLAIMED event is
-    // not written. Fewer event rows = faster analytics reads + smaller
-    // storage footprint per spin.
+    // No REWARD_CLAIMED event either: the `coupons` row written when the
+    // winner submits their details is the single source of truth analytics
+    // derives `rewardsClaimed` from. Fewer event rows = faster analytics
+    // reads + smaller storage footprint per spin.
 
     chain.push(
       env.DB.prepare(
@@ -962,9 +1029,11 @@ async function handleCustomerDetails(
     const now = new Date().toISOString();
 
     const participation = await env.DB.prepare(
-      `SELECT p.id, p.customer_id, p.campaign_id, p.reward_id, p.visitor_hash, c.business_id
+      `SELECT p.id, p.customer_id, p.campaign_id, p.reward_id, p.visitor_hash, c.business_id,
+              r.type AS reward_type
        FROM participations p
        JOIN campaigns c ON c.id = p.campaign_id
+       LEFT JOIN rewards r ON r.id = p.reward_id
        WHERE p.id = ? AND c.public_code = ?
        LIMIT 1`,
     )
@@ -976,6 +1045,7 @@ async function handleCustomerDetails(
         reward_id: string | null;
         visitor_hash: string | null;
         business_id: string;
+        reward_type: string | null;
       }>();
 
     if (!participation) {
@@ -1118,7 +1188,31 @@ async function handleCustomerDetails(
       )
       .run();
 
-    // The exact coupon this spin issued (linked at insert time); the legacy
+    // The coupon is issued here — and only here — so a winner who abandons
+    // this form never leaves an unnamed row in the merchant's list. The
+    // `WHERE NOT EXISTS` guard makes a replayed submit idempotent, and a
+    // `type = 'none'` slice never wins a coupon at all.
+    if (participation.reward_id && participation.reward_type !== 'none') {
+      await env.DB.prepare(
+        `INSERT INTO coupons (id, business_id, campaign_id, customer_id, participation_id, reward_id, code, status, issued_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, 'ISSUED', ?
+         WHERE NOT EXISTS (SELECT 1 FROM coupons WHERE participation_id = ?)`,
+      )
+        .bind(
+          crypto.randomUUID(),
+          participation.business_id,
+          participation.campaign_id,
+          targetId,
+          participation.id,
+          participation.reward_id,
+          `CF-${secureRandomHex(8).toUpperCase()}`,
+          now,
+          participation.id,
+        )
+        .run();
+    }
+
+    // The exact coupon this submission issued (linked above); the legacy
     // campaign/customer/reward query only covers rows written before the
     // participation link existed.
     const coupon =

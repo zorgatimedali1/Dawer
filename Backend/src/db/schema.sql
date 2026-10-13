@@ -538,6 +538,11 @@ CREATE INDEX IF NOT EXISTS idx_customers_identity
   ON customers(business_id, LOWER(COALESCE(email, phone, id)));
 CREATE INDEX IF NOT EXISTS idx_analytics_business_created ON analytics_events(business_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_analytics_campaign_created ON analytics_events(campaign_id, created_at);
+-- One QR_SCANNED row per (business, campaign, visitor-day): event_data is
+-- `<visitor_hash>|<YYYY-MM-DD>` (migration 0040).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_scan_dedup
+  ON analytics_events(business_id, campaign_id, event_data)
+  WHERE event_type = 'QR_SCANNED';
 CREATE INDEX IF NOT EXISTS idx_audit_logs_business_created ON audit_logs(business_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_subscription_requests_status ON subscription_requests(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_subscription_requests_business ON subscription_requests(business_id);

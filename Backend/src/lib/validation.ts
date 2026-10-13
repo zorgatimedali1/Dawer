@@ -632,11 +632,13 @@ export function parseWheelTheme(raw: unknown): WheelTheme | null {
 
 /**
  * Effective theme for a wheel: the operator's override always wins over the
- * merchant's own design. Without the plan's design flag (Starter, Pro, or a
- * plan the operator locked) colors and motion are pinned to the default even
- * when an override exists — same operator-wins shape as applyAccountPlayPolicy.
- * The hub logo is resolved separately so Pro plans can show it on the default
- * design.
+ * merchant's own design for colors and motion. Without the plan's design flag
+ * (Starter, Pro, or a plan the operator locked) those stay pinned to the
+ * default even when an override exists — same operator-wins shape as
+ * applyAccountPlayPolicy. The hub logo is the merchant's own brand asset, so
+ * their toggle wins over the override whenever the plan includes it; the
+ * override's flag only applies as a default for accounts that never saved a
+ * theme of their own.
  */
 export function resolveWheelTheme(options: {
   merchantTheme: unknown;
@@ -649,8 +651,7 @@ export function resolveWheelTheme(options: {
 
   const base = options.designAllowed ? override ?? merchant ?? DEFAULT_WHEEL_THEME : DEFAULT_WHEEL_THEME;
   if (!options.centerLogoAllowed) return { ...base, centerLogo: false };
-  if (options.designAllowed) return base;
-  return { ...DEFAULT_WHEEL_THEME, centerLogo: (override ?? merchant)?.centerLogo ?? false };
+  return { ...base, centerLogo: (merchant ?? override)?.centerLogo ?? false };
 }
 
 /** Serializes a theme for its column; `null` clears the merchant design. */

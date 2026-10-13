@@ -8,6 +8,7 @@ export interface AnalyticsTotals {
 export interface AnalyticsSummary {
   participations: number;
   coupons: number;
+  redeemed: number;
   customers: number;
 }
 
@@ -30,6 +31,7 @@ export interface TimeseriesPoint {
   participations: number;
   rewardsClaimed: number;
   couponsRedeemed: number;
+  scans: number;
   total: number;
 }
 
@@ -77,13 +79,6 @@ export interface Rankings {
   rewards: RankedReward[];
 }
 
-const EVENT_KEY: Record<string, string> = {
-  PARTICIPATION: 'participations',
-  COUPON_REDEEMED: 'coupons',
-  REWARD_CLAIMED: 'rewards',
-  QR_SCANNED: 'scans',
-};
-
 export class AnalyticsService {
   static async overview(): Promise<OverviewAnalytics> {
     const result = await apiRequest<{ success: boolean; totals: AnalyticsTotals[]; summary: AnalyticsSummary }>(
@@ -93,15 +88,18 @@ export class AnalyticsService {
       'Unable to load analytics.',
     );
 
-    const summary = result.summary ?? { participations: 0, coupons: 0, customers: 0 };
-    const counts: Record<string, number> = { ...summary };
-
-    for (const row of result.totals ?? []) {
-      const key = EVENT_KEY[row.event_type];
-      if (key) counts[key] = (counts[key] ?? 0) + Number(row.count);
-    }
-
-    return { totals: result.totals ?? [], summary: { ...summary, ...counts } as AnalyticsSummary };
+    // Summary is the backend's own table count — event totals are a separate
+    // list. Merging them used to add the same participations/coupons twice.
+    const summary = result.summary;
+    return {
+      totals: result.totals ?? [],
+      summary: {
+        participations: Number(summary?.participations ?? 0),
+        coupons: Number(summary?.coupons ?? 0),
+        redeemed: Number(summary?.redeemed ?? 0),
+        customers: Number(summary?.customers ?? 0),
+      },
+    };
   }
 
   static async timeSeries(days: 7 | 30 | 90 = 30): Promise<TimeseriesPoint[]> {

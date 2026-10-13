@@ -119,7 +119,34 @@ describe('GET /api/analytics/overview', () => {
     );
 
     expect(payload.totals).toEqual([]);
-    expect(payload.summary).toEqual({ participations: 0, coupons: 0, customers: 0 });
+    expect(payload.summary).toEqual({ participations: 0, coupons: 0, redeemed: 0, customers: 0 });
+  });
+
+  it('reports issued and redeemed coupons as distinct numbers', async () => {
+    const now = new Date().toISOString();
+    const seedCoupon = (code: string, status: string) =>
+      db
+        .prepare(
+          `INSERT INTO coupons (id, business_id, campaign_id, code, status, issued_at, redeemed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(crypto.randomUUID(), alice.businessId, aliceCampaign, code, status, now, status === 'REDEEMED' ? now : null)
+        .run();
+
+    seedCoupon('CF-ISSUED000000001', 'ISSUED');
+    seedCoupon('CF-REDEEM000000001', 'REDEEMED');
+    // A voided prize must not read as delivered or redeemed.
+    seedCoupon('CF-DELETED000000001', 'DELETED');
+
+    const payload = await body(
+      await handleAnalyticsRoute(jsonRequest('/api/analytics/overview', 'GET', undefined, alice.token), env),
+    );
+
+    expect(payload.summary).toMatchObject({ participations: 1, coupons: 2, redeemed: 1, customers: 1 });
+    expect(payload.totals).toEqual([
+      { event_type: 'PARTICIPATION', count: 1 },
+      { event_type: 'REWARD_CLAIMED', count: 2 },
+    ]);
   });
 });
 
@@ -175,6 +202,58 @@ describe('GET /api/analytics/timeseries', () => {
     expect(payload.series.slice(0, 6).every((day: { total: number }) => day.total === 0)).toBe(true);
   });
 
+  it('counts a win once even when a legacy REWARD_CLAIMED event survives', async () => {
+    // Events are kept for 400 days, so rows written before the participate
+    // chain stopped emitting REWARD_CLAIMED are still around — they must not
+    // stack on top of the coupons count.
+    seedEvent(alice.businessId, aliceCampaign, 'REWARD_CLAIMED', 0);
+    seedEvent(alice.businessId, aliceCampaign, 'QR_SCANNED', 0);
+    db.prepare(
+      `INSERT INTO coupons (id, business_id, campaign_id, code, status, issued_at)
+       VALUES (?, ?, ?, 'COUPON-LEGACY0000001', 'ISSUED', ?)`,
+    )
+      .bind(crypto.randomUUID(), alice.businessId, aliceCampaign, new Date().toISOString())
+      .run();
+
+    const payload = await body(
+      await handleAnalyticsRoute(
+        jsonRequest('/api/analytics/timeseries?days=7', 'GET', undefined, alice.token),
+        env,
+      ),
+    );
+
+    const today = payload.series[payload.series.length - 1];
+    expect(today.rewardsClaimed).toBe(1);
+    expect(today.scans).toBe(1);
+  });
+
+  it('opens the same window as the funnel', async () => {
+    // Exactly at the first bucket's midnight: the timeseries includes it, and
+    // the funnel must agree rather than opening `now - (days-1)24h` instead.
+    const since = new Date(Date.now() - 6 * 86_400_000);
+    since.setUTCHours(0, 0, 0, 0);
+    db.prepare(
+      `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
+       VALUES (?, ?, ?, 'PARTICIPATION', '{}', ?)`,
+    )
+      .bind(crypto.randomUUID(), alice.businessId, aliceCampaign, since.toISOString())
+      .run();
+
+    const series = await body(
+      await handleAnalyticsRoute(jsonRequest('/api/analytics/timeseries?days=7', 'GET', undefined, alice.token), env),
+    );
+    const funnel = await body(
+      await handleAnalyticsRoute(jsonRequest('/api/analytics/funnel?days=7', 'GET', undefined, alice.token), env),
+    );
+
+    const seriesTotal = (series.series as Array<{ participations: number }>).reduce(
+      (sum, day) => sum + day.participations,
+      0,
+    );
+    expect(seriesTotal).toBe(2);
+    expect(funnel.conversion.participations).toBe(seriesTotal);
+  });
+
   it('defaults to 30 days for an unknown window', async () => {
     const payload = await body(
       await handleAnalyticsRoute(
@@ -221,18 +300,22 @@ describe('GET /api/analytics/timeseries', () => {
 
 describe('GET /api/analytics/funnel', () => {
   it('reports stage counts and conversion rates', async () => {
-    db.prepare(
-      `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
-       VALUES (?, ?, ?, 'COUPON_REDEEMED', '{}', ?)`,
-    ).bind(crypto.randomUUID(), alice.businessId, aliceCampaign, new Date().toISOString()).run();
+    // Two redemption events, one redeemed coupon: stage 3 reads the coupons
+    // table, so only the one real redemption counts.
+    for (let index = 0; index < 2; index += 1) {
+      db.prepare(
+        `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
+         VALUES (?, ?, ?, 'COUPON_REDEEMED', '{}', ?)`,
+      ).bind(crypto.randomUUID(), alice.businessId, aliceCampaign, new Date().toISOString()).run();
+    }
 
     // Wins are counted from the coupons table — one issued row per reward —
     // not from a per-win analytics event.
     db.prepare(
-      `INSERT INTO coupons (id, business_id, campaign_id, participation_id, reward_id, code, status, issued_at)
-       VALUES (?, ?, ?, NULL, NULL, 'CF-FUNNEL000000001', 'ISSUED', ?)`,
+      `INSERT INTO coupons (id, business_id, campaign_id, participation_id, reward_id, code, status, issued_at, redeemed_at)
+       VALUES (?, ?, ?, NULL, NULL, 'CF-FUNNEL000000001', 'REDEEMED', ?, ?)`,
     )
-      .bind(crypto.randomUUID(), alice.businessId, aliceCampaign, new Date().toISOString())
+      .bind(crypto.randomUUID(), alice.businessId, aliceCampaign, new Date().toISOString(), new Date().toISOString())
       .run();
 
     const payload = await body(
@@ -244,11 +327,8 @@ describe('GET /api/analytics/funnel', () => {
 
     expect(payload.stages).toHaveLength(3);
     expect(payload.stages[0]).toMatchObject({ key: 'participations', value: 1, rateFromPrevious: 100 });
-    // The seeded REWARD_CLAIMED event (historical format) is intentionally
-    // ignored here: exactly 1 comes from the coupons row, proving the count
-    // no longer depends on the per-win event.
     expect(payload.stages[1]).toMatchObject({ key: 'rewardsClaimed', value: 1, rateFromPrevious: 100 });
-    expect(payload.stages[2]).toMatchObject({ key: 'couponsRedeemed', value: 1 });
+    expect(payload.stages[2]).toMatchObject({ key: 'couponsRedeemed', value: 1, rateFromPrevious: 100 });
     expect(payload.conversion).toMatchObject({
       participations: 1,
       rewardsClaimed: 1,
@@ -258,6 +338,43 @@ describe('GET /api/analytics/funnel', () => {
       redemptionRate: 100,
       overallRate: 100,
     });
+  });
+
+  it('never lets redemptions of out-of-window coupons push a rate past 100%', async () => {
+    const longAgo = new Date(Date.now() - 40 * 86_400_000).toISOString();
+    // Redeemed outside the window (its event lands inside it), issued long ago.
+    db.prepare(
+      `INSERT INTO coupons (id, business_id, campaign_id, code, status, issued_at, redeemed_at)
+       VALUES (?, ?, ?, 'CF-OLDREDEEM00001', 'REDEEMED', ?, ?)`,
+    )
+      .bind(crypto.randomUUID(), alice.businessId, aliceCampaign, longAgo, new Date().toISOString())
+      .run();
+    db.prepare(
+      `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
+       VALUES (?, ?, ?, 'COUPON_REDEEMED', '{}', ?)`,
+    ).bind(crypto.randomUUID(), alice.businessId, aliceCampaign, new Date().toISOString()).run();
+
+    // One reward issued inside the window, not redeemed yet.
+    db.prepare(
+      `INSERT INTO coupons (id, business_id, campaign_id, code, status, issued_at)
+       VALUES (?, ?, ?, 'CF-NEWISSUED00001', 'ISSUED', ?)`,
+    )
+      .bind(crypto.randomUUID(), alice.businessId, aliceCampaign, new Date().toISOString())
+      .run();
+
+    const payload = await body(
+      await handleAnalyticsRoute(
+        jsonRequest('/api/analytics/funnel?days=7', 'GET', undefined, alice.token),
+        env,
+      ),
+    );
+
+    expect(payload.stages[1]).toMatchObject({ value: 1 });
+    expect(payload.stages[2]).toMatchObject({ value: 0 });
+    expect(payload.conversion).toMatchObject({ redemptionRate: 0, rewardRate: 100, overallRate: 0 });
+
+    const values = (payload.stages as Array<{ value: number }>).map((stage) => stage.value);
+    expect(values).toEqual([...values].sort((a, b) => b - a));
   });
 
   it('reports zero rates instead of dividing by zero', async () => {

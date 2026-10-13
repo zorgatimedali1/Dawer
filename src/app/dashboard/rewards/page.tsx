@@ -25,6 +25,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { SkeletonCard } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/toast';
 import { RewardService, type RewardSummary } from '@/services/reward.service';
+import { effectiveRewardOdds } from '@/lib/wheel-odds';
 import { interpolate, msg } from '@/lib/i18n';
 import { useT } from '@/hooks/use-t';
 
@@ -70,10 +71,12 @@ export default function RewardsPage() {
       .finally(() => setLoading(false));
   }, [t]);
 
-  const totalWeight = useMemo(
-    () => rewards.filter((reward) => reward.active).reduce((sum, reward) => sum + reward.weight, 0),
-    [rewards],
-  );
+  // Effective chances per the same redistribution the customer wheel uses:
+  // sold-out rewards show 0% and their weight lands on the "Prochaine fois" slice.
+  const oddsById = useMemo(() => {
+    const odds = effectiveRewardOdds(rewards);
+    return new Map(odds.map((entry) => [entry.id, entry.percent]));
+  }, [rewards]);
 
   const filteredRewards = rewards.filter((reward) => {
     const matchesSearch =
@@ -131,8 +134,7 @@ export default function RewardsPage() {
       <div className="grid gap-4">
         {filteredRewards.map((reward) => {
           const Icon = TYPE_ICONS[reward.type] ?? FALLBACK_ICON;
-          const probability =
-            reward.active && totalWeight > 0 ? Math.round((reward.weight / totalWeight) * 100) : 0;
+          const probability = oddsById.get(reward.id) ?? 0;
 
           return (
             <Card key={reward.id} className="flex flex-col gap-5 p-5 sm:p-6">

@@ -57,7 +57,7 @@ async function handleTimeSeries(request: Request, env: Env, businessIds: string[
     const couponRows = await analyticsDb(env).prepare(
       `SELECT substr(issued_at, 1, 10) AS day, COUNT(*) AS count
        FROM coupons
-       WHERE business_id IN (${placeholders}) AND issued_at >= ?
+       WHERE business_id IN (${placeholders}) AND issued_at >= ? AND status <> 'DELETED'
        GROUP BY day`,
     )
       .bind(...businessIds, since)
@@ -79,10 +79,12 @@ async function handleTimeSeries(request: Request, env: Env, businessIds: string[
     series.push({
       day: key,
       participations: counts.PARTICIPATION ?? 0,
-      // New wins come from coupons; historical REWARD_CLAIMED rows still
-      // count until they age out of retention, so old windows stay stable.
-      rewardsClaimed: (counts.COUPON_ISSUED ?? 0) + (counts.REWARD_CLAIMED ?? 0),
+      // Wins come from the coupons table only. Adding the legacy
+      // REWARD_CLAIMED rows here double-counted every win written before the
+      // participate chain stopped emitting them, and disagreed with the funnel.
+      rewardsClaimed: counts.COUPON_ISSUED ?? 0,
       couponsRedeemed: counts.COUPON_REDEEMED ?? 0,
+      scans: counts.QR_SCANNED ?? 0,
       // `total` stays the participation count: wins are a subset of
       // participations (every win also writes one), so adding the coupon
       // bucket here would render a single winning spin as 2.
@@ -97,7 +99,10 @@ async function handleTimeSeries(request: Request, env: Env, businessIds: string[
 async function handleFunnel(request: Request, env: Env, businessIds: string[]): Promise<Response> {
   const url = new URL(request.url);
   const days = parseDayParam(url.searchParams.get('days'));
-  const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString();
+  // Day-truncated, not `now - (days-1)24h`: the timeseries buckets whole UTC
+  // days, so both endpoints must open the same window or the stat cards and
+  // the funnel disagree for one and the same "30 days" label.
+  const since = isoDay(new Date(Date.now() - (days - 1) * 86_400_000));
 
   if (businessIds.length === 0) {
     return jsonResponse({
@@ -148,14 +153,25 @@ async function handleFunnel(request: Request, env: Env, businessIds: string[]): 
   // (participations include the no-win slice, so they cannot stand in).
   const issued = await analyticsDb(env).prepare(
     `SELECT COUNT(*) AS total FROM coupons
-     WHERE business_id IN (${placeholders}) AND issued_at >= ?`,
+     WHERE business_id IN (${placeholders}) AND issued_at >= ? AND status <> 'DELETED'`,
+  )
+    .bind(...businessIds, since)
+    .first<{ total: number }>();
+
+  // Stage 3 converts *this window's* rewards so far. Counting redemptions of
+  // coupons issued outside the window instead could push the rate past 100%
+  // and the funnel out of order; the trade-off is that brand-new rewards have
+  // not had time to be redeemed yet (right-censored, not inflated).
+  const redeemed = await analyticsDb(env).prepare(
+    `SELECT COUNT(*) AS total FROM coupons
+     WHERE business_id IN (${placeholders}) AND issued_at >= ? AND status = 'REDEEMED'`,
   )
     .bind(...businessIds, since)
     .first<{ total: number }>();
 
   const participations = counts.PARTICIPATION ?? 0;
   const rewardsClaimed = Number(issued?.total ?? 0);
-  const couponsRedeemed = counts.COUPON_REDEEMED ?? 0;
+  const couponsRedeemed = Number(redeemed?.total ?? 0);
 
   const rate = (value: number, base: number): number =>
     base > 0 ? Math.round((value / base) * 1000) / 10 : 0;
@@ -185,7 +201,8 @@ async function handleFunnel(request: Request, env: Env, businessIds: string[]): 
 async function handleRankings(request: Request, env: Env, businessIds: string[]): Promise<Response> {
   const url = new URL(request.url);
   const days = parseDayParam(url.searchParams.get('days'));
-  const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString();
+  // Same day-truncated window as the timeseries and the funnel (see above).
+  const since = isoDay(new Date(Date.now() - (days - 1) * 86_400_000));
 
   if (businessIds.length === 0) {
     return jsonResponse({ success: true, days, campaigns: [], rewards: [] });
@@ -277,7 +294,7 @@ export async function handleAnalyticsRoute(request: Request, env: Env): Promise<
       return jsonResponse({
         success: true,
         totals: [],
-        summary: { participations: 0, coupons: 0, customers: 0 },
+        summary: { participations: 0, coupons: 0, redeemed: 0, customers: 0 },
       });
     }
 
@@ -292,14 +309,18 @@ export async function handleAnalyticsRoute(request: Request, env: Env): Promise<
       .bind(...businessIds)
       .all();
 
+    // Table counts, not event sums: events are pruned after retention while
+    // these rows are permanent, and a soft-deleted coupon (`status='DELETED'`,
+    // the merchant voiding a prize) must not read as a delivered reward.
     const summary = await analyticsDb(env).prepare(
       `SELECT
          (SELECT COUNT(*) FROM participations p INNER JOIN campaigns c ON c.id = p.campaign_id
            WHERE c.business_id IN (${placeholders})) AS participations,
-         (SELECT COUNT(*) FROM coupons cp WHERE cp.business_id IN (${placeholders})) AS coupons,
+         (SELECT COUNT(*) FROM coupons cp WHERE cp.business_id IN (${placeholders}) AND cp.status <> 'DELETED') AS coupons,
+         (SELECT COUNT(*) FROM coupons cr WHERE cr.business_id IN (${placeholders}) AND cr.status = 'REDEEMED') AS redeemed,
          (SELECT COUNT(*) FROM customers cu WHERE cu.business_id IN (${placeholders})) AS customers`,
     )
-      .bind(...businessIds, ...businessIds, ...businessIds)
+      .bind(...businessIds, ...businessIds, ...businessIds, ...businessIds)
       .first();
 
     // Wins are no longer written as a REWARD_CLAIMED event (the coupon row
@@ -317,7 +338,7 @@ export async function handleAnalyticsRoute(request: Request, env: Env): Promise<
     return jsonResponse({
       success: true,
       totals,
-      summary: summary ?? { participations: 0, coupons: 0, customers: 0 },
+      summary: summary ?? { participations: 0, coupons: 0, redeemed: 0, customers: 0 },
     });
   }
 

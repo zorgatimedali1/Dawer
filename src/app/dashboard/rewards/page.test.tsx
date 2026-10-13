@@ -115,4 +115,52 @@ describe('rewards page', () => {
     await screen.findByText(/Impossible de supprimer la récompense/);
     expect(screen.getByText('Free coffee')).toBeTruthy();
   });
+
+  it('shows effective odds: a sold-out reward drops to 0% and its weight lands on Prochaine fois', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        success: true,
+        rewards: [
+          rewardRow({ id: 'r1', name: 'Rare', quantity: 0, quantity_initial: 1, weight: 70 }),
+          rewardRow({ id: 'r2', name: 'Always on', quantity: 3, quantity_initial: null, weight: 30 }),
+          rewardRow({
+            id: 'r3',
+            name: 'Prochaine fois',
+            type: 'none',
+            quantity: 0,
+            quantity_initial: 0,
+            weight: 0,
+            active: 1,
+          }),
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<RewardsPage />);
+
+    await screen.findByText('Rare');
+    // Rare (70) is sold out: 0% for it, its 70 transferred to Prochaine fois.
+    const chances = await screen.findAllByText(/%$/);
+    expect(chances.map((node) => node.textContent)).toEqual(['0%', '30%', '70%']);
+  });
+
+  it('keeps the raw distribution when nothing is sold out', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        success: true,
+        rewards: [
+          rewardRow({ id: 'r1', name: 'Free coffee', quantity: 5, quantity_initial: 5, weight: 70 }),
+          rewardRow({ id: 'r2', name: 'Prochaine fois', type: 'none', quantity: 0, quantity_initial: 0, weight: 30 }),
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<RewardsPage />);
+
+    await screen.findByText('Free coffee');
+    const chances = await screen.findAllByText(/%$/);
+    expect(chances.map((node) => node.textContent)).toEqual(['70%', '30%']);
+  });
 });

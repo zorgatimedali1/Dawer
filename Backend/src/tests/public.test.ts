@@ -207,6 +207,76 @@ describe('GET /api/public/campaigns/:code', () => {
   });
 });
 
+describe('QR scan counting', () => {
+  async function loadCampaign(code: string, cookie?: string): Promise<Response> {
+    return handlePublicCampaignRoute(
+      new Request(`https://example.test${publicPath(code)}`, {
+        method: 'GET',
+        ...(cookie ? { headers: { cookie } } : {}),
+      }),
+      env,
+    );
+  }
+
+  function scanCount(): number {
+    return db.query<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM analytics_events WHERE event_type = 'QR_SCANNED'`,
+    )[0]!.total;
+  }
+
+  it('counts a returning visitor once per day', async () => {
+    const code = await createCampaign();
+
+    const first = await loadCampaign(code);
+    expect(first.status).toBe(200);
+    const cookie = String(first.headers.get('set-cookie')).split(';')[0];
+
+    // Refresh, back button, SPA remount — same browser, same day, one scan.
+    expect((await loadCampaign(code, cookie)).status).toBe(200);
+    expect((await loadCampaign(code, cookie)).status).toBe(200);
+    expect(scanCount()).toBe(1);
+  });
+
+  it('counts each visitor separately', async () => {
+    const code = await createCampaign();
+
+    const visitorA = await loadCampaign(code);
+    const cookieA = String(visitorA.headers.get('set-cookie')).split(';')[0];
+    const visitorB = await loadCampaign(code);
+    const cookieB = String(visitorB.headers.get('set-cookie')).split(';')[0];
+
+    await loadCampaign(code, cookieA);
+    await loadCampaign(code, cookieB);
+
+    expect(scanCount()).toBe(2);
+  });
+
+  it('keeps scans per campaign', async () => {
+    const first = await createCampaign();
+    const second = await createCampaign();
+
+    await loadCampaign(first);
+    await loadCampaign(second);
+
+    expect(scanCount()).toBe(2);
+    expect(
+      db.query<{ total: number }>(
+        `SELECT COUNT(*) AS total FROM analytics_events e
+         INNER JOIN campaigns c ON c.id = e.campaign_id
+         WHERE e.event_type = 'QR_SCANNED' AND c.public_code = ?`,
+        first,
+      )[0]!.total,
+    ).toBe(1);
+  });
+
+  it('does not count a page load that 404s', async () => {
+    const code = await createCampaign({ status: 'DRAFT' });
+
+    expect((await loadCampaign(code)).status).toBe(404);
+    expect(scanCount()).toBe(0);
+  });
+});
+
 describe('wheel theme in the public payload', () => {
   const merchantTheme = JSON.stringify({
     colors: { segments: ['#ff0000', '#00ff00'], rim: '#111111', pointer: '#222222' },
@@ -287,7 +357,7 @@ describe('wheel theme in the public payload', () => {
     expect(campaign.business_wheel_design_access).toBeUndefined();
   });
 
-  it('lets the operator override win over the merchant theme', async () => {
+  it('lets the operator override win on colors and motion while the merchant keeps the hub logo flag', async () => {
     await upgradeTo('plan_scale');
     db.prepare('UPDATE businesses SET wheel_theme = ?, wheel_theme_override = ? WHERE id = ?')
       .bind(merchantTheme, overrideTheme, businessId)
@@ -298,9 +368,9 @@ describe('wheel theme in the public payload', () => {
     expect(campaign.wheel_theme).toMatchObject({
       colors: { rim: '#333333', pointer: '#444444' },
       motion: { preset: 'slow' },
-      centerLogo: false,
+      centerLogo: true,
     });
-    expect(campaign.wheel_logo).toBeNull();
+    expect(campaign.wheel_logo).toBe(`/api/public/businesses/${businessId}/wheel-logo`);
   });
 });
 
@@ -397,7 +467,7 @@ describe('POST /api/public/campaigns/:code/participate', () => {
     expect(db.query(`SELECT id FROM customers`)).toHaveLength(10000);
   });
 
-  it('records the participation, issues a coupon and returns the reward', async () => {
+  it('records the participation but issues no coupon before the details form', async () => {
     const code = await createCampaign({ rewards: [{ name: 'Free coffee', weight: 100 }] });
 
     const payload = await body(
@@ -413,20 +483,22 @@ describe('POST /api/public/campaigns/:code/participate', () => {
 
     expect(payload.success).toBe(true);
     expect(payload.participation.reward.name).toBe('Free coffee');
-    expect(payload.participation.couponCode).toMatch(/^CF-[0-9A-F]{16}$/);
+    // The code is minted when the winner submits their details, not at spin
+    // time — otherwise every abandoned form leaves an "Unknown" coupon.
+    expect(payload.participation.couponCode).toBe('');
 
     expect(db.query(`SELECT id FROM participations`)).toHaveLength(1);
-    expect(db.query(`SELECT status FROM coupons`)).toEqual([{ status: 'ISSUED' }]);
+    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(0);
     // Wins are no longer double-written as a REWARD_CLAIMED event — the
-    // PARTICIPATION row carries the win flag and coupon code, and analytics
-    // counts wins from the coupons table.
+    // PARTICIPATION row carries the win flag, and analytics counts wins
+    // from the coupons table written at details submission.
     const events = db.query<{ event_type: string; event_data: string }>(
       `SELECT event_type, event_data FROM analytics_events ORDER BY event_type`,
     );
     expect(events.map((row) => row.event_type)).toEqual(['PARTICIPATION']);
     const participationEvent = JSON.parse(events[0]!.event_data) as { isWin: boolean; couponCode: string | null };
     expect(participationEvent.isWin).toBe(true);
-    expect(participationEvent.couponCode).toMatch(/^CF-[0-9A-F]{16}$/);
+    expect(participationEvent.couponCode).toBeNull();
     expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'ada@example.test')).toHaveLength(1);
   });
 
@@ -543,12 +615,81 @@ describe('reward stock loop', () => {
     expect(db.query(`SELECT id FROM participations`)).toHaveLength(1);
   });
 
-  it('hides a sold-out reward from the public campaign payload', async () => {
-    const code = await createCampaign({ rewards: [{ name: 'Rare', weight: 100, quantity: 1 }] });
-    await spin(code, 'hide-one@example.test');
+  it('keeps a sold-out reward on the wheel at 0% and hands its weight to the none slice', async () => {
+    const code = await createCampaign({
+      rewards: [
+        { name: 'Rare', weight: 70, quantity: 1 },
+        { name: 'Prochaine fois', weight: 0, quantity: 0, type: 'none' },
+      ],
+    });
+    // The wheel builder ships the "none" slice deactivated at 0%.
+    db.prepare(`UPDATE rewards SET active = 0 WHERE campaign_id = (SELECT id FROM campaigns WHERE public_code = ?) AND type = 'none'`)
+      .bind(code)
+      .run();
+
+    await spin(code, 'burn-one@example.test');
 
     const payload = await body(await handlePublicCampaignRoute(jsonRequest(publicPath(code), 'GET'), env));
-    expect(payload.rewards).toHaveLength(0);
+    const rare = payload.rewards.find((reward: { name: string }) => reward.name === 'Rare');
+    const noWin = payload.rewards.find((reward: { name: string }) => reward.name === 'Prochaine fois');
+
+    expect(rare).toMatchObject({ weight: 0, quantity: 0 });
+    // The freed weight moved to the "none" slice, which had to switch on.
+    expect(noWin).toMatchObject({ weight: 70, type: 'none' });
+    expect(db.query(`SELECT active FROM rewards WHERE type = 'none'`)).toEqual([{ active: 1 }]);
+  });
+
+  it('lands every spin on the none slice once the only prize sells out', async () => {
+    const code = await createCampaign({
+      rewards: [
+        { name: 'Rare', weight: 70, quantity: 1 },
+        { name: 'Prochaine fois', weight: 0, quantity: 0, type: 'none' },
+      ],
+    });
+
+    expect((await spin(code, 'burn-one@example.test')).status).toBe(200);
+
+    const loser = await spin(code, 'after-sellout@example.test');
+    const payload = await body(loser);
+
+    expect(loser.status).toBe(200);
+    expect(payload.participation.reward).toMatchObject({ name: 'Prochaine fois', type: 'none' });
+    expect(db.query(`SELECT quantity FROM rewards WHERE type != 'none'`)).toEqual([{ quantity: 0 }]);
+    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(0);
+  });
+
+  it('restores the original odds when the merchant tops the stock back up', async () => {
+    const code = await createCampaign({
+      rewards: [
+        { name: 'Rare', weight: 70, quantity: 1 },
+        { name: 'Prochaine fois', weight: 0, quantity: 0, type: 'none' },
+      ],
+    });
+
+    await spin(code, 'burn-one@example.test');
+    db.prepare(
+      `UPDATE rewards SET quantity = 2 WHERE campaign_id = (SELECT id FROM campaigns WHERE public_code = ?) AND type != 'none'`,
+    )
+      .bind(code)
+      .run();
+
+    const payload = await body(await handlePublicCampaignRoute(jsonRequest(publicPath(code), 'GET'), env));
+    const rare = payload.rewards.find((reward: { name: string }) => reward.name === 'Rare');
+    const noWin = payload.rewards.find((reward: { name: string }) => reward.name === 'Prochaine fois');
+
+    expect(rare).toMatchObject({ weight: 70, quantity: 2 });
+    // Restock only restores the odds; the merchant turns the none slice off themselves.
+    expect(noWin).toMatchObject({ weight: 0, type: 'none' });
+  });
+
+  it('drops the freed weight instead of guessing when no none slice exists', async () => {
+    const code = await createCampaign({ rewards: [{ name: 'Rare', weight: 100, quantity: 1 }] });
+    await spin(code, 'burn-one@example.test');
+
+    const payload = await body(await handlePublicCampaignRoute(jsonRequest(publicPath(code), 'GET'), env));
+
+    expect(payload.rewards).toHaveLength(1);
+    expect(payload.rewards[0]).toMatchObject({ name: 'Rare', weight: 0, quantity: 0 });
   });
 
   it('treats a reward configured without a cap as unlimited', async () => {
@@ -618,10 +759,9 @@ describe('anonymous spins', () => {
       { customer_id: null },
       { customer_id: null },
     ]);
-    expect(db.query(`SELECT customer_id FROM coupons`)).toEqual([
-      { customer_id: null },
-      { customer_id: null },
-    ]);
+    // No details yet = no coupon at all, so nothing can show up as "Unknown"
+    // in the merchant's list.
+    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(0);
   });
 
   it('still refuses a second spin from the same anonymous visitor', async () => {
@@ -1144,7 +1284,9 @@ describe('windowed play rules', () => {
     expect(second.participation.reward.name).toBe('Try again');
 
     expect(db.query(`SELECT quantity FROM rewards WHERE name = 'Free coffee'`)).toEqual([{ quantity: 9 }]);
-    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(1);
+    // The win burned stock but the winner never submitted their details, so
+    // no coupon row exists yet.
+    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(0);
   });
 
   it('refuses the spin when the budget is spent and no no-win slice exists', async () => {
@@ -1285,7 +1427,10 @@ describe('POST /api/public/campaigns/:code/participations/:id/customer', () => {
     );
 
     expect(response.status).toBe(200);
-    expect((await body(response)).couponCode).toBe(participation.couponCode);
+    const payload = await body(response);
+    // The code is minted by this submission — the spin issued nothing yet.
+    expect(payload.couponCode).toMatch(/^CF-[0-9A-F]{16}$/);
+    expect(db.query(`SELECT code FROM coupons`)).toEqual([{ code: payload.couponCode }]);
     expect(db.query(`SELECT first_name, last_name, email, phone, marketing_consent FROM customers`)).toEqual([
       { first_name: 'Jean', last_name: 'Dupont', email: details.email, phone: details.phone, marketing_consent: 1 },
     ]);
@@ -1299,6 +1444,52 @@ describe('POST /api/public/campaigns/:code/participations/:id/customer', () => {
       ?.customer_id;
     expect(boundCustomerId).toBeTruthy();
     expect(db.query(`SELECT customer_id FROM coupons`)).toEqual([{ customer_id: boundCustomerId }]);
+  });
+
+  it('issues the coupon on the first submit and never mints a second one on a replay', async () => {
+    const code = await createCampaign();
+    const participation = await anonymousSpin(code);
+
+    // The spin alone must not create anything the merchant could see as
+    // an unnamed row.
+    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(0);
+
+    const response = await handlePublicCampaignRoute(
+      withCookie(jsonRequest(detailsPath(code, participation.participationId), 'POST', details), participation.cookie),
+      env,
+    );
+    expect(response.status).toBe(200);
+
+    const issued = db.query<{ code: string; status: string; customer_id: string | null }>(
+      `SELECT code, status, customer_id FROM coupons`,
+    );
+    expect(issued).toHaveLength(1);
+    expect(issued[0]!.status).toBe('ISSUED');
+    expect(issued[0]!.customer_id).toBeTruthy();
+
+    const replay = await handlePublicCampaignRoute(
+      withCookie(jsonRequest(detailsPath(code, participation.participationId), 'POST', details), participation.cookie),
+      env,
+    );
+    expect(replay.status).toBe(200);
+    expect((await body(replay)).couponCode).toBe(issued[0]!.code);
+    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(1);
+  });
+
+  it('never issues a coupon for a no-win participation, even on a crafted submit', async () => {
+    const code = await createCampaign({
+      rewards: [{ name: 'Try again', weight: 100, quantity: 5, type: 'none' }],
+    });
+    const participation = await anonymousSpin(code);
+
+    const response = await handlePublicCampaignRoute(
+      withCookie(jsonRequest(detailsPath(code, participation.participationId), 'POST', details), participation.cookie),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect((await body(response)).couponCode).toBe('');
+    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(0);
   });
 
   it('refuses the attach when the storage quota is already full', async () => {
@@ -1324,7 +1515,8 @@ describe('POST /api/public/campaigns/:code/participations/:id/customer', () => {
     expect((await body(response)).message).toContain('customer storage limit');
     expect(db.query(`SELECT id FROM customers WHERE email = ?`, details.email)).toHaveLength(0);
     expect(db.query(`SELECT customer_id FROM participations`)).toEqual([{ customer_id: null }]);
-    expect(db.query(`SELECT customer_id FROM coupons`)).toEqual([{ customer_id: null }]);
+    // The rejected attach must not leave an unnamed coupon behind either.
+    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(0);
   });
 
   it('accepts winner details without an email address', async () => {
@@ -1368,7 +1560,10 @@ describe('POST /api/public/campaigns/:code/participations/:id/customer', () => {
     );
 
     expect(response.status).toBe(200);
-    expect((await body(response)).couponCode).toBe(participation.couponCode);
+    const payload = await body(response);
+    // The code is minted by this submission — the spin issued nothing yet.
+    expect(payload.couponCode).toMatch(/^CF-[0-9A-F]{16}$/);
+    expect(db.query(`SELECT code FROM coupons`)).toEqual([{ code: payload.couponCode }]);
 
     const customers = db.query<{
       id: string;

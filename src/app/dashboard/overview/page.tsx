@@ -133,7 +133,7 @@ export default function OverviewPage() {
           featured: true,
         },
         { label: t.overview.statRewardsIssued, value: summary.coupons.toLocaleString(), icon: Award },
-        { label: t.overview.statCouponsRedeemed, value: summary.coupons.toLocaleString(), icon: Ticket },
+        { label: t.overview.statCouponsRedeemed, value: summary.redeemed.toLocaleString(), icon: Ticket },
       ]
     : [];
 

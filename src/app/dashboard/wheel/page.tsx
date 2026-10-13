@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
 import { Input, Select, Textarea } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
+import { Skeleton, SkeletonCard } from '@/components/ui/skeleton';
 import { PrizeWheel } from '@/components/wheel/prize-wheel';
 import { cn } from '@/lib/cn';
 import { getGoogleMapsUrl } from '@/lib/google-maps';
@@ -194,13 +195,26 @@ export default function WheelConfigPage() {
         // Always apply the persisted business logo (empty string → null).
         setLogo(settings?.logo || null);
 
-        if (!saved) return;
+        if (!saved) {
+          // New wheel: prefill the social fields from Settings → Integrations
+          // so the merchant's saved Google Maps / Facebook / Instagram URLs
+          // carry over to every next campaign without retyping them.
+          setGoogleMapsSearch(settings?.googleMapsName || settings?.googleMapsUrl || '');
+          setGooglePlaceId(settings?.googlePlaceId || undefined);
+          setFacebookUrl(settings?.facebookUrl || '');
+          setInstagramUrl(settings?.instagramUrl || '');
+          return;
+        }
         setTitle(saved.title);
         setDescription(saved.description);
-        setGoogleMapsSearch(saved.googleMapsName);
-        setGooglePlaceId(saved.googlePlaceId || undefined);
-        setFacebookUrl(saved.facebookUrl);
-        setInstagramUrl(saved.instagramUrl);
+        // Fall back to the saved integrations for any social field the
+        // campaign never filled in (e.g. campaigns born from the modal).
+        setGoogleMapsSearch(
+          saved.googleMapsName || settings?.googleMapsName || settings?.googleMapsUrl || '',
+        );
+        setGooglePlaceId(saved.googlePlaceId || settings?.googlePlaceId || undefined);
+        setFacebookUrl(saved.facebookUrl || settings?.facebookUrl || '');
+        setInstagramUrl(saved.instagramUrl || settings?.instagramUrl || '');
         setAction(saved.action);
         setPlayRules(saved.playRules ?? DEFAULT_PLAY_RULES);
         setLoadedCampaignId(saved.id);
@@ -602,13 +616,14 @@ export default function WheelConfigPage() {
     window.setTimeout(() => setSpinning(false), wheelMotionDurationMs(effectiveTheme) + 100);
   };
 
-  // Editable per plan flag while no operator override is pinned: the merchant
-  // still sees the effective design either way. Colors/motion need the design
-  // flag (Business+), the hub logo has its own, lower one (Pro+).
+  // Editable per plan flag: colors/motion need the design flag (Business+)
+  // and are pinned read-only while an operator override is in place; the hub
+  // logo is the merchant's own brand asset, so it stays editable under an
+  // override whenever the plan includes it (Pro+).
   const designAllowed = Boolean(themeState?.designAllowed);
   const centerLogoAllowed = Boolean(themeState?.centerLogoAllowed);
   const designEditable = designAllowed && !themeState?.override;
-  const logoEditable = centerLogoAllowed && !themeState?.override;
+  const logoEditable = centerLogoAllowed;
   const editableTheme = designEditable || logoEditable;
 
   const setDraftColors = (patch: Partial<WheelTheme['colors']>) => {
@@ -738,6 +753,27 @@ export default function WheelConfigPage() {
         }
       />
 
+      {/* Both loads must settle before anything renders: the form and preview
+          would otherwise flash the hardcoded demo defaults (title, sample
+          rewards, default white wheel) for a few hundred ms on every
+          refresh or navigation, then snap to the real configuration. */}
+      {isLoadingConfig || isLoadingTheme ? (
+        <div className="grid w-full min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+          <div className="flex w-full min-w-0 flex-col gap-6 xl:order-1">
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+          <aside className="order-first w-full min-w-0 xl:order-last xl:sticky xl:top-0 xl:self-start">
+            <div className="rounded-xl border border-line bg-card p-5" role="status" aria-live="polite">
+              <Skeleton className="mx-auto aspect-square w-full max-w-[460px] rounded-full" />
+              <Skeleton className="mt-6 h-10 w-full" />
+              <Skeleton className="mt-5 h-16 w-full" />
+              <span className="sr-only">{t.wheel.statusLoading}</span>
+            </div>
+          </aside>
+        </div>
+      ) : (
       <div className="grid w-full min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         <div className="flex w-full min-w-0 flex-col gap-6 xl:order-1">
           {/* ── General info ───────────────────────────────────────────── */}
@@ -875,9 +911,6 @@ export default function WheelConfigPage() {
                     >
                       {isSavingTheme ? t.wheel.designSaving : t.wheel.designSave}
                     </Button>
-                    {themeState?.override ? (
-                      <span className="text-[12px] text-ink-subtle">{t.wheel.designOverrideHint}</span>
-                    ) : null}
                   </div>
                 </>
               ) : null}
@@ -1720,6 +1753,7 @@ export default function WheelConfigPage() {
           </Card>
         </aside>
       </div>
+      )}
     </div>
   );
 }

@@ -186,6 +186,29 @@ describe('GET /api/business/coupons and redeem', () => {
     expect(payload.coupons[0].reward_name).toBe('Free coffee');
   });
 
+  it('hides legacy coupons that were issued without a customer', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const customerId = seedCustomer(alice.businessId, 'c@example.test');
+    seedCoupon(alice.businessId, aliceCampaign, customerId, rewardId);
+
+    // A pre-fix row: issued at spin time and never attached to a winner.
+    const orphanId = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO coupons (id, business_id, campaign_id, customer_id, reward_id, code, status, issued_at)
+       VALUES (?, ?, ?, NULL, ?, ?, 'ISSUED', ?)`,
+    )
+      .bind(orphanId, alice.businessId, aliceCampaign, rewardId, 'CF-ORPHAN0000000000', new Date().toISOString())
+      .run();
+
+    const payload = await body(
+      await handleBusinessRoute(jsonRequest('/api/business/coupons', 'GET', undefined, alice.token), env),
+    );
+
+    expect(payload.total).toBe(1);
+    expect(payload.coupons).toHaveLength(1);
+    expect(payload.coupons.map((row: { id: string }) => row.id)).not.toContain(orphanId);
+  });
+
   it('redeems once and refuses the second attempt', async () => {
     const rewardId = seedReward(alice.businessId, aliceCampaign);
     const customerId = seedCustomer(alice.businessId, 'c@example.test');
@@ -384,6 +407,25 @@ describe('GET /api/business/rewards', () => {
       env,
     );
     expect(response.status).toBe(400);
+  });
+
+  it('switches on the none slice when a capped reward is emptied by hand', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const noWinId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO rewards (id, business_id, campaign_id, name, type, quantity, quantity_initial, weight, active, created_at, updated_at)
+       VALUES (?, ?, ?, 'Prochaine fois', 'none', 0, 0, 0, 0, ?, ?)`,
+    )
+      .bind(noWinId, alice.businessId, aliceCampaign, now, now)
+      .run();
+
+    const updated = await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { quantity: 0 }, alice.token),
+      env,
+    );
+    expect(updated.status).toBe(200);
+    expect(db.query<{ active: number }>(`SELECT active FROM rewards WHERE id = ?`, noWinId)).toEqual([{ active: 1 }]);
   });
 
   it('deletes a reward immediately and 404s foreign or unknown ids', async () => {

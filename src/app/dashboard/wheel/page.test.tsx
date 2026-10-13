@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -104,6 +104,137 @@ describe('wheel configuration page', () => {
     // settings GET + wheel-theme GET + config GET + config PUT.
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
     await screen.findByText(/configuration enregistrée/i);
+  });
+
+  it('shows a skeleton instead of the demo defaults while the config is loading', async () => {
+    let releaseConfig: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => {
+      releaseConfig = resolve;
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === '/api/settings/wheel-theme') {
+          return jsonResponse({
+            success: true,
+            designAllowed: true,
+            centerLogoAllowed: true,
+            planSlug: 'scale',
+            planName: 'Business',
+            theme: null,
+            override: null,
+            effective: DEFAULT_WHEEL_THEME,
+            centerLogo: null,
+          });
+        }
+        await pending;
+        return jsonResponse({ success: true, campaign: null });
+      }),
+    );
+
+    renderPage();
+
+    // Nothing of the demo config may leak while the fetch is in flight:
+    // no sample rewards, no default title, no preview wheel.
+    await screen.findByRole('status');
+    expect(screen.queryByLabelText(/^probabilité de /i)).toBeNull();
+    expect(screen.queryByTestId('preview-wheel')).toBeNull();
+    expect(screen.queryByDisplayValue('Tentez votre chance 🎉')).toBeNull();
+
+    await act(async () => {
+      releaseConfig?.();
+    });
+
+    // Once the load settles the demo defaults apply as before (new campaign).
+    const wheel = await screen.findByTestId('preview-wheel');
+    expect(wheel.querySelectorAll('[data-wheel-segment]')).toHaveLength(6);
+    expect(screen.getByDisplayValue('Tentez votre chance 🎉')).toBeTruthy();
+  });
+
+  function stubIntegrationsFetch(options: {
+    campaign: Record<string, unknown> | null;
+    integrations?: Partial<{
+      googleMapsName: string;
+      googleMapsUrl: string;
+      googlePlaceId: string;
+      facebookUrl: string;
+      instagramUrl: string;
+    }>;
+  }) {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === '/api/settings/wheel-theme') {
+        return jsonResponse({
+          success: true,
+          designAllowed: true,
+          centerLogoAllowed: true,
+          planSlug: 'scale',
+          planName: 'Business',
+          theme: null,
+          override: null,
+          effective: DEFAULT_WHEEL_THEME,
+          centerLogo: null,
+        });
+      }
+
+      if (url === '/api/settings') {
+        return jsonResponse({
+          success: true,
+          settings: {
+            logo: '',
+            googleMapsName: '',
+            googleMapsUrl: '',
+            googlePlaceId: '',
+            facebookUrl: '',
+            instagramUrl: '',
+            ...options.integrations,
+          },
+        });
+      }
+
+      return jsonResponse({ success: true, campaign: options.campaign, rewards: [] });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  it('prefills the social links from integrations when the wheel is new', async () => {
+    stubIntegrationsFetch({
+      campaign: null,
+      integrations: {
+        googleMapsName: 'Beachside Cafe',
+        googleMapsUrl: 'https://maps.google.com/?cid=abc',
+        googlePlaceId: 'ChIJabc123',
+        facebookUrl: 'https://facebook.com/beachside',
+        instagramUrl: 'https://instagram.com/beachside',
+      },
+    });
+
+    renderPage();
+
+    expect((await screen.findByLabelText('Google Maps / Google Business') as HTMLInputElement).value).toBe('Beachside Cafe');
+    expect(((screen.getByLabelText('URL de la page Facebook')) as HTMLInputElement).value).toBe('https://facebook.com/beachside');
+    expect(((screen.getByLabelText('URL du profil Instagram')) as HTMLInputElement).value).toBe('https://instagram.com/beachside');
+  });
+
+  it('falls back to integrations for an existing campaign with empty social fields', async () => {
+    stubIntegrationsFetch({
+      campaign: loadedCampaign,
+      integrations: {
+        facebookUrl: 'https://facebook.com/beachside',
+        instagramUrl: 'https://instagram.com/beachside',
+      },
+    });
+
+    renderPage();
+
+    // The loaded campaign's own (empty) social fields yield to the saved
+    // integrations, so a campaign born from the modal is not blank.
+    expect((await screen.findByLabelText('URL de la page Facebook') as HTMLInputElement).value).toBe('https://facebook.com/beachside');
+    expect(((screen.getByLabelText('URL du profil Instagram')) as HTMLInputElement).value).toBe('https://instagram.com/beachside');
   });
 
   it('renders the preview wheel exactly like the public one', async () => {
@@ -549,7 +680,7 @@ describe('wheel configuration page', () => {
     await screen.findByText(/design enregistré/i);
   });
 
-  it('shows an operator override as read-only with the banner', async () => {
+  it('pins colors and motion under an operator override but keeps the hub logo editable', async () => {
     wheelThemeFetch({
       ...allowedThemeState,
       override: {
@@ -567,9 +698,11 @@ describe('wheel configuration page', () => {
     renderPage();
 
     expect(await screen.findByTestId('wheel-design-override')).toBeTruthy();
-    const saveButton = await screen.findByRole('button', { name: /enregistrer le design/i });
-    expect(saveButton).toBeDisabled();
+    // Colors and motion belong to the operator while the override stands…
     expect(screen.getByLabelText('Vitesse de rotation')).toBeDisabled();
     expect(screen.getByLabelText('Vitesse de rotation')).toHaveValue('slow');
+    // …but the merchant's own brand asset stays theirs to toggle and upload.
+    expect(screen.getByLabelText(/afficher le logo au centre/i)).toBeEnabled();
+    expect(screen.getByLabelText(/téléverser un logo/i)).toBeEnabled();
   });
 });
