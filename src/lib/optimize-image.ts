@@ -7,6 +7,10 @@ export const MAX_LOGO_BYTES = 512 * 1024;
  * fits within MAX_LOGO_BYTES.  SVG files are returned as-is (still size-checked
  * by the caller via MAX_LOGO_BYTES).
  *
+ * Files already within the size limit are validated (must decode) and returned
+ * untouched — re-encoding a good logo only softens fine details like
+ * calligraphy for no benefit.
+ *
  * Throws if the browser cannot decode the file (corrupt / unsupported format)
  * so callers can surface a clear message instead of a generic failure.
  */
@@ -18,6 +22,12 @@ export async function optimizeImage(file: File): Promise<File> {
     bitmap = await createImageBitmap(file);
   } catch {
     throw new Error('Unable to read this image. Try a PNG, JPEG or WebP file.');
+  }
+
+  // Already fits: keep the original bytes so quality is preserved.
+  if (file.size <= MAX_LOGO_BYTES) {
+    bitmap.close();
+    return file;
   }
 
   const MAX_PX = 512;

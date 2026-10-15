@@ -640,12 +640,14 @@ export default function WheelConfigPage() {
       await SettingsService.uploadWheelLogo(optimized);
       // Persist the flag in the same flow: the public wheel only shows the hub
       // logo when the saved theme has centerLogo on, so a stale draft would
-      // leave the freshly uploaded logo invisible until a manual save.
-      const nextDraft = { ...themeDraft, centerLogo: true };
-      await SettingsService.saveWheelTheme(nextDraft);
+      // leave the freshly uploaded logo invisible until a manual save. Base the
+      // save on the last *persisted* theme, never the dirty draft — an upload
+      // must not silently commit unrelated unsaved color/motion edits.
+      const base = themeState?.theme ?? themeState?.effective ?? DEFAULT_WHEEL_THEME;
+      await SettingsService.saveWheelTheme({ ...base, centerLogo: true });
       const refreshed = await refreshThemeState();
       setThemeDraft(refreshed.theme ?? refreshed.effective);
-      setThemeMessage(t.wheel.logoUploaded);
+      setThemeMessage(t.wheel.centerLogoUploaded);
     } catch (error) {
       setThemeError(msg(t, error instanceof Error ? error.message : t.wheel.designError));
     } finally {
@@ -661,14 +663,15 @@ export default function WheelConfigPage() {
     try {
       await SettingsService.deleteWheelLogo();
       // Same as upload: clear the flag server-side so the public wheel stops
-      // pointing at a deleted image without waiting for a manual save.
-      const nextDraft = { ...themeDraft, centerLogo: false };
-      await SettingsService.saveWheelTheme(nextDraft);
+      // pointing at a deleted image without waiting for a manual save, and
+      // without committing any unsaved draft edits.
+      const base = themeState?.theme ?? themeState?.effective ?? DEFAULT_WHEEL_THEME;
+      await SettingsService.saveWheelTheme({ ...base, centerLogo: false });
       const refreshed = await refreshThemeState();
       setThemeDraft(refreshed.theme ?? refreshed.effective);
       setThemeMessage(t.wheel.logoRemoved);
     } catch (error) {
-      setThemeError(error instanceof Error ? error.message : t.wheel.designError);
+      setThemeError(msg(t, error instanceof Error ? error.message : t.wheel.designError));
     } finally {
       setIsUploadingWheelLogo(false);
     }

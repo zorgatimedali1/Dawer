@@ -40,6 +40,17 @@ export function businessWheelLogoPath(businessId: string): string {
   return `${PUBLIC_LOGO_PATH}/${businessId}/wheel-logo`;
 }
 
+/**
+ * Cache-buster for the hub-logo URL handed to the SPA. The public image URL is
+ * constant, so a replaced logo would otherwise keep rendering from the
+ * browser/edge cache for minutes; appending the row's updated_at forces a
+ * fresh fetch the moment a new logo is stored.
+ */
+function wheelLogoVersionedPath(businessId: string, updatedAt: string | null): string {
+  const base = businessWheelLogoPath(businessId);
+  return updatedAt ? `${base}?v=${encodeURIComponent(updatedAt)}` : base;
+}
+
 type BusinessRow = {
   id: string;
   name: string;
@@ -674,6 +685,11 @@ async function handleWheelThemeGet(request: Request, env: Env, user: Authenticat
   const override = parseWheelTheme(row?.wheel_theme_override);
   const designAllowed = wheelDesignAllowed(access.plan.slug, access.plan.features.limits);
   const centerLogoAllowed = wheelCenterLogoAllowed(access.plan.slug, access.plan.features.limits);
+  const logoRow = await env.DB.prepare(
+    'SELECT updated_at FROM business_wheel_logos WHERE business_id = ? LIMIT 1',
+  )
+    .bind(businessId)
+    .first<{ updated_at: string | null }>();
 
   return jsonResponse({
     success: true,
@@ -689,7 +705,7 @@ async function handleWheelThemeGet(request: Request, env: Env, user: Authenticat
       designAllowed,
       centerLogoAllowed,
     }),
-    centerLogo: businessWheelLogoPath(businessId),
+    centerLogo: wheelLogoVersionedPath(businessId, logoRow?.updated_at ?? null),
   });
 }
 
@@ -769,7 +785,7 @@ async function handleWheelLogoUpload(request: Request, env: Env, user: Authentic
     entityId: businessId,
   });
 
-  return jsonResponse({ success: true, logo: businessWheelLogoPath(businessId) });
+  return jsonResponse({ success: true, logo: wheelLogoVersionedPath(businessId, now) });
 }
 
 async function handleWheelLogoDelete(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
@@ -795,12 +811,24 @@ export async function handlePublicWheelLogoRoute(request: Request, env: Env): Pr
   if (!match?.[1]) return errorResponse('Wheel logo not found.', 404);
 
   const logo = await env.DB.prepare(
-    'SELECT mime_type, image_data FROM business_wheel_logos WHERE business_id = ? LIMIT 1',
+    'SELECT mime_type, image_data, updated_at FROM business_wheel_logos WHERE business_id = ? LIMIT 1',
   )
     .bind(match[1])
-    .first<{ mime_type: string; image_data: string }>();
+    .first<{ mime_type: string; image_data: string; updated_at: string | null }>();
 
   if (!logo) return errorResponse('Wheel logo not found.', 404);
+
+  // The URL is constant, so a plain max-age cache keeps serving the previous
+  // logo after a replacement. Revalidate on every request with a cheap ETag.
+  const etag = `W/"wheel-logo-${logo.updated_at ?? '0'}"`;
+  const headers: Record<string, string> = {
+    'content-type': logo.mime_type,
+    'cache-control': 'no-cache',
+    etag,
+  };
+  if (request.headers.get('if-none-match') === etag) {
+    return new Response(null, { status: 304, headers });
+  }
 
   let bytes: Uint8Array;
   try {
@@ -813,13 +841,8 @@ export async function handlePublicWheelLogoRoute(request: Request, env: Env): Pr
     return errorResponse('Wheel logo not found.', 404);
   }
 
-  return new Response(bytes, {
-    headers: {
-      'content-type': logo.mime_type,
-      'content-length': String(bytes.byteLength),
-      'cache-control': 'public, max-age=300',
-    },
-  });
+  headers['content-length'] = String(bytes.byteLength);
+  return new Response(bytes, { headers });
 }
 
 /** Serves the stored logo image for a business so the public wheel can render it. */
@@ -828,12 +851,24 @@ export async function handlePublicLogoRoute(request: Request, env: Env): Promise
   if (!match?.[1]) return errorResponse('Logo not found.', 404);
 
   const logo = await env.DB.prepare(
-    'SELECT mime_type, image_data FROM business_logos WHERE business_id = ? LIMIT 1',
+    'SELECT mime_type, image_data, updated_at FROM business_logos WHERE business_id = ? LIMIT 1',
   )
     .bind(match[1])
-    .first<{ mime_type: string; image_data: string }>();
+    .first<{ mime_type: string; image_data: string; updated_at: string | null }>();
 
   if (!logo) return errorResponse('Logo not found.', 404);
+
+  // Same rationale as the wheel logo: the URL never changes, so revalidate
+  // with an ETag instead of serving a possibly stale image for minutes.
+  const etag = `W/"logo-${logo.updated_at ?? '0'}"`;
+  const headers: Record<string, string> = {
+    'content-type': logo.mime_type,
+    'cache-control': 'no-cache',
+    etag,
+  };
+  if (request.headers.get('if-none-match') === etag) {
+    return new Response(null, { status: 304, headers });
+  }
 
   let bytes: Uint8Array;
   try {
@@ -846,13 +881,8 @@ export async function handlePublicLogoRoute(request: Request, env: Env): Promise
     return errorResponse('Logo not found.', 404);
   }
 
-  return new Response(bytes, {
-    headers: {
-      'content-type': logo.mime_type,
-      'content-length': String(bytes.byteLength),
-      'cache-control': 'public, max-age=300',
-    },
-  });
+  headers['content-length'] = String(bytes.byteLength);
+  return new Response(bytes, { headers });
 }
 
 /** Profile, settings/integrations and billing for the signed-in merchant. */

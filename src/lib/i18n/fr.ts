@@ -985,10 +985,12 @@ export const wheel = {
   motionStandard: 'Standard (3,8 s)',
   motionSlow: 'Lente (6 s)',
   centerLogoLabel: 'Logo central',
-  centerLogoHint: 'Affichez votre logo au moyeu de la roue pendant le tirage.',
+  centerLogoHint:
+    'Affichez votre logo au moyeu de la roue pendant le tirage. Image carrée de 512 × 512 px maximum, fond transparent de préférence (PNG ou WebP).',
   centerLogoToggle: 'Afficher le logo au centre',
   centerLogoUpload: 'Téléverser un logo',
   centerLogoUploading: 'Téléversement…',
+  centerLogoUploaded: 'Logo enregistré et activé sur la roue.',
   centerLogoRemove: 'Retirer le logo',
   designSave: 'Enregistrer le design',
   designSaving: 'Enregistrement…',

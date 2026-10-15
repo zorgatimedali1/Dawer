@@ -981,10 +981,12 @@ export const wheel: D<typeof frDict.wheel> = {
   motionStandard: 'Standard (3.8s)',
   motionSlow: 'Slow (6s)',
   centerLogoLabel: 'Center logo',
-  centerLogoHint: 'Show your logo at the hub of the wheel while it spins.',
+  centerLogoHint:
+    'Show your logo at the hub of the wheel while it spins. Square image up to 512 × 512 px, transparent background recommended (PNG or WebP).',
   centerLogoToggle: 'Show the logo at the center',
   centerLogoUpload: 'Upload a logo',
   centerLogoUploading: 'Uploading…',
+  centerLogoUploaded: 'Logo saved and now live on the wheel.',
   centerLogoRemove: 'Remove the logo',
   designSave: 'Save design',
   designSaving: 'Saving…',

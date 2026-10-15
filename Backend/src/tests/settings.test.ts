@@ -683,7 +683,10 @@ describe('wheel design', () => {
     );
 
     expect(response.status).toBe(200);
-    expect((await body(response)).logo).toBe(`/api/public/businesses/${alice.businessId}/wheel-logo`);
+    // Versioned with the row's updated_at so a replaced logo refetches at once.
+    expect((await body(response)).logo).toMatch(
+      new RegExp(`^/api/public/businesses/${alice.businessId}/wheel-logo\\?v=`),
+    );
 
     const stored = db.query<{ mime_type: string }>(
       'SELECT mime_type FROM business_wheel_logos WHERE business_id = ?',
@@ -697,6 +700,18 @@ describe('wheel design', () => {
     );
     expect(served.status).toBe(200);
     expect(served.headers.get('content-type')).toBe('image/png');
+    expect(served.headers.get('cache-control')).toBe('no-cache');
+    const etag = served.headers.get('etag');
+    expect(etag).toBeTruthy();
+
+    const revalidated = await handlePublicWheelLogoRoute(
+      new Request(`https://example.test/api/public/businesses/${alice.businessId}/wheel-logo`, {
+        headers: { 'if-none-match': etag! },
+      }),
+      env,
+    );
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.get('etag')).toBe(etag);
 
     const removed = await handleSettingsRoute(
       jsonRequest('/api/settings/wheel-logo', 'DELETE', undefined, alice.token),

@@ -5,6 +5,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import WheelConfigPage from '@/app/dashboard/wheel/page';
 import { DEFAULT_WHEEL_THEME } from '@/lib/wheel-theme';
 
+// jsdom has no createImageBitmap/canvas pipeline; the real optimizer can't
+// decode the fake PNG fixtures, so pass files through untouched.
+vi.mock('@/lib/optimize-image', () => ({
+  MAX_LOGO_BYTES: 512 * 1024,
+  optimizeImage: (file: File) => Promise.resolve(file),
+  prepareLogoUpload: (file: File) => Promise.resolve(file),
+}));
+
 const AUTH_KEY = 'campaign-engage-auth';
 
 function renderPage() {
@@ -678,6 +686,65 @@ describe('wheel configuration page', () => {
     const body = JSON.parse(String(putCall?.[1]?.body)) as { motion: { preset: string } };
     expect(body.motion.preset).toBe('fast');
     await screen.findByText(/design enregistré/i);
+  });
+
+  it('auto-saves centerLogo on upload from the persisted theme, without a manual save', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+
+      if (url === '/api/settings/wheel-logo' && method === 'POST') {
+        return jsonResponse({ success: true, logo: '/api/public/businesses/b1/wheel-logo?v=2026-01-01' });
+      }
+      if (url === '/api/settings/wheel-theme') {
+        return method === 'PUT'
+          ? jsonResponse({ success: true, theme: JSON.parse(String(init?.body)) })
+          : jsonResponse({ success: true, ...allowedThemeState });
+      }
+      if (method === 'GET') return jsonResponse({ success: true, campaign: null });
+      return jsonResponse({ success: true, campaign: { id: 'c1', publicCode: 'ABCDEF012345' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderPage();
+
+    // Dirty the draft with an unsaved motion change — the upload must not
+    // silently commit it.
+    const motion = await screen.findByLabelText('Vitesse de rotation');
+    await userEvent.selectOptions(motion, 'fast');
+
+    const input = (await screen.findByLabelText(/téléverser un logo/i)) as HTMLInputElement;
+    const file = new File([new Uint8Array([137, 80, 78, 71])], 'logo.png', { type: 'image/png' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          (call) => String(call[0]) === '/api/settings/wheel-logo' && (call[1]?.method ?? 'GET') === 'POST',
+        ),
+      ).toBe(true),
+    );
+    // No click on "Enregistrer le design" — the upload itself persisted the flag.
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          (call) => String(call[0]) === '/api/settings/wheel-theme' && (call[1]?.method ?? 'GET') === 'PUT',
+        ),
+      ).toBe(true),
+    );
+
+    const putCall = fetchMock.mock.calls.find(
+      (call) => String(call[0]) === '/api/settings/wheel-theme' && (call[1]?.method ?? 'GET') === 'PUT',
+    );
+    const body = JSON.parse(String(putCall?.[1]?.body)) as {
+      centerLogo: boolean;
+      motion: { preset: string };
+    };
+    expect(body.centerLogo).toBe(true);
+    // Based on the last persisted theme (standard), never the dirty draft.
+    expect(body.motion.preset).toBe(DEFAULT_WHEEL_THEME.motion.preset);
+
+    await screen.findByText(/logo enregistré et activé sur la roue/i);
   });
 
   it('pins colors and motion under an operator override but keeps the hub logo editable', async () => {
