@@ -123,12 +123,12 @@ describe('public campaign page', () => {
     Reflect.deleteProperty(navigator, 'geolocation');
   });
 
-  it('renders the gate with the merchant, the steps and the Google wordmark', async () => {
+  it('renders the gate with the steps and the Google wordmark, without the account name', async () => {
     stubFetch();
     renderPage();
 
     await screen.findByRole('heading', { name: 'Coffee Spin' });
-    expect(screen.getByText('Meridian North')).toBeTruthy();
+    expect(screen.queryByText('Meridian North')).toBeNull();
     expect(screen.getByText('Comment ça marche')).toBeTruthy();
     expect(screen.getByText('Laissez un avis Google')).toBeTruthy();
     expect(screen.getByText('Tournez la roue')).toBeTruthy();
@@ -137,7 +137,8 @@ describe('public campaign page', () => {
     expect(screen.getByLabelText('Noté 5 étoiles')).toBeTruthy();
     expect(screen.getByText(/un nouvel onglet s.ouvrira/i)).toBeTruthy();
     expect(screen.getByRole('link', { name: /laisser un avis google/i })).toBeTruthy();
-    expect(screen.getByText('Free coffee')).toBeTruthy();
+    // Prize chips under the location are hidden for now.
+    expect(screen.queryByText('Free coffee')).toBeNull();
     expect(screen.getByText('Powered by Dawer')).toBeTruthy();
   });
 
@@ -478,7 +479,7 @@ describe('public campaign page', () => {
     await screen.findByRole('heading', { name: /déjà participé/i });
     expect(screen.queryByText('Comment ça marche')).toBeNull();
     expect(screen.queryByRole('link', { name: /laisser un avis google/i })).toBeNull();
-    expect(screen.getByText('Meridian North')).toBeTruthy();
+    expect(screen.getByText(/déjà joué chez Meridian North/i)).toBeTruthy();
     expect(screen.getByText('Powered by Dawer')).toBeTruthy();
   });
 

@@ -617,9 +617,6 @@ export default function CampaignCustomerPage() {
                 {merchantName.charAt(0).toUpperCase()}
               </div>
             )}
-            <p className="mt-2.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-subtle">
-              {merchantName}
-            </p>
           </div>
 
           {step === 'gate' && (
@@ -759,24 +756,6 @@ export default function CampaignCustomerPage() {
                   <MapPin className="h-4 w-4 shrink-0 text-brand-600 dark:text-accent-bright" aria-hidden />
                   <span className="truncate">{locationLabel}</span>
                 </div>
-
-                {rewards.length > 0 && (
-                  <ul className="mt-3 flex flex-wrap gap-2">
-                    {rewards.map((reward, index) => (
-                      <li
-                        key={reward.id}
-                        dir="auto"
-                        className="flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1.5 text-sm font-medium text-ink ring-1 ring-line"
-                      >
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: segmentColorAt(index, wheelTheme.colors.segments) }}
-                        />
-                        {reward.name}
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </div>
             </div>
           )}
@@ -962,9 +941,7 @@ export default function CampaignCustomerPage() {
                   </div>
                 )}
 
-                <div className="mt-5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-ink-subtle">
-                  <span className="font-medium text-ink-muted">{merchantName}</span>
-                  <span aria-hidden="true">·</span>
+                <div className="mt-5 flex items-center justify-center text-xs text-ink-subtle">
                   <span>{locationLabel}</span>
                 </div>
               </CardContent>
