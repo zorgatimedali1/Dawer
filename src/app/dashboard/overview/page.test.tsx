@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import OverviewPage from '@/app/dashboard/overview/page';
+import { DashboardBillingProvider } from '@/contexts/billing-context';
 
 const AUTH_KEY = 'campaign-engage-auth';
 
@@ -47,7 +48,13 @@ describe('overview plan features', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<MemoryRouter><OverviewPage /></MemoryRouter>);
+    render(
+      <MemoryRouter>
+        <DashboardBillingProvider>
+          <OverviewPage />
+        </DashboardBillingProvider>
+      </MemoryRouter>,
+    );
 
     expect(await screen.findByRole('heading', { name: 'Starter · Actif' })).toBeInTheDocument();
     expect(screen.getByText('• Accès complet à la roue')).toBeInTheDocument();
@@ -55,5 +62,7 @@ describe('overview plan features', () => {
     expect(screen.queryByRole('link', { name: "Ouvrir l'analytique" })).toBeNull();
     expect(screen.queryByText('Total customers')).toBeNull();
     expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith('/api/analytics'))).toBe(false);
+    // The shell owns the single /api/billing read; the page must not repeat it.
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === '/api/billing')).toHaveLength(1);
   });
 });

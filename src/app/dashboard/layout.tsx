@@ -27,25 +27,32 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/cn';
 import { useAppContext } from '@/contexts/app-context';
+import { DashboardBillingProvider, useDashboardBilling } from '@/contexts/billing-context';
 import { useT } from '@/hooks/use-t';
-import { BillingService, type BillingAccess, type MarketingFeatures } from '@/services/billing.service';
 import { goToPublicDemo } from '@/lib/public-demo';
 
 type NavItem = { name: string; href: string; icon: typeof LayoutDashboard };
 type NavGroup = { label: string; items: NavItem[] };
 
+/** The dashboard shell. Billing lives in a provider so the layout and every
+ *  page read the same /api/billing response instead of refetching it. */
 export default function DashboardLayout() {
+  return (
+    <DashboardBillingProvider>
+      <DashboardChrome />
+    </DashboardBillingProvider>
+  );
+}
+
+function DashboardChrome() {
   const { pathname } = useLocation();
   const { user, logout } = useAppContext();
   const t = useT();
+  const { access, features, loading: accessLoading } = useDashboardBilling();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const drawerRef = useRef<HTMLElement | null>(null);
   const hamburgerRef = useRef<HTMLButtonElement | null>(null);
   const drawerWasOpen = useRef(false);
-  const [access, setAccess] = useState<BillingAccess | null>(null);
-  // Platform switches from the operator console; null until billing loads.
-  const [features, setFeatures] = useState<MarketingFeatures | null>(null);
-  const [accessLoading, setAccessLoading] = useState(true);
 
   const navigation: NavGroup[] = [
     {
@@ -87,27 +94,6 @@ export default function DashboardLayout() {
       ],
     },
   ];
-
-  useEffect(() => {
-    let cancelled = false;
-    BillingService.get()
-      .then((billing) => {
-        if (!cancelled) {
-          setAccess(billing.access);
-          setFeatures(billing.features);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setAccess(null);
-      })
-      .finally(() => {
-        if (!cancelled) setAccessLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // Close the mobile drawer whenever the route changes.
   useEffect(() => {

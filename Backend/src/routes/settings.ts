@@ -16,7 +16,7 @@ import {
 } from '../lib/validation';
 import { getAuthenticatedUser, getPrimaryBusinessId, writeAuditLog } from '../lib/tenant';
 import { buildSubscriptionWhatsAppUrl } from '../lib/whatsapp';
-import { getBusinessAccess } from '../lib/subscription-access';
+import { getBusinessAccess, readBusinessSubscription } from '../lib/subscription-access';
 import { wheelCenterLogoAllowed, wheelDesignAllowed, wheelStepsColorAllowed } from '../lib/subscription-limits';
 import { getEffectiveFeatures } from '../lib/feature-access';
 import type { AuthenticatedUser } from '../lib/tenant';
@@ -438,21 +438,15 @@ async function handleBillingGet(request: Request, env: Env, user: AuthenticatedU
   const businessId = await getPrimaryBusinessId(user.id, env);
   if (!businessId) return errorResponse('Create a business before opening billing.', 404);
 
-  const [plans, subscription, usage, pendingRequest, access, features] = await Promise.all([
+  // One subscription⋈plans read serves both this response and the access
+  // computation below; a second identical join would only repeat the work.
+  const [plans, subscription, usage, pendingRequest, features] = await Promise.all([
     env.DB.prepare(
       `SELECT id, name, slug, price_cents, interval, features, active
        FROM plans WHERE active = 1 ORDER BY price_cents ASC`,
     )
       .all<Record<string, unknown>>(),
-    env.DB.prepare(
-      `SELECT s.id, s.status, s.updated_at, s.current_period_end, s.plan_id, p.name, p.slug, p.price_cents, p.interval
-       FROM subscriptions s
-       LEFT JOIN plans p ON p.id = s.plan_id
-       WHERE s.business_id = ?
-       ORDER BY s.created_at DESC LIMIT 1`,
-    )
-      .bind(businessId)
-      .first<Record<string, unknown>>(),
+    readBusinessSubscription(env, businessId),
     env.DB.prepare(
       `SELECT
          (SELECT COUNT(*) FROM campaigns WHERE business_id = ?) AS campaigns,
@@ -469,9 +463,9 @@ async function handleBillingGet(request: Request, env: Env, user: AuthenticatedU
     )
       .bind(businessId)
       .first<{ id: string; created_at: string; name: string; slug: string }>(),
-    getBusinessAccess(env, businessId),
     getEffectiveFeatures(env, businessId),
   ]);
+  const access = await getBusinessAccess(env, businessId, subscription);
 
   const subscriptionStatus = subscription
     ? access.state === 'expired' ? 'expired' : access.state === 'trial' ? 'trialing' : describeSubscriptionStatus(subscription)
@@ -492,9 +486,9 @@ async function handleBillingGet(request: Request, env: Env, user: AuthenticatedU
     access,
     subscription: subscription
       ? {
-          id: subscription.id,
+          id: subscription.subscription_id,
           status: subscriptionStatus ?? 'expired',
-          currentPeriodStart: subscription.updated_at,
+          currentPeriodStart: subscription.current_period_start,
           currentPeriodEnd: subscription.current_period_end,
           plan: {
             id: subscription.plan_id,
@@ -524,7 +518,9 @@ async function handleBillingGet(request: Request, env: Env, user: AuthenticatedU
  * Nothing renews automatically in this app, so an "active" row whose period
  * already elapsed is reported as expired instead of silently looking current.
  */
-function describeSubscriptionStatus(subscription: Record<string, unknown> | null | undefined): string {
+function describeSubscriptionStatus(
+  subscription: { status: string; current_period_end: string | null } | null | undefined,
+): string {
   const status = String(subscription?.status ?? '');
   const periodEnd = subscription?.current_period_end;
 

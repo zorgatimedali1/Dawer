@@ -15,7 +15,8 @@ import {
 import { AnalyticsService, type AnalyticsSummary } from '@/services/analytics.service';
 import { CampaignService, type Campaign, type CampaignStatusKey } from '@/services/campaign.service';
 import { RewardService, type RewardSummary } from '@/services/reward.service';
-import { BillingService, type BillingAccess } from '@/services/billing.service';
+import type { BillingAccess } from '@/services/billing.service';
+import { useDashboardBilling } from '@/contexts/billing-context';
 import { Badge, type BadgeTone } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -66,31 +67,43 @@ export default function OverviewPage() {
   const locale = useLocale();
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The shell already read /api/billing for its plan-gated navigation; reuse
+  // it here instead of issuing the same request (and its D1 queries) twice.
+  const { access: planAccess, loading: billingLoading } = useDashboardBilling();
 
   useEffect(() => {
+    if (billingLoading) return undefined;
+    if (!planAccess) {
+      setError(msg(t, 'Unable to load billing.'));
+      return undefined;
+    }
+
+    const access = planAccess;
+    const hasAnalytics = access.plan.features.features.some((feature) => /analytics/i.test(feature));
+
     Promise.all([
       CampaignService.getCampaigns({ limit: 20 }),
       RewardService.list(),
-      BillingService.get(),
+      hasAnalytics ? AnalyticsService.overview() : Promise.resolve(null),
     ])
-      .then(async ([campaigns, rewards, billing]) => {
-        const hasAnalytics = billing.access.plan.features.features.some((feature) => /analytics/i.test(feature));
-        const overview = hasAnalytics ? await AnalyticsService.overview() : null;
+      .then(([campaigns, rewards, overview]) => {
         setData({
           summary: overview?.summary ?? null,
           campaigns,
           rewards,
-          access: billing.access,
+          access,
           hasAnalytics,
-          daysLeft: billing.access.endsAt
-            ? Math.max(0, Math.ceil((new Date(billing.access.endsAt).getTime() - Date.now()) / 86_400_000))
+          daysLeft: access.endsAt
+            ? Math.max(0, Math.ceil((new Date(access.endsAt).getTime() - Date.now()) / 86_400_000))
             : null,
         });
       })
       .catch((cause: unknown) =>
         setError(msg(t, cause instanceof Error ? cause.message : 'Unable to load the overview.')),
       );
-  }, [t]);
+
+    return undefined;
+  }, [t, billingLoading, planAccess]);
 
   if (error) {
     return (

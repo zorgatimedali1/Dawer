@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../types';
 import { handlePublicLogoRoute, handlePublicWheelLogoRoute, handleSettingsRoute } from '../routes/settings';
 import { hashPassword, sha256Hex, verifyPassword } from '../lib/crypto';
@@ -225,11 +225,12 @@ describe('billing', () => {
     await db.prepare('DELETE FROM subscriptions WHERE business_id = ?').bind(alice.businessId).run();
     const start = '2026-08-01T00:00:00.000Z';
     const end = '2026-11-01T00:00:00.000Z';
+    const subscriptionId = crypto.randomUUID();
     db.prepare(
       `INSERT INTO subscriptions (id, business_id, plan_id, status, current_period_end, created_at, updated_at)
        VALUES (?, ?, 'plan_starter', 'active', ?, ?, ?)`,
     )
-      .bind(crypto.randomUUID(), alice.businessId, end, start, start)
+      .bind(subscriptionId, alice.businessId, end, start, start)
       .run();
 
     const response = await handleSettingsRoute(jsonRequest('/api/billing', 'GET', undefined, alice.token), env);
@@ -237,6 +238,24 @@ describe('billing', () => {
 
     expect(payload.subscription.currentPeriodStart).toBe(start);
     expect(payload.subscription.currentPeriodEnd).toBe(end);
+    // The shared subscription⋈plans read also feeds the access calculation,
+    // so the ids must stay the subscription's own, not the plan's.
+    expect(payload.subscription.id).toBe(subscriptionId);
+    expect(payload.subscription.plan.id).toBe('plan_starter');
+  });
+
+  it('reads the subscription row once per billing request', async () => {
+    const spy = vi.spyOn(db, 'prepare');
+    try {
+      const response = await handleSettingsRoute(jsonRequest('/api/billing', 'GET', undefined, alice.token), env);
+      expect(response.status).toBe(200);
+
+      const subscriptionReads = spy.mock.calls.filter(([sql]) => String(sql).includes('FROM subscriptions'));
+      // The access calculation reuses the row the response already loaded.
+      expect(subscriptionReads).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('lists the seeded plans with parsed features', async () => {

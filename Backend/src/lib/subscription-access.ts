@@ -38,6 +38,15 @@ interface SubscriptionRow extends PlanRow {
 }
 
 /**
+ * The same row plus the subscription's own ids, so a caller that reuses it for
+ * its response payload does not need a second query for them.
+ */
+export interface SubscriptionRowWithIds extends SubscriptionRow {
+  subscription_id: string;
+  plan_id: string | null;
+}
+
+/**
  * A subscription row whose plan columns may all be NULL (LEFT JOIN against a
  * deleted or dangling plan_id). `id` doubles as the "plan row exists" flag.
  */
@@ -124,9 +133,13 @@ export async function readStarterPlan(env: Env): Promise<PlanRow | null> {
   ).first<PlanRow>();
 }
 
-export async function getBusinessAccess(env: Env, businessId: string): Promise<BusinessAccess> {
-  const subscription = await env.DB.prepare(
-    `SELECT s.status, s.updated_at AS current_period_start, s.current_period_end,
+export async function readBusinessSubscription(
+  env: Env,
+  businessId: string,
+): Promise<SubscriptionRowWithIds | null> {
+  return env.DB.prepare(
+    `SELECT s.id AS subscription_id, s.plan_id,
+            s.status, s.updated_at AS current_period_start, s.current_period_end,
             p.id, p.name, p.slug, p.price_cents, p.interval, p.features
      FROM subscriptions s
      LEFT JOIN plans p ON p.id = s.plan_id
@@ -134,7 +147,24 @@ export async function getBusinessAccess(env: Env, businessId: string): Promise<B
      ORDER BY s.created_at DESC LIMIT 1`,
   )
     .bind(businessId)
-    .first<SubscriptionRow>();
+    .first<SubscriptionRowWithIds>();
+}
+
+/**
+ * Effective plan access for a business.
+ *
+ * `preloaded` lets a caller that already read the subscription row (e.g. the
+ * billing endpoint, which returns that row to the client too) skip the
+ * duplicate round-trip. Pass `undefined` to load it here; a `null` argument
+ * means "no subscription" and suppresses the query.
+ */
+export async function getBusinessAccess(
+  env: Env,
+  businessId: string,
+  preloaded?: SubscriptionRowWithIds | null,
+): Promise<BusinessAccess> {
+  const subscription =
+    preloaded === undefined ? await readBusinessSubscription(env, businessId) : preloaded;
 
   // The fallback is only a real plan source when the subscription is missing
   // or its plan row is gone — skip the query entirely for a healthy sub.
