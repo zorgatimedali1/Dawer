@@ -765,7 +765,8 @@ export default function CampaignCustomerPage() {
                     {rewards.map((reward, index) => (
                       <li
                         key={reward.id}
-                        className="flex items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-ink ring-1 ring-line"
+                        dir="auto"
+                        className="flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1.5 text-sm font-medium text-ink ring-1 ring-line"
                       >
                         <span
                           className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -842,8 +843,9 @@ export default function CampaignCustomerPage() {
                 </p>
 
                 <div
+                  dir="auto"
                   className={cn(
-                    'mt-4 rounded-xl border px-4 py-3 text-center text-lg font-bold',
+                    'mt-4 rounded-xl border px-4 py-3 text-center text-2xl font-bold',
                     isPrize
                       ? 'border-brand-200 bg-brand-50 text-brand-800 dark:border-brand-700 dark:bg-brand-900/40 dark:text-brand-200'
                       : 'border-dashed border-line-strong bg-surface-2 text-ink-muted',

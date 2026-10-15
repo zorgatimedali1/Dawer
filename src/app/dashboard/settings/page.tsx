@@ -5,9 +5,7 @@ import {
   AlertCircle,
   Building2,
   Check,
-  Facebook,
-  Globe,
-  Instagram,
+  ExternalLink,
   KeyRound,
   Palette,
   Plug,
@@ -21,11 +19,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
-import { Input, Textarea } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
 import { Skeleton, Spinner } from '@/components/ui/skeleton';
 import { TabPanel, Tabs } from '@/components/ui/tabs';
+import { cn } from '@/lib/cn';
+import { getGoogleMapsUrl } from '@/lib/google-maps';
 import { msg } from '@/lib/i18n';
+import { prepareLogoUpload } from '@/lib/optimize-image';
 import { useT } from '@/hooks/use-t';
 import {
   SettingsService,
@@ -34,6 +35,13 @@ import {
 } from '@/services/settings.service';
 
 type TabKey = 'profile' | 'business' | 'security' | 'branding' | 'integrations';
+
+interface PlaceSuggestion {
+  placeId: string;
+  label: string;
+  mainText: string;
+  secondaryText: string;
+}
 
 const FIELD_GRID = 'grid gap-4 sm:grid-cols-2';
 const SECTION_LABEL = 'text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle';
@@ -89,6 +97,13 @@ export default function SettingsPage() {
   const [lastName, setLastName] = useState('');
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' });
 
+  const [googleSearch, setGoogleSearch] = useState('');
+  const [googlePlaceId, setGooglePlaceId] = useState('');
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const [placesLoading, setPlacesLoading] = useState(false);
+  const [placesError, setPlacesError] = useState('');
+
   const tabItems = [
     { value: 'profile', label: t.settings.tabProfile, icon: <UserRound className="h-3.5 w-3.5" aria-hidden /> },
     { value: 'business', label: t.settings.tabBusiness, icon: <Building2 className="h-3.5 w-3.5" aria-hidden /> },
@@ -109,6 +124,8 @@ export default function SettingsPage() {
       setSettings(loadedSettings);
       setFirstName(loadedProfile.firstName);
       setLastName(loadedProfile.lastName);
+      setGoogleSearch(loadedSettings.googleMapsName || loadedSettings.googleMapsUrl);
+      setGooglePlaceId(loadedSettings.googlePlaceId);
     } catch (caught) {
       setError(msg(t, caught instanceof Error ? caught.message : 'Unable to load settings.'));
     } finally {
@@ -119,6 +136,53 @@ export default function SettingsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const input = googleSearch.trim();
+
+    if (googlePlaceId || input.length < 3 || /^https?:\/\//i.test(input)) {
+      setPlaceSuggestions([]);
+      setPlacesError('');
+      setPlacesLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setPlacesLoading(true);
+      setPlacesError('');
+
+      try {
+        const response = await fetch(`/api/places/autocomplete?input=${encodeURIComponent(input)}`, {
+          signal: controller.signal,
+        });
+        const result = await response.json() as {
+          success: boolean;
+          suggestions?: PlaceSuggestion[];
+          error?: string;
+        };
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.error ?? 'Place suggestions are unavailable.');
+        }
+
+        setPlaceSuggestions(result.suggestions ?? []);
+        setActiveSuggestion(-1);
+      } catch (caught) {
+        if (!controller.signal.aborted) {
+          setPlaceSuggestions([]);
+          setPlacesError(caught instanceof Error ? caught.message : 'Place suggestions are unavailable.');
+        }
+      } finally {
+        if (!controller.signal.aborted) setPlacesLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [googleSearch, googlePlaceId]);
 
   const save = async (action: () => Promise<void>, successMessage: string) => {
     setPending(true);
@@ -139,6 +203,35 @@ export default function SettingsPage() {
       const updated = await SettingsService.updateSettings(changes);
       setSettings(updated);
     }, message);
+
+  const choosePlace = (suggestion: PlaceSuggestion) => {
+    setGoogleSearch(suggestion.label);
+    setGooglePlaceId(suggestion.placeId);
+    setPlaceSuggestions([]);
+    setPlacesError('');
+    setActiveSuggestion(-1);
+  };
+
+  const handlePlaceInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      setPlaceSuggestions([]);
+      setActiveSuggestion(-1);
+      return;
+    }
+
+    if (!placeSuggestions.length) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveSuggestion((current) => (current + 1) % placeSuggestions.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveSuggestion((current) => (current <= 0 ? placeSuggestions.length - 1 : current - 1));
+    } else if (event.key === 'Enter' && activeSuggestion >= 0) {
+      event.preventDefault();
+      const suggestion = placeSuggestions[activeSuggestion];
+      if (suggestion) choosePlace(suggestion);
+    }
+  };
 
   const noBusiness = !loading && !settings && error.startsWith('Create a business');
 
@@ -309,14 +402,6 @@ export default function SettingsPage() {
                 />
               </Field>
             </div>
-            <Field label={t.settings.businessDescription} htmlFor="business-description">
-              <Textarea
-                id="business-description"
-                rows={3}
-                value={settings.description}
-                onChange={(event) => setSettings({ ...settings, description: event.target.value })}
-              />
-            </Field>
           </CardContent>
           <CardFooter>
             <Button
@@ -330,7 +415,7 @@ export default function SettingsPage() {
                     phone: settings.phone,
                     email: settings.email,
                     address: settings.address,
-                    description: settings.description,
+                    description: '',
                   },
                   t.settings.businessSaved,
                 )
@@ -505,7 +590,10 @@ export default function SettingsPage() {
                     event.target.value = '';
                     if (!file) return;
                     void save(async () => {
-                      const logo = await SettingsService.uploadLogo(file);
+                      // Optimize before upload so phone photos shrink below the
+                      // backend's 512 KB limit instead of failing with a 413/500.
+                      const optimized = await prepareLogoUpload(file, msg(t, 'The logo must be 512 KB or smaller.'));
+                      const logo = await SettingsService.uploadLogo(optimized);
                       setSettings((current) => (current ? { ...current, logo } : current));
                     }, t.settings.logoSaved);
                   }}
@@ -535,52 +623,114 @@ export default function SettingsPage() {
       </TabPanel>
 
       <TabPanel value="integrations" active={tab} idPrefix="settings">
-        <div className="flex flex-col gap-5">
-          <Card>
-            <CardHeader>
-              <p className={SECTION_LABEL}>{t.settings.googleSection}</p>
-              <CardTitle className="text-lg">{t.settings.googleMapsTitle}</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <Field label={t.settings.googleMapsName} htmlFor="google-maps-name">
-                <Input
-                  id="google-maps-name"
-                  value={settings.googleMapsName}
-                  placeholder={t.settings.googleMapsNamePlaceholder}
-                  onChange={(event) => setSettings({ ...settings, googleMapsName: event.target.value })}
-                />
-              </Field>
-              <Field label={t.settings.googleMapsUrl} htmlFor="google-maps-url">
-                <Input
-                  id="google-maps-url"
-                  value={settings.googleMapsUrl}
-                  placeholder={t.settings.googleMapsUrlPlaceholder}
-                  onChange={(event) => setSettings({ ...settings, googleMapsUrl: event.target.value })}
-                />
-              </Field>
-              <Field label={t.settings.googlePlaceId} htmlFor="google-place-id">
-                <Input
-                  id="google-place-id"
-                  value={settings.googlePlaceId}
-                  placeholder={t.settings.googlePlaceIdPlaceholder}
-                  onChange={(event) => setSettings({ ...settings, googlePlaceId: event.target.value })}
-                />
-              </Field>
-            </CardContent>
-            <CardFooter>
-              <Button disabled={pending || !validOptionalUrl(settings.googleMapsUrl)} onClick={() => void patchSettings(integrationPatch(settings), t.settings.googleSaved)}>
-                <Save className="h-4 w-4" aria-hidden />
-                {t.settings.saveGoogle}
-              </Button>
-            </CardFooter>
-          </Card>
+        <Card>
+          <CardHeader>
+            <p className={SECTION_LABEL}>{t.settings.tabIntegrations}</p>
+            <CardTitle className="text-lg">{t.settings.integrationsCardTitle}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <Field label={t.settings.googleMapsTitle} htmlFor="google-maps-search">
+              <div className="relative">
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    id="google-maps-search"
+                    inputSize="sm"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={placeSuggestions.length > 0}
+                    aria-controls="google-place-suggestions"
+                    aria-activedescendant={activeSuggestion >= 0 ? `google-place-option-${activeSuggestion}` : undefined}
+                    value={googleSearch}
+                    onChange={(event) => {
+                      setGoogleSearch(event.target.value);
+                      setGooglePlaceId('');
+                    }}
+                    onKeyDown={handlePlaceInputKeyDown}
+                    placeholder={t.settings.googleSearchPlaceholder}
+                    autoComplete="off"
+                    className="min-w-0 flex-1"
+                  />
+                  {googlePlaceId ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setGoogleSearch('');
+                        setGooglePlaceId('');
+                        setPlaceSuggestions([]);
+                      }}
+                    >
+                      {t.settings.clearPlace}
+                    </Button>
+                  ) : (
+                    <a
+                      href={getGoogleMapsUrl(googleSearch, googlePlaceId)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-disabled={!googleSearch.trim()}
+                      className={cn(
+                        'inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border px-3 text-[13px] font-medium transition-colors duration-180 ease-swift',
+                        googleSearch.trim()
+                          ? 'border-line-strong text-ink hover:border-accent hover:bg-accent-soft'
+                          : 'pointer-events-none border-line text-ink-subtle opacity-60',
+                      )}
+                    >
+                      <ExternalLink className="h-4 w-4" aria-hidden />
+                      {t.settings.openLink}
+                    </a>
+                  )}
+                </div>
 
-          <Card>
-            <CardHeader className="flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-lg">{t.settings.facebook}</CardTitle>
-              <Facebook className="h-4 w-4 text-ink-subtle" aria-hidden />
-            </CardHeader>
-            <CardContent>
+                {placeSuggestions.length > 0 || placesLoading || placesError ? (
+                  <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-md border border-line bg-elevated shadow-pop">
+                    {placesLoading ? (
+                      <p className="px-3.5 py-2.5 text-[13px] text-ink-subtle">{t.common.loading}</p>
+                    ) : null}
+                    {placesError ? (
+                      <p role="status" className="px-3.5 py-2.5 text-[13px] font-medium text-warning-700 dark:text-warning-300">
+                        {placesError}
+                      </p>
+                    ) : null}
+                    {placeSuggestions.length > 0 ? (
+                      <>
+                        <ul id="google-place-suggestions" role="listbox" aria-label={t.settings.googleMapsTitle}>
+                          {placeSuggestions.map((suggestion, index) => (
+                            <li key={suggestion.placeId} role="presentation">
+                              <button
+                                id={`google-place-option-${index}`}
+                                type="button"
+                                role="option"
+                                aria-selected={index === activeSuggestion}
+                                onMouseEnter={() => setActiveSuggestion(index)}
+                                onClick={() => choosePlace(suggestion)}
+                                className={cn(
+                                  'w-full px-3.5 py-2.5 text-left transition-colors duration-150',
+                                  index === activeSuggestion
+                                    ? 'bg-accent-soft text-brand-800 dark:bg-accent-soft dark:text-accent-bright'
+                                    : 'text-ink hover:bg-ink/[0.045]',
+                                )}
+                              >
+                                <span className="block text-[13px] font-medium">{suggestion.mainText}</span>
+                                {suggestion.secondaryText ? (
+                                  <span className="mt-0.5 block text-[12px] text-ink-subtle">
+                                    {suggestion.secondaryText}
+                                  </span>
+                                ) : null}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                        <div className="border-t border-line px-3.5 py-1.5 text-right text-[11px] text-[#5e5e5e]" translate="no">
+                          Google Maps
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </Field>
+
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field label={t.settings.facebookPageUrl} htmlFor="integration-facebook">
                 <Input
                   id="integration-facebook"
@@ -590,21 +740,6 @@ export default function SettingsPage() {
                   onChange={(event) => setSettings({ ...settings, facebookUrl: event.target.value })}
                 />
               </Field>
-            </CardContent>
-            <CardFooter>
-              <Button disabled={pending || !validOptionalUrl(settings.facebookUrl)} onClick={() => void patchSettings(integrationPatch(settings), t.settings.facebookSaved)}>
-                <Save className="h-4 w-4" aria-hidden />
-                {t.settings.saveFacebook}
-              </Button>
-            </CardFooter>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-lg">{t.settings.instagram}</CardTitle>
-              <Instagram className="h-4 w-4 text-ink-subtle" aria-hidden />
-            </CardHeader>
-            <CardContent>
               <Field label={t.settings.instagramProfileUrl} htmlFor="integration-instagram">
                 <Input
                   id="integration-instagram"
@@ -614,84 +749,34 @@ export default function SettingsPage() {
                   onChange={(event) => setSettings({ ...settings, instagramUrl: event.target.value })}
                 />
               </Field>
-            </CardContent>
-            <CardFooter>
-              <Button disabled={pending || !validOptionalUrl(settings.instagramUrl)} onClick={() => void patchSettings(integrationPatch(settings), t.settings.instagramSaved)}>
-                <Save className="h-4 w-4" aria-hidden />
-                {t.settings.saveInstagram}
-              </Button>
-            </CardFooter>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <p className={SECTION_LABEL}>{t.settings.socialSection}</p>
-              <CardTitle className="text-lg">{t.settings.socialTitle}</CardTitle>
-            </CardHeader>
-            <CardContent className={FIELD_GRID}>
-              <Field label={t.settings.twitterUrl} htmlFor="integration-twitter">
-                <Input
-                  id="integration-twitter"
-                  type="url"
-                  value={settings.twitterUrl ?? ''}
-                  placeholder={t.settings.twitterPlaceholder}
-                  onChange={(event) => setSettings({ ...settings, twitterUrl: event.target.value })}
-                />
-              </Field>
-              <Field label={t.settings.linkedinUrl} htmlFor="integration-linkedin">
-                <Input
-                  id="integration-linkedin"
-                  type="url"
-                  value={settings.linkedinUrl ?? ''}
-                  placeholder={t.settings.linkedinPlaceholder}
-                  onChange={(event) => setSettings({ ...settings, linkedinUrl: event.target.value })}
-                />
-              </Field>
-              <Field label={t.settings.tiktokUrl} htmlFor="integration-tiktok">
-                <Input
-                  id="integration-tiktok"
-                  type="url"
-                  value={settings.tiktokUrl ?? ''}
-                  placeholder={t.settings.tiktokPlaceholder}
-                  onChange={(event) => setSettings({ ...settings, tiktokUrl: event.target.value })}
-                />
-              </Field>
-              <Field label={t.settings.youtubeUrl} htmlFor="integration-youtube">
-                <Input
-                  id="integration-youtube"
-                  type="url"
-                  value={settings.youtubeUrl ?? ''}
-                  placeholder={t.settings.youtubePlaceholder}
-                  onChange={(event) => setSettings({ ...settings, youtubeUrl: event.target.value })}
-                />
-              </Field>
-            </CardContent>
-            <CardFooter>
-              <Button
-                disabled={pending || !validOptionalUrl(settings.twitterUrl ?? '') || !validOptionalUrl(settings.linkedinUrl ?? '') || !validOptionalUrl(settings.tiktokUrl ?? '') || !validOptionalUrl(settings.youtubeUrl ?? '')}
-                onClick={() => void patchSettings(integrationPatch(settings), t.settings.socialSaved)}
-              >
-                <Globe className="h-4 w-4" aria-hidden />
-                {t.settings.saveSocial}
-              </Button>
-            </CardFooter>
-          </Card>
-        </div>
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button
+              disabled={pending || !validOptionalUrl(settings.facebookUrl) || !validOptionalUrl(settings.instagramUrl)}
+              onClick={() => void patchSettings(integrationPatch(settings, googleSearch, googlePlaceId), t.settings.configSaved)}
+            >
+              <Save className="h-4 w-4" aria-hidden />
+              {t.settings.saveConfig}
+            </Button>
+          </CardFooter>
+        </Card>
       </TabPanel>
     </div>
   );
 }
 
-function integrationPatch(settings: BusinessSettings) {
+function integrationPatch(settings: BusinessSettings, googleSearch: string, googlePlaceId: string) {
+  const name = googleSearch.trim();
   return {
-    googleMapsName: settings.googleMapsName,
-    googleMapsUrl: settings.googleMapsUrl,
-    googlePlaceId: settings.googlePlaceId,
+    googleMapsName: name,
+    googleMapsUrl: name ? getGoogleMapsUrl(googleSearch, googlePlaceId || undefined) : '',
+    googlePlaceId,
     facebookUrl: settings.facebookUrl,
     instagramUrl: settings.instagramUrl,
-    twitterUrl: settings.twitterUrl,
-    linkedinUrl: settings.linkedinUrl,
-    tiktokUrl: settings.tiktokUrl,
-    youtubeUrl: settings.youtubeUrl,
+    twitterUrl: '',
+    linkedinUrl: '',
+    tiktokUrl: '',
+    youtubeUrl: '',
   };
 }

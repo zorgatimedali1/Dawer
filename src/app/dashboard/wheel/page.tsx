@@ -14,6 +14,7 @@ import { PrizeWheel } from '@/components/wheel/prize-wheel';
 import { cn } from '@/lib/cn';
 import { getGoogleMapsUrl } from '@/lib/google-maps';
 import { interpolate, msg } from '@/lib/i18n';
+import { prepareLogoUpload } from '@/lib/optimize-image';
 import {
   DEFAULT_WHEEL_THEME,
   WHEEL_MOTION_PRESETS,
@@ -75,51 +76,6 @@ const initialRewards: RewardRow[] = [
 
 /** The backend rejects a config with more than 20 rewards. */
 const MAX_REWARDS = 20;
-
-/** Max payload the backend accepts (512 KB encoded). */
-const MAX_LOGO_BYTES = 512 * 1024;
-
-/**
- * Downsample a raster image to ≤512 px on the longest edge, then re-encode as
- * WebP (PNG fallback) stepping quality from 0.92 down until the base64 payload
- * fits within MAX_LOGO_BYTES.  SVG files are returned as-is.
- */
-async function optimizeImage(file: File): Promise<File> {
-  if (file.type === 'image/svg+xml') return file;
-
-  const bitmap = await createImageBitmap(file);
-  const MAX_PX = 512;
-  const scale = Math.min(1, MAX_PX / Math.max(bitmap.width, bitmap.height));
-  const w = Math.round(bitmap.width * scale);
-  const h = Math.round(bitmap.height * scale);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return file;
-  ctx.drawImage(bitmap, 0, 0, w, h);
-  bitmap.close();
-
-  const supportsWebP = canvas.toDataURL('image/webp').startsWith('data:image/webp');
-  const mime = supportsWebP ? 'image/webp' : 'image/png';
-
-  // Step quality down until the base64 fits the backend limit.
-  for (let quality = 0.92; quality >= 0.30; quality -= 0.12) {
-    const blob: Blob = await new Promise((resolve) => {
-      canvas.toBlob((b) => resolve(b ?? new Blob()), mime, quality);
-    });
-    if (blob.size <= MAX_LOGO_BYTES) {
-      return new File([blob], file.name.replace(/\.[^.]+$/, supportsWebP ? '.webp' : '.png'), { type: mime });
-    }
-  }
-
-  // Last resort: PNG at default quality.
-  const blob: Blob = await new Promise((resolve) => {
-    canvas.toBlob((b) => resolve(b ?? new Blob()), 'image/png');
-  });
-  return new File([blob], file.name.replace(/\.[^.]+$/, '.png'), { type: 'image/png' });
-}
 
 function clampNumber(raw: string, min: number, max: number): number {
   const parsed = Number.parseInt(raw, 10);
@@ -408,12 +364,12 @@ export default function WheelConfigPage() {
     setIsUploadingLogo(true);
     setConfigError('');
     try {
-      const optimized = await optimizeImage(file);
+      const optimized = await prepareLogoUpload(file, msg(t, 'The logo must be 512 KB or smaller.'));
       const logoUrl = await SettingsService.uploadLogo(optimized);
       setLogo(logoUrl);
       setConfigMessage(t.wheel.logoUploaded);
     } catch (error) {
-      setConfigError(error instanceof Error ? error.message : 'Unable to upload the logo.');
+      setConfigError(msg(t, error instanceof Error ? error.message : 'Unable to upload the logo.'));
     } finally {
       setIsUploadingLogo(false);
     }
@@ -680,11 +636,18 @@ export default function WheelConfigPage() {
     setThemeMessage('');
     setThemeError('');
     try {
-      await SettingsService.uploadWheelLogo(file);
-      setThemeDraft({ ...themeDraft, centerLogo: true });
+      const optimized = await prepareLogoUpload(file, msg(t, 'The logo must be 512 KB or smaller.'));
+      await SettingsService.uploadWheelLogo(optimized);
+      // Persist the flag in the same flow: the public wheel only shows the hub
+      // logo when the saved theme has centerLogo on, so a stale draft would
+      // leave the freshly uploaded logo invisible until a manual save.
+      const nextDraft = { ...themeDraft, centerLogo: true };
+      await SettingsService.saveWheelTheme(nextDraft);
+      const refreshed = await refreshThemeState();
+      setThemeDraft(refreshed.theme ?? refreshed.effective);
       setThemeMessage(t.wheel.logoUploaded);
     } catch (error) {
-      setThemeError(error instanceof Error ? error.message : t.wheel.designError);
+      setThemeError(msg(t, error instanceof Error ? error.message : t.wheel.designError));
     } finally {
       setIsUploadingWheelLogo(false);
     }
@@ -697,7 +660,12 @@ export default function WheelConfigPage() {
     setThemeError('');
     try {
       await SettingsService.deleteWheelLogo();
-      setThemeDraft({ ...themeDraft, centerLogo: false });
+      // Same as upload: clear the flag server-side so the public wheel stops
+      // pointing at a deleted image without waiting for a manual save.
+      const nextDraft = { ...themeDraft, centerLogo: false };
+      await SettingsService.saveWheelTheme(nextDraft);
+      const refreshed = await refreshThemeState();
+      setThemeDraft(refreshed.theme ?? refreshed.effective);
       setThemeMessage(t.wheel.logoRemoved);
     } catch (error) {
       setThemeError(error instanceof Error ? error.message : t.wheel.designError);
@@ -1200,7 +1168,8 @@ export default function WheelConfigPage() {
                         {/* Inputs — full width on mobile, side-by-side on md+ */}
                         <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[minmax(0,1fr)_5rem_minmax(0,1fr)] lg:grid-cols-[minmax(0,1.15fr)_minmax(5.25rem,0.7fr)_minmax(0,1fr)]">
                           <Input
-                            inputSize="sm"
+                            inputSize="lg"
+                            dir="auto"
                             value={reward.name}
                             onChange={(e) => updateReward(reward.id, 'name', e.target.value)}
                             aria-label={interpolate(t.wheel.rewardName, { n: index + 1 })}

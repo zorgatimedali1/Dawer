@@ -80,6 +80,12 @@ app.use('/api/webhooks/mailjet', express.text({ type: '*/*', limit: '1mb' }));
 // parser before the global 1 MB limit applies (body-parser skips
 // requests whose body it already parsed).
 app.use('/api/email/asset', express.json({ limit: '12mb' }));
+// Logo uploads carry up to 512 KB of binary (~700 KB of base64). The global
+// 1 MB limit is too tight once JSON overhead is counted, and a body that
+// blows the limit dies inside body-parser with an opaque 500 before the
+// route can answer with a helpful validation message.
+app.use('/api/settings/logo', express.json({ limit: '2mb' }));
+app.use('/api/settings/wheel-logo', express.json({ limit: '2mb' }));
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', async (_request, response) => {
@@ -166,8 +172,22 @@ app.use((_request, response) => {
 });
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-  console.error('Unhandled API error.', error);
-  response.status(500).json({ success: false, error: 'Internal server error.' });
+  // body-parser / express.json failures (payload too large, invalid JSON)
+  // carry their own status; without this they surface as an opaque 500.
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error && typeof (error as { status?: unknown }).status === 'number'
+      ? (error as { status: number }).status
+      : 500;
+  if (status >= 500) {
+    console.error('Unhandled API error.', error);
+    response.status(500).json({ success: false, error: 'Internal server error.' });
+    return;
+  }
+  const message =
+    status === 413
+      ? 'The uploaded file is too large.'
+      : 'Unable to send the request.';
+  response.status(status).json({ success: false, error: message });
 });
 
 const expressServer = app.listen(3000);

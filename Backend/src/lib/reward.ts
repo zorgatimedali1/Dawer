@@ -23,9 +23,9 @@ export type StockReward = {
  * "none" slice itself.
  */
 export function isSoldOutReward(
-  reward: Pick<StockReward, 'type' | 'quantity' | 'quantityInitial'>,
+  reward: Pick<StockReward, 'type' | 'quantity'> & { quantityInitial: number | null },
 ): boolean {
-  return reward.type !== 'none' && reward.quantityInitial > 0 && reward.quantity <= 0;
+  return reward.type !== 'none' && reward.quantityInitial !== null && reward.quantityInitial > 0 && reward.quantity <= 0;
 }
 
 /**

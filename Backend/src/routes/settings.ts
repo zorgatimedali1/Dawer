@@ -927,7 +927,10 @@ export async function handleSettingsRoute(request: Request, env: Env): Promise<R
     return errorResponse('Route not found.', 404);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return errorResponse('Validation failed.', 400, error.flatten());
+      // Surface the first real validation message (e.g. the logo size limit)
+      // instead of an opaque "Validation failed." the user can't act on.
+      const firstMessage = error.issues[0]?.message;
+      return errorResponse(firstMessage || 'Validation failed.', 400, error.flatten());
     }
 
     console.error('Settings route failed.', error);

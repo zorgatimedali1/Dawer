@@ -3,6 +3,14 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPage from '@/app/dashboard/settings/page';
 
+// jsdom has no createImageBitmap/canvas pipeline; the real optimizer can't
+// decode the fake PNG fixtures, so pass files through untouched.
+vi.mock('@/lib/optimize-image', () => ({
+  MAX_LOGO_BYTES: 512 * 1024,
+  optimizeImage: (file: File) => Promise.resolve(file),
+  prepareLogoUpload: (file: File) => Promise.resolve(file),
+}));
+
 const AUTH_KEY = 'campaign-engage-auth';
 
 const profile = {
@@ -69,6 +77,14 @@ describe('settings page', () => {
       if (method === 'GET' && url === '/api/settings') {
         return jsonResponse({ success: true, settings: currentSettings });
       }
+      if (method === 'GET' && url.startsWith('/api/places/autocomplete')) {
+        return jsonResponse({
+          success: true,
+          suggestions: [
+            { placeId: 'place-456', label: 'Splash Food, Tunis', mainText: 'Splash Food', secondaryText: 'Tunis' },
+          ],
+        });
+      }
       if (method === 'PUT' && url === '/api/profile') {
         currentProfile = { ...currentProfile, ...JSON.parse(String(init?.body)) };
         return jsonResponse({ success: true, profile: currentProfile });
@@ -106,20 +122,18 @@ describe('settings page', () => {
     await screen.findByText('Image de marque enregistrée.');
 
     await userEvent.click(screen.getByRole('tab', { name: 'Intégrations' }));
-    await userEvent.clear(screen.getByLabelText('ID de lieu Google'));
-    await userEvent.type(screen.getByLabelText('ID de lieu Google'), 'place-456');
-    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer la configuration Google' }));
-    await screen.findByText('Configuration Google enregistrée.');
+
+    const googleSearch = screen.getByRole('combobox', { name: 'Google Maps / Google Business' });
+    await userEvent.clear(googleSearch);
+    await userEvent.type(googleSearch, 'Splash Food');
+    await userEvent.click(await screen.findByRole('option', { name: /Splash Food/ }));
 
     await userEvent.clear(screen.getByLabelText('URL de la page Facebook'));
     await userEvent.type(screen.getByLabelText('URL de la page Facebook'), 'https://facebook.com/new-shop');
-    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer la configuration Facebook' }));
-    await screen.findByText('Configuration Facebook enregistrée.');
-
     await userEvent.clear(screen.getByLabelText('URL du profil Instagram'));
     await userEvent.type(screen.getByLabelText('URL du profil Instagram'), 'https://instagram.com/new-shop');
-    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer la configuration Instagram' }));
-    await screen.findByText('Configuration Instagram enregistrée.');
+    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer la configuration' }));
+    await screen.findByText('Configuration enregistrée.');
 
     expect(fetchMock.mock.calls.some(([url, init]) => (
       String(url) === '/api/profile' && init?.method === 'PUT' && JSON.parse(String(init.body)).firstName === 'Grace'
@@ -130,15 +144,23 @@ describe('settings page', () => {
     expect(fetchMock.mock.calls.some(([url, init]) => (
       String(url) === '/api/settings' && init?.method === 'PUT' && JSON.parse(String(init.body)).primaryColor === '#112233'
     ))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url, init]) => (
-      String(url) === '/api/settings' && init?.method === 'PUT' && JSON.parse(String(init.body)).googlePlaceId === 'place-456'
-    ))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url, init]) => (
-      String(url) === '/api/settings' && init?.method === 'PUT' && JSON.parse(String(init.body)).facebookUrl === 'https://facebook.com/new-shop'
-    ))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url, init]) => (
-      String(url) === '/api/settings' && init?.method === 'PUT' && JSON.parse(String(init.body)).instagramUrl === 'https://instagram.com/new-shop'
-    ))).toBe(true);
+
+    const integrationPut = fetchMock.mock.calls.find(([url, init]) => (
+      String(url) === '/api/settings' && init?.method === 'PUT' && 'googlePlaceId' in JSON.parse(String(init.body))
+    ));
+    expect(integrationPut).toBeDefined();
+    const integrationBody = JSON.parse(String(integrationPut?.[1]?.body));
+    expect(integrationBody).toMatchObject({
+      googleMapsName: 'Splash Food, Tunis',
+      googlePlaceId: 'place-456',
+      facebookUrl: 'https://facebook.com/new-shop',
+      instagramUrl: 'https://instagram.com/new-shop',
+      twitterUrl: '',
+      linkedinUrl: '',
+      tiktokUrl: '',
+      youtubeUrl: '',
+    });
+    expect(String(integrationBody.googleMapsUrl)).toContain('query_place_id=place-456');
     },
     20_000,
   );
@@ -248,13 +270,13 @@ describe('settings page', () => {
     await waitFor(() => expect(screen.queryByTestId('business-logo-preview')).toBeNull());
   });
 
-  it('saves the optional social network URLs after Instagram', async () => {
+  it('saves integrations with a single button and clears the removed social fields', async () => {
     let currentSettings = {
       ...initialSettings,
-      twitterUrl: '',
-      linkedinUrl: '',
-      tiktokUrl: '',
-      youtubeUrl: '',
+      twitterUrl: 'https://x.com/shop',
+      linkedinUrl: 'https://linkedin.com/company/shop',
+      tiktokUrl: 'https://tiktok.com/@shop',
+      youtubeUrl: 'https://youtube.com/@shop',
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -273,21 +295,30 @@ describe('settings page', () => {
     await screen.findByRole('heading', { name: 'Informations du profil' });
     await userEvent.click(screen.getByRole('tab', { name: 'Intégrations' }));
 
-    await userEvent.type(screen.getByLabelText('URL Twitter (X)'), 'https://x.com/shop');
-    await userEvent.type(screen.getByLabelText('URL LinkedIn'), 'https://linkedin.com/company/shop');
-    await userEvent.type(screen.getByLabelText('URL TikTok'), 'https://tiktok.com/@shop');
-    await userEvent.type(screen.getByLabelText('URL YouTube'), 'https://youtube.com/@shop');
-    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer les réseaux sociaux' }));
+    expect(screen.queryByLabelText('URL Twitter (X)')).toBeNull();
+    expect(screen.queryByLabelText('URL LinkedIn')).toBeNull();
+    expect(screen.queryByLabelText('URL TikTok')).toBeNull();
+    expect(screen.queryByLabelText('URL YouTube')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Enregistrer la configuration Google' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Enregistrer la configuration Facebook' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Enregistrer la configuration Instagram' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Enregistrer la configuration' })).toBeInTheDocument();
 
-    await screen.findByText('Réseaux sociaux enregistrés.');
+    await userEvent.clear(screen.getByLabelText('URL de la page Facebook'));
+    await userEvent.type(screen.getByLabelText('URL de la page Facebook'), 'https://facebook.com/shop');
+    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer la configuration' }));
+
+    await screen.findByText('Configuration enregistrée.');
     const saved = fetchMock.mock.calls.find(([url, init]) => (
-      String(url) === '/api/settings' && init?.method === 'PUT'
+      String(url) === '/api/settings' && init?.method === 'PUT' && 'twitterUrl' in JSON.parse(String(init.body))
     ));
     expect(JSON.parse(String(saved?.[1]?.body))).toMatchObject({
-      twitterUrl: 'https://x.com/shop',
-      linkedinUrl: 'https://linkedin.com/company/shop',
-      tiktokUrl: 'https://tiktok.com/@shop',
-      youtubeUrl: 'https://youtube.com/@shop',
+      facebookUrl: 'https://facebook.com/shop',
+      instagramUrl: 'https://instagram.com/shop',
+      twitterUrl: '',
+      linkedinUrl: '',
+      tiktokUrl: '',
+      youtubeUrl: '',
     });
   }, 15000);
 });

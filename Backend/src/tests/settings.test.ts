@@ -188,7 +188,9 @@ describe('settings', () => {
     );
 
     expect(response.status).toBe(400);
-    expect((await body(response)).message).toBe('Validation failed.');
+    // The route now surfaces the first real Zod message instead of the
+    // generic "Validation failed." so users know what to fix.
+    expect((await body(response)).message).toBe('Enter a valid URL.');
   });
 
   it('404s when the merchant has no business', async () => {

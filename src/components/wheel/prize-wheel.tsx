@@ -82,10 +82,11 @@ export function PrizeWheel({
               key={segment.id}
               data-wheel-segment
               title={segment.label}
+              dir="auto"
               className="pointer-events-none absolute left-1/2 top-1/2 z-10 flex flex-col items-center justify-center break-words text-center font-extrabold leading-[1.05] text-white drop-shadow-[0_1px_2px_rgba(15,23,42,0.95)]"
               style={{
                 width: `${labelWidth}%`,
-                fontSize: `${segments.length > 10 ? 2.6 : segments.length > 7 ? 3 : 3.4}cqw`,
+                fontSize: `${segments.length > 10 ? 3.2 : segments.length > 7 ? 3.6 : 4.1}cqw`,
                 transform: `translate(-50%, -50%) rotate(${segment.angle}deg) translateY(-30cqw) rotate(${labelRotation - segment.angle}deg)`,
               }}
             >
