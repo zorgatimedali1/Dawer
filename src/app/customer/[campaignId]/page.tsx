@@ -603,8 +603,6 @@ export default function CampaignCustomerPage() {
 
       <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-4 py-10">
         <main className="w-full max-w-md">
-          <h1 className="sr-only">{campaign.name}</h1>
-
           <div className="flex flex-col items-center">
             {campaign.business_logo ? (
               <img
@@ -617,6 +615,9 @@ export default function CampaignCustomerPage() {
                 {merchantName.charAt(0).toUpperCase()}
               </div>
             )}
+            <h1 className="mt-4 text-center text-xl font-semibold tracking-[-0.02em] text-ink">
+              {campaign.name}
+            </h1>
           </div>
 
           {step === 'gate' && (
@@ -762,9 +763,9 @@ export default function CampaignCustomerPage() {
 
           {step === 'game' && (
             <div className="mt-6">
-              <h1 className="text-center text-[32px] font-semibold leading-tight tracking-[-0.03em] text-brand-700 dark:text-accent-bright">
+              <h2 className="text-center text-[32px] font-semibold leading-tight tracking-[-0.03em] text-brand-700 dark:text-accent-bright">
                 {t.customer.spinHeading} <span aria-hidden="true">🎉</span>
-              </h1>
+              </h2>
               <p className="mt-2 text-center text-sm text-ink-muted">
                 {t.customer.gameSubtitle}
               </p>
