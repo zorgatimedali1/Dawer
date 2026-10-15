@@ -18,6 +18,7 @@ import { prepareLogoUpload } from '@/lib/optimize-image';
 import {
   DEFAULT_WHEEL_THEME,
   WHEEL_MOTION_PRESETS,
+  gateAccentInk,
   segmentColorAt,
   wheelMotionDurationMs,
   type WheelMotionPreset,
@@ -578,13 +579,22 @@ export default function WheelConfigPage() {
   // override whenever the plan includes it (Pro+).
   const designAllowed = Boolean(themeState?.designAllowed);
   const centerLogoAllowed = Boolean(themeState?.centerLogoAllowed);
+  const stepsColorAllowed = Boolean(themeState?.stepsColorAllowed);
   const designEditable = designAllowed && !themeState?.override;
   const logoEditable = centerLogoAllowed;
-  const editableTheme = designEditable || logoEditable;
+  // The gate step colour is the merchant's own brand asset: editable whenever
+  // the plan includes it, even under an operator override.
+  const stepsEditable = stepsColorAllowed;
+  const editableTheme = designEditable || logoEditable || stepsEditable;
 
   const setDraftColors = (patch: Partial<WheelTheme['colors']>) => {
     if (!themeDraft) return;
     setThemeDraft({ ...themeDraft, colors: { ...themeDraft.colors, ...patch } });
+  };
+
+  const setStepsColor = (color: string) => {
+    if (!themeDraft) return;
+    setThemeDraft({ ...themeDraft, stepsColor: color });
   };
 
   const setSegmentColor = (index: number, color: string) => {
@@ -865,7 +875,44 @@ export default function WheelConfigPage() {
                 </Field>
               ) : null}
 
-              {centerLogoAllowed && !designAllowed ? (
+              {stepsColorAllowed && themeDraft ? (
+                <Field label={t.wheel.stepsColorLabel} hint={t.wheel.stepsColorHint} htmlFor="wheel-steps-color">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      id="wheel-steps-color"
+                      type="color"
+                      aria-label={t.wheel.stepsColorLabel}
+                      className="h-10 w-14 shrink-0 cursor-pointer rounded-md border border-line bg-elevated p-1 disabled:cursor-not-allowed"
+                      value={themeDraft.stepsColor}
+                      disabled={!stepsEditable}
+                      onChange={(event) => setStepsColor(event.target.value)}
+                    />
+                    <Input
+                      aria-label={t.wheel.stepsColorLabel}
+                      className="numeric w-32"
+                      value={themeDraft.stepsColor}
+                      disabled={!stepsEditable}
+                      onChange={(event) => setStepsColor(event.target.value)}
+                    />
+                    <span className="flex items-center gap-2" aria-hidden>
+                      <span
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[13px] font-semibold"
+                        style={{ backgroundColor: themeDraft.stepsColor, color: gateAccentInk(themeDraft.stepsColor) }}
+                      >
+                        1
+                      </span>
+                      <span
+                        className="inline-flex h-7 items-center rounded-full px-3 text-[12px] font-semibold"
+                        style={{ backgroundColor: themeDraft.stepsColor, color: gateAccentInk(themeDraft.stepsColor) }}
+                      >
+                        {t.wheel.stepsColorPreviewButton}
+                      </span>
+                    </span>
+                  </div>
+                </Field>
+              ) : null}
+
+              {(centerLogoAllowed || stepsColorAllowed) && !designAllowed ? (
                 <>
                   {themeMessage ? (
                     <p className="text-[12.5px] font-medium text-success-600 dark:text-success-300">{themeMessage}</p>

@@ -553,6 +553,7 @@ describe('wheel design', () => {
     expect(payload.success).toBe(true);
     expect(payload.designAllowed).toBe(false);
     expect(payload.centerLogoAllowed).toBe(false);
+    expect(payload.stepsColorAllowed).toBe(false);
     expect(payload.planSlug).toBe('starter');
     expect(payload.theme).toBeNull();
     expect(payload.override).toBeNull();
@@ -560,6 +561,7 @@ describe('wheel design', () => {
       colors: { rim: '#ffffff', pointer: '#0f172a' },
       motion: { preset: 'standard' },
       centerLogo: false,
+      stepsColor: '#7DAB4B',
     });
     expect(payload.centerLogo).toBe(`/api/public/businesses/${alice.businessId}/wheel-logo`);
   });
@@ -584,6 +586,7 @@ describe('wheel design', () => {
     );
     expect(payload.designAllowed).toBe(false);
     expect(payload.centerLogoAllowed).toBe(true);
+    expect(payload.stepsColorAllowed).toBe(true);
     expect(payload.planSlug).toBe('growth');
 
     const saved = await handleSettingsRoute(
@@ -612,6 +615,25 @@ describe('wheel design', () => {
     expect(logo.status).toBe(200);
   });
 
+  it('lets Pro merchants set the gate step colour while colors stay locked', async () => {
+    await upgradeToPro();
+
+    const saved = await handleSettingsRoute(
+      jsonRequest('/api/settings/wheel-theme', 'PUT', { ...theme, stepsColor: '#112233' }, alice.token),
+      env,
+    );
+    expect(saved.status).toBe(200);
+    expect((await body(saved)).theme).toMatchObject({
+      colors: { rim: '#ffffff', pointer: '#0f172a' },
+      stepsColor: '#112233',
+    });
+
+    const stored = JSON.parse(
+      db.query<{ wheel_theme: string }>('SELECT wheel_theme FROM businesses WHERE id = ?', alice.businessId)[0]!.wheel_theme,
+    );
+    expect(stored.stepsColor).toBe('#112233');
+  });
+
   it('stores a custom design on Business and reports it as effective', async () => {
     await upgradeToBusiness();
 
@@ -637,6 +659,7 @@ describe('wheel design', () => {
     );
     expect(payload.designAllowed).toBe(true);
     expect(payload.centerLogoAllowed).toBe(true);
+    expect(payload.stepsColorAllowed).toBe(true);
     expect(payload.planSlug).toBe('scale');
     expect(payload.theme).toMatchObject({ motion: { preset: 'fast' }, colors: { rim: '#111111' } });
     expect(payload.effective).toMatchObject({ motion: { preset: 'fast' } });

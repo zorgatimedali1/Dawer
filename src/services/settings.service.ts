@@ -91,6 +91,8 @@ export interface WheelThemeState {
   designAllowed: boolean;
   /** Plan flag: the merchant logo at the wheel hub. */
   centerLogoAllowed: boolean;
+  /** Plan flag: the gate step colour (badges + CTA buttons). */
+  stepsColorAllowed: boolean;
   planSlug: string;
   planName: string;
   theme: WheelTheme | null;

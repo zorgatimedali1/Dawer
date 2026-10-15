@@ -72,6 +72,13 @@ export const WHEEL_CENTER_LOGO_PLAN_LIMITS: Record<string, number> = {
   premium: 1,
 };
 
+/** Gate step colour (badges + CTA buttons) by plan slug; absent slug = off. Pro+. */
+export const WHEEL_STEPS_COLOR_PLAN_LIMITS: Record<string, number> = {
+  growth: 1,
+  scale: 1,
+  premium: 1,
+};
+
 /** Plan-stored `wheelDesign` criteria win over the slug map above. */
 export function wheelDesignAllowed(
   slug: string | null | undefined,
@@ -86,6 +93,14 @@ export function wheelCenterLogoAllowed(
   limits?: Record<string, number>,
 ): boolean {
   return Boolean(slug) && readPlanLimit(slug as string, limits, 'wheelCenterLogo', WHEEL_CENTER_LOGO_PLAN_LIMITS) === 1;
+}
+
+/** Plan-stored `wheelStepsColor` criteria win over the slug map above. */
+export function wheelStepsColorAllowed(
+  slug: string | null | undefined,
+  limits?: Record<string, number>,
+): boolean {
+  return Boolean(slug) && readPlanLimit(slug as string, limits, 'wheelStepsColor', WHEEL_STEPS_COLOR_PLAN_LIMITS) === 1;
 }
 
 export type WhatsAppLimits = { monthly: number; batch: number };

@@ -14,6 +14,7 @@ import { interpolate, msg } from '@/lib/i18n';
 import { getGoogleReviewUrl } from '@/lib/google-maps';
 import {
   DEFAULT_WHEEL_THEME,
+  gateAccentInk,
   segmentColorAt,
   wheelMotionDurationMs,
 } from '@/lib/wheel-theme';
@@ -257,6 +258,9 @@ export default function CampaignCustomerPage() {
   // The payload already carries the resolved design (plan gate + operator
   // override applied server-side); fall back to the shipped default.
   const wheelTheme = campaign?.wheel_theme ?? DEFAULT_WHEEL_THEME;
+  // Merchant-configured accent for the gate step badges + CTA buttons.
+  const stepsAccent = wheelTheme.stepsColor ?? DEFAULT_WHEEL_THEME.stepsColor;
+  const stepsInk = gateAccentInk(stepsAccent);
 
   const segments = useMemo(() => {
     const weights = rewards.map((reward) =>
@@ -648,7 +652,10 @@ export default function CampaignCustomerPage() {
                           key={label}
                           className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/70 p-3"
                         >
-                          <span className="numeric flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-500 text-[13px] font-semibold text-accent-ink">
+                          <span
+                            className="numeric flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold"
+                            style={{ backgroundColor: stepsAccent, color: stepsInk }}
+                          >
                             {index + 1}
                           </span>
                           <span className="text-sm font-medium text-ink">{label}</span>
@@ -669,14 +676,24 @@ export default function CampaignCustomerPage() {
                     )}
 
                     {isNoAction && (
-                      <Button size="lg" className="mt-5 w-full" onClick={handleNoActionClick}>
+                      <Button
+                        size="lg"
+                        className="mt-5 w-full hover:brightness-95"
+                        style={{ backgroundColor: stepsAccent, color: stepsInk }}
+                        onClick={handleNoActionClick}
+                      >
                         <Dices className="h-4 w-4" aria-hidden />
                         {t.customer.spinCta}
                       </Button>
                     )}
 
                     {actionUrl && gateStage === 'idle' && (
-                      <Button asChild size="lg" className="mt-5 w-full">
+                      <Button
+                        asChild
+                        size="lg"
+                        className="mt-5 w-full hover:brightness-95"
+                        style={{ backgroundColor: stepsAccent, color: stepsInk }}
+                      >
                         <a
                           href={actionUrl}
                           target="_blank"
@@ -798,7 +815,8 @@ export default function CampaignCustomerPage() {
 
               <Button
                 size="lg"
-                className="mt-6 w-full"
+                className="mt-6 w-full hover:brightness-95"
+                style={{ backgroundColor: stepsAccent, color: stepsInk }}
                 disabled={spinning || segments.length === 0}
                 onClick={() => void handleSpin()}
                 loading={spinning}

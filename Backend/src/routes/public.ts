@@ -6,7 +6,7 @@ import { secureRandomHex, sha256Hex } from '../lib/crypto';
 import { buildCookie, mintSpinVisitorValue, readSpinVisitor, spinVisitorCookieName, verifySpinVisitorValue } from '../lib/cookie';
 import { mintActionTicket, verifyActionTicket } from '../lib/action-ticket';
 import { distanceMetersBetween } from '../lib/geo';
-import { getCustomerLimit, customerLimitFromAccess, wheelCenterLogoAllowed, wheelDesignAllowed } from '../lib/subscription-limits';
+import { getCustomerLimit, customerLimitFromAccess, wheelCenterLogoAllowed, wheelDesignAllowed, wheelStepsColorAllowed } from '../lib/subscription-limits';
 import { accessFromSubscriptionRow, readStarterPlan, type BusinessAccess } from '../lib/subscription-access';
 import { handlePublicLogoRoute, handlePublicWheelLogoRoute, businessWheelLogoPath } from './settings';
 import type { Env } from '../types';
@@ -270,11 +270,13 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     const access = campaignAccess;
     const designAllowed = wheelDesignAllowed(access?.plan.slug, access?.plan.features.limits);
     const centerLogoAllowed = wheelCenterLogoAllowed(access?.plan.slug, access?.plan.features.limits);
+    const stepsColorAllowed = wheelStepsColorAllowed(access?.plan.slug, access?.plan.features.limits);
     const wheelTheme: WheelTheme = resolveWheelTheme({
       merchantTheme: shared.business_wheel_theme,
       overrideTheme: shared.business_wheel_theme_override,
       designAllowed,
       centerLogoAllowed,
+      stepsColorAllowed,
     });
     campaign.wheel_theme = wheelTheme;
     // Only ship the center-hub URL when the theme asks for it; the visitor

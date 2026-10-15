@@ -599,6 +599,7 @@ describe('wheel configuration page', () => {
   const allowedThemeState = {
     designAllowed: true,
     centerLogoAllowed: true,
+    stepsColorAllowed: true,
     planSlug: 'scale',
     planName: 'Business',
     theme: null,
@@ -612,6 +613,7 @@ describe('wheel configuration page', () => {
       ...allowedThemeState,
       designAllowed: false,
       centerLogoAllowed: false,
+      stepsColorAllowed: false,
       planSlug: 'starter',
       planName: 'Starter',
       effective: DEFAULT_WHEEL_THEME,
@@ -625,6 +627,7 @@ describe('wheel configuration page', () => {
     expect(screen.queryByLabelText('Vitesse de rotation')).toBeNull();
     expect(screen.queryByRole('button', { name: /enregistrer le design/i })).toBeNull();
     expect(screen.queryByText(/afficher le logo au centre/i)).toBeNull();
+    expect(screen.queryByText(/couleur des étapes/i)).toBeNull();
   });
 
   it('hides the design section when the operator turned the wheel criteria off', async () => {
@@ -632,6 +635,7 @@ describe('wheel configuration page', () => {
       ...allowedThemeState,
       designAllowed: false,
       centerLogoAllowed: false,
+      stepsColorAllowed: false,
     });
 
     renderPage();
@@ -642,6 +646,7 @@ describe('wheel configuration page', () => {
     expect(screen.queryByLabelText('Vitesse de rotation')).toBeNull();
     expect(screen.queryByRole('button', { name: /enregistrer le design/i })).toBeNull();
     expect(screen.queryByText(/afficher le logo au centre/i)).toBeNull();
+    expect(screen.queryByText(/couleur des étapes/i)).toBeNull();
   });
 
   it('moves the hub logo into general info on Pro with its own save, no design card', async () => {
@@ -660,6 +665,7 @@ describe('wheel configuration page', () => {
     expect(screen.queryByLabelText('Vitesse de rotation')).toBeNull();
     expect(screen.getByText(/afficher le logo au centre/i)).toBeTruthy();
     expect(screen.getByLabelText(/téléverser un logo/i)).toBeTruthy();
+    expect(screen.getByText(/couleur des étapes/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /enregistrer le design/i })).toBeTruthy();
   });
 
@@ -686,6 +692,34 @@ describe('wheel configuration page', () => {
     const body = JSON.parse(String(putCall?.[1]?.body)) as { motion: { preset: string } };
     expect(body.motion.preset).toBe('fast');
     await screen.findByText(/design enregistré/i);
+  });
+
+  it('saves the merchant step colour through the wheel-theme PUT', async () => {
+    const fetchMock = wheelThemeFetch({ ...allowedThemeState, stepsColorAllowed: true });
+
+    renderPage();
+
+    await screen.findByText(/couleur des étapes/i);
+    const colorInput = document.getElementById('wheel-steps-color') as HTMLInputElement | null;
+    expect(colorInput).toBeTruthy();
+    expect(colorInput?.value.toLowerCase()).toBe('#7dab4b');
+
+    fireEvent.change(colorInput!, { target: { value: '#112233' } });
+    await userEvent.click(screen.getByRole('button', { name: /enregistrer le design/i }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          (call) => String(call[0]) === '/api/settings/wheel-theme' && (call[1]?.method ?? 'GET') === 'PUT',
+        ),
+      ).toBe(true),
+    );
+
+    const putCall = fetchMock.mock.calls.find(
+      (call) => String(call[0]) === '/api/settings/wheel-theme' && (call[1]?.method ?? 'GET') === 'PUT',
+    );
+    const body = JSON.parse(String(putCall?.[1]?.body)) as { stepsColor: string };
+    expect(body.stepsColor).toBe('#112233');
   });
 
   it('auto-saves centerLogo on upload from the persisted theme, without a manual save', async () => {

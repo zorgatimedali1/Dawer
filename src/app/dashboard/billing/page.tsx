@@ -253,7 +253,7 @@ export default function BillingPage() {
 
       <div>
         <p className="mb-3.5 text-[15px] font-semibold tracking-[-0.01em] text-ink">{t.billing.comparePlans}</p>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="flex flex-wrap justify-center gap-4">
           {billing.plans.map((plan) => {
             const isCurrent = billing.access.canManage && plan.slug === billing.access.plan.slug;
             const isPending = plan.slug === pendingSlug;
@@ -263,7 +263,7 @@ export default function BillingPage() {
               <div
                 key={plan.slug}
                 className={cn(
-                  'relative flex h-full flex-col rounded-lg border bg-card p-5 text-ink shadow-soft',
+                  'relative flex w-full flex-col rounded-lg border bg-card p-5 text-ink shadow-soft sm:w-[19.5rem]',
                   'transition-[border-color,box-shadow,opacity] duration-240 ease-swift motion-reduce:transition-none',
                   isCurrent
                     ? 'border-accent/60 ring-1 ring-accent/45'

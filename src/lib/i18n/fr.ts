@@ -992,6 +992,10 @@ export const wheel = {
   centerLogoUploading: 'Téléversement…',
   centerLogoUploaded: 'Logo enregistré et activé sur la roue.',
   centerLogoRemove: 'Retirer le logo',
+  stepsColorLabel: 'Couleur des étapes',
+  stepsColorHint:
+    'Teinte des pastilles numérotées et des boutons d’action sur la page publique. Choisissez une couleur lisible avec votre identité.',
+  stepsColorPreviewButton: 'Continuer',
   designSave: 'Enregistrer le design',
   designSaving: 'Enregistrement…',
   designSaved: 'Design enregistré.',

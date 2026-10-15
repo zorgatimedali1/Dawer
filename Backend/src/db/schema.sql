@@ -472,13 +472,13 @@ INSERT OR IGNORE INTO plans (id, name, slug, price_cents, interval, features, ac
     '{"limits":{"campaigns":-1,"customers":100},"features":["200 e-mails marketing inclus (bientôt disponible)","100 SMS inclus (bientôt disponible)","100 WhatsApp marketing inclus (bientôt disponible)","Accès complet à la roue","Support par e-mail","Sans engagement"]}',
    1, '2026-01-01T00:00:00.000Z'),
   ('plan_growth', 'Pro', 'growth', 34900, 'year',
-    '{"limits":{"campaigns":-1,"customers":1000},"features":["1 000 e-mails marketing inclus (bientôt disponible)","200 SMS inclus (bientôt disponible)","200 WhatsApp marketing inclus (bientôt disponible)","Accès complet à la roue","Support e-mail prioritaire","Vue d’ensemble et analytics de base","Plaque QR code incluse","Gestion des récompenses","Logo central de la roue"]}',
+    '{"limits":{"campaigns":-1,"customers":1000},"features":["1 000 e-mails marketing inclus (bientôt disponible)","200 SMS inclus (bientôt disponible)","200 WhatsApp marketing inclus (bientôt disponible)","Accès complet à la roue","Support e-mail prioritaire","Vue d’ensemble et analytics de base","Plaque QR code incluse","Gestion des récompenses","Logo central de la roue","Couleur des étapes et du bouton"]}',
    1, '2026-01-01T00:00:00.000Z'),
   ('plan_scale', 'Business', 'scale', 79900, '3_years',
-    '{"limits":{"campaigns":-1,"customers":10000},"features":["10 000 e-mails marketing inclus (bientôt disponible)","300 SMS inclus par an (bientôt disponible)","300 WhatsApp marketing inclus par an (bientôt disponible)","Accès complet à la roue","Analytics avancées","Support prioritaire","Meilleur rapport qualité-prix à long terme","Offre réservée aux 50 premiers commerçants","Gestion des récompenses","Configuration avancée de la roue (couleurs et animations)","Logo central de la roue"]}',
+    '{"limits":{"campaigns":-1,"customers":10000},"features":["10 000 e-mails marketing inclus (bientôt disponible)","300 SMS inclus par an (bientôt disponible)","300 WhatsApp marketing inclus par an (bientôt disponible)","Accès complet à la roue","Analytics avancées","Support prioritaire","Meilleur rapport qualité-prix à long terme","Offre réservée aux 50 premiers commerçants","Gestion des récompenses","Configuration avancée de la roue (couleurs et animations)","Logo central de la roue","Couleur des étapes et du bouton"]}',
    1, '2026-01-01T00:00:00.000Z'),
   ('plan_premium', 'Enterprise', 'premium', 149900, '3_years',
-   '{"limits":{"campaigns":-1,"customers":-1},"features":["Clients illimités","Volumes e-mail, SMS et WhatsApp personnalisés (bientôt disponible)","Accès complet à la roue","Analytics avancées multi-sites","API et intégrations sur mesure","Accompagnement dédié","Support prioritaire","Gestion des récompenses","Configuration avancée de la roue (couleurs et animations)","Logo central de la roue"]}',
+   '{"limits":{"campaigns":-1,"customers":-1},"features":["Clients illimités","Volumes e-mail, SMS et WhatsApp personnalisés (bientôt disponible)","Accès complet à la roue","Analytics avancées multi-sites","API et intégrations sur mesure","Accompagnement dédié","Support prioritaire","Gestion des récompenses","Configuration avancée de la roue (couleurs et animations)","Logo central de la roue","Couleur des étapes et du bouton"]}',
    1, '2026-01-01T00:00:00.000Z');
 
 CREATE TABLE IF NOT EXISTS payments (

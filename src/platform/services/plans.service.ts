@@ -12,6 +12,8 @@ export interface PlanLimits {
   wheelDesign: number;
   /** 1 = merchants on this plan use their logo at the wheel hub. */
   wheelCenterLogo: number;
+  /** 1 = merchants on this plan set the gate step colour. */
+  wheelStepsColor: number;
 }
 
 /** A pricing plan as exposed by the operator console API. */

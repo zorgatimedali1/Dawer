@@ -988,6 +988,10 @@ export const wheel: D<typeof frDict.wheel> = {
   centerLogoUploading: 'Uploading…',
   centerLogoUploaded: 'Logo saved and now live on the wheel.',
   centerLogoRemove: 'Remove the logo',
+  stepsColorLabel: 'Step colour',
+  stepsColorHint:
+    'Tint for the numbered step badges and the action buttons on the public page. Pick a colour that stays legible with your brand.',
+  stepsColorPreviewButton: 'Continue',
   designSave: 'Save design',
   designSaving: 'Saving…',
   designSaved: 'Design saved.',

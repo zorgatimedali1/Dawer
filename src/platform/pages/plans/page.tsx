@@ -41,6 +41,7 @@ type PlanForm = {
   emailBatch: string;
   wheelDesign: boolean;
   wheelCenterLogo: boolean;
+  wheelStepsColor: boolean;
   criteria: string;
 };
 
@@ -59,6 +60,7 @@ function emptyForm(): PlanForm {
     emailBatch: '0',
     wheelDesign: false,
     wheelCenterLogo: false,
+    wheelStepsColor: false,
     criteria: '',
   };
 }
@@ -79,6 +81,7 @@ function formFromPlan(plan: PlatformPlan): PlanForm {
     emailBatch: String(limits.emailBatch),
     wheelDesign: limits.wheelDesign === 1,
     wheelCenterLogo: limits.wheelCenterLogo === 1,
+    wheelStepsColor: limits.wheelStepsColor === 1,
     criteria: plan.features.features.join('\n'),
   };
 }
@@ -101,6 +104,7 @@ function buildPayload(form: PlanForm): PlanPayload {
         emailBatch: toCount(form.emailBatch, 0),
         wheelDesign: form.wheelDesign ? 1 : 0,
         wheelCenterLogo: form.wheelCenterLogo ? 1 : 0,
+        wheelStepsColor: form.wheelStepsColor ? 1 : 0,
       },
       features: form.criteria
         .split('\n')
@@ -457,6 +461,20 @@ export default function AdminPlansManager() {
               />
               <span>
                 Logo at the wheel center
+                <span className="mt-0.5 block text-xs text-ink-subtle">Pro tier by default (growth, scale, premium).</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-ink-muted" htmlFor="plan-wheel-steps-color">
+              <input
+                id="plan-wheel-steps-color"
+                type="checkbox"
+                checked={form.wheelStepsColor}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, wheelStepsColor: event.target.checked }))}
+                className="mt-0.5 h-4 w-4 rounded border-line text-brand-600 focus:ring-brand-500/30"
+              />
+              <span>
+                Gate step colour — badges and CTA buttons
                 <span className="mt-0.5 block text-xs text-ink-subtle">Pro tier by default (growth, scale, premium).</span>
               </span>
             </label>

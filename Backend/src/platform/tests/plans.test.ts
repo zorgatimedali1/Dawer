@@ -121,11 +121,13 @@ describe('GET /api/admin/plans', () => {
     // Business+, the hub logo Pro+.
     expect(growth?.features.limits.wheelDesign).toBe(0);
     expect(growth?.features.limits.wheelCenterLogo).toBe(1);
+    expect(growth?.features.limits.wheelStepsColor).toBe(1);
     expect(plans.find((plan) => plan.slug === 'scale')?.features.limits.wheelDesign).toBe(1);
 
     const starter = plans.find((plan) => plan.slug === 'starter');
     expect(starter?.features.limits.whatsappMonthly).toBe(0);
     expect(starter?.features.limits.wheelCenterLogo).toBe(0);
+    expect(starter?.features.limits.wheelStepsColor).toBe(0);
   });
 
   it('includes inactive plans so the operator can re-enable them', async () => {

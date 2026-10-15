@@ -17,7 +17,7 @@ import {
 import { getAuthenticatedUser, getPrimaryBusinessId, writeAuditLog } from '../lib/tenant';
 import { buildSubscriptionWhatsAppUrl } from '../lib/whatsapp';
 import { getBusinessAccess } from '../lib/subscription-access';
-import { wheelCenterLogoAllowed, wheelDesignAllowed } from '../lib/subscription-limits';
+import { wheelCenterLogoAllowed, wheelDesignAllowed, wheelStepsColorAllowed } from '../lib/subscription-limits';
 import { getEffectiveFeatures } from '../lib/feature-access';
 import type { AuthenticatedUser } from '../lib/tenant';
 import type { Env } from '../types';
@@ -685,6 +685,7 @@ async function handleWheelThemeGet(request: Request, env: Env, user: Authenticat
   const override = parseWheelTheme(row?.wheel_theme_override);
   const designAllowed = wheelDesignAllowed(access.plan.slug, access.plan.features.limits);
   const centerLogoAllowed = wheelCenterLogoAllowed(access.plan.slug, access.plan.features.limits);
+  const stepsColorAllowed = wheelStepsColorAllowed(access.plan.slug, access.plan.features.limits);
   const logoRow = await env.DB.prepare(
     'SELECT updated_at FROM business_wheel_logos WHERE business_id = ? LIMIT 1',
   )
@@ -695,6 +696,7 @@ async function handleWheelThemeGet(request: Request, env: Env, user: Authenticat
     success: true,
     designAllowed,
     centerLogoAllowed,
+    stepsColorAllowed,
     planSlug: access.plan.slug,
     planName: access.plan.name,
     theme,
@@ -704,6 +706,7 @@ async function handleWheelThemeGet(request: Request, env: Env, user: Authenticat
       overrideTheme: row?.wheel_theme_override,
       designAllowed,
       centerLogoAllowed,
+      stepsColorAllowed,
     }),
     centerLogo: wheelLogoVersionedPath(businessId, logoRow?.updated_at ?? null),
   });
@@ -721,7 +724,8 @@ async function handleWheelThemePut(request: Request, env: Env, user: Authenticat
   const access = await getBusinessAccess(env, businessId);
   const designAllowed = wheelDesignAllowed(access.plan.slug, access.plan.features.limits);
   const centerLogoAllowed = wheelCenterLogoAllowed(access.plan.slug, access.plan.features.limits);
-  if (!designAllowed && !centerLogoAllowed) {
+  const stepsColorAllowed = wheelStepsColorAllowed(access.plan.slug, access.plan.features.limits);
+  if (!designAllowed && !centerLogoAllowed && !stepsColorAllowed) {
     return errorResponse(
       'Custom wheel design requires the Business plan and the center logo requires the Pro plan. Upgrade from Billing.',
       403,
@@ -735,6 +739,7 @@ async function handleWheelThemePut(request: Request, env: Env, user: Authenticat
     colors: designAllowed ? input.colors : existing?.colors ?? DEFAULT_WHEEL_THEME.colors,
     motion: designAllowed ? input.motion : existing?.motion ?? DEFAULT_WHEEL_THEME.motion,
     centerLogo: centerLogoAllowed ? input.centerLogo : false,
+    stepsColor: stepsColorAllowed ? input.stepsColor : existing?.stepsColor ?? DEFAULT_WHEEL_THEME.stepsColor,
   };
 
   const now = new Date().toISOString();
@@ -751,7 +756,7 @@ async function handleWheelThemePut(request: Request, env: Env, user: Authenticat
     metadata: { preset: stored.motion.preset, centerLogo: stored.centerLogo },
   });
 
-  return jsonResponse({ success: true, theme: stored, designAllowed, centerLogoAllowed });
+  return jsonResponse({ success: true, theme: stored, designAllowed, centerLogoAllowed, stepsColorAllowed });
 }
 
 async function handleWheelLogoUpload(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {

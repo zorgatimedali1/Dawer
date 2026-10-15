@@ -142,6 +142,39 @@ describe('public campaign page', () => {
     expect(screen.getByText('Powered by Dawer')).toBeTruthy();
   });
 
+  it('paints the gate step badges with the default brand colour', async () => {
+    stubFetch();
+    renderPage();
+
+    await screen.findByRole('heading', { name: 'Coffee Spin' });
+
+    const badge = document.querySelector('ol span') as HTMLElement | null;
+    expect(badge?.style.backgroundColor).toBe('rgb(125, 171, 75)');
+    expect(badge?.style.color).toBe('rgb(13, 18, 11)');
+  });
+
+  it('applies the merchant step colour to the badges and CTAs', async () => {
+    stubFetch({
+      wheel_theme: {
+        colors: { segments: ['#ff0000'], rim: '#ffffff', pointer: '#0f172a' },
+        motion: { preset: 'standard' },
+        centerLogo: false,
+        stepsColor: '#112233',
+      },
+    });
+    renderPage();
+
+    await screen.findByRole('heading', { name: 'Coffee Spin' });
+
+    const painted = Array.from(document.querySelectorAll<HTMLElement>('[style]')).filter(
+      (el) => el.style.backgroundColor === 'rgb(17, 34, 51)',
+    );
+    // The step badge plus at least one CTA button share the merchant accent,
+    // and the dark accent flips the label ink to the light tone.
+    expect(painted.length).toBeGreaterThanOrEqual(2);
+    expect(painted.every((el) => el.style.color === 'rgb(247, 251, 242)')).toBe(true);
+  });
+
   it('sends the visitor to the write-review dialog but keeps the wheel locked until they return', async () => {
     const fetchMock = stubFetch();
     renderPage();

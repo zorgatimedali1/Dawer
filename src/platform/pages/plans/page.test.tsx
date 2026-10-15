@@ -20,6 +20,7 @@ const starter = {
       emailBatch: 0,
       wheelDesign: 0,
       wheelCenterLogo: 0,
+      wheelStepsColor: 0,
     },
     features: ['Support by email'],
   },
@@ -42,6 +43,7 @@ const pro = {
       emailBatch: 200,
       wheelDesign: 0,
       wheelCenterLogo: 1,
+      wheelStepsColor: 1,
     },
     features: ['Priority support'],
   },
@@ -112,9 +114,12 @@ describe('AdminPlansManager', () => {
 
     const designBox = screen.getByLabelText(/Wheel design edits/i);
     const logoBox = screen.getByLabelText(/Logo at the wheel center/i);
+    const stepsBox = screen.getByLabelText(/Gate step colour/i);
     expect(designBox).not.toBeChecked();
     expect(logoBox).toBeChecked();
+    expect(stepsBox).toBeChecked();
     await userEvent.click(designBox);
+    await userEvent.click(stepsBox);
 
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
@@ -134,6 +139,7 @@ describe('AdminPlansManager', () => {
           whatsappMonthly: number;
           wheelDesign: number;
           wheelCenterLogo: number;
+          wheelStepsColor: number;
         };
       };
     };
@@ -143,6 +149,7 @@ describe('AdminPlansManager', () => {
     expect(body.features.limits.whatsappMonthly).toBe(200);
     expect(body.features.limits.wheelDesign).toBe(1);
     expect(body.features.limits.wheelCenterLogo).toBe(1);
+    expect(body.features.limits.wheelStepsColor).toBe(0);
   });
 
   it('creates a plan from the modal', async () => {

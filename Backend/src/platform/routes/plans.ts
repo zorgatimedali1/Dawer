@@ -8,6 +8,7 @@ import {
   WHATSAPP_PLAN_MONTHLY_LIMITS,
   WHEEL_CENTER_LOGO_PLAN_LIMITS,
   WHEEL_DESIGN_PLAN_LIMITS,
+  WHEEL_STEPS_COLOR_PLAN_LIMITS,
   readPlanLimit,
 } from '../../lib/subscription-limits';
 import { renderRouteError, requireOperator } from '../lib/guard';
@@ -43,6 +44,7 @@ interface PlanDto {
       emailBatch: number;
       wheelDesign: number;
       wheelCenterLogo: number;
+      wheelStepsColor: number;
     };
     features: string[];
   };
@@ -90,6 +92,7 @@ function describePlan(row: PlanRow): PlanDto {
         emailBatch: pick('emailBatch', EMAIL_PLAN_BATCH_LIMITS),
         wheelDesign: pick('wheelDesign', WHEEL_DESIGN_PLAN_LIMITS),
         wheelCenterLogo: pick('wheelCenterLogo', WHEEL_CENTER_LOGO_PLAN_LIMITS),
+        wheelStepsColor: pick('wheelStepsColor', WHEEL_STEPS_COLOR_PLAN_LIMITS),
       },
       features: stored.features,
     },

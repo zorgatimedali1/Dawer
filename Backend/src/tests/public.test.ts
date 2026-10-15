@@ -282,6 +282,7 @@ describe('wheel theme in the public payload', () => {
     colors: { segments: ['#ff0000', '#00ff00'], rim: '#111111', pointer: '#222222' },
     motion: { preset: 'fast' },
     centerLogo: true,
+    stepsColor: '#112233',
   });
   const overrideTheme = JSON.stringify({
     colors: { segments: ['#0000ff'], rim: '#333333', pointer: '#444444' },
@@ -318,7 +319,11 @@ describe('wheel theme in the public payload', () => {
 
     const campaign = await loadCampaign();
 
-    expect(campaign.wheel_theme).toMatchObject({ motion: { preset: 'standard' }, centerLogo: false });
+    expect(campaign.wheel_theme).toMatchObject({
+      motion: { preset: 'standard' },
+      centerLogo: false,
+      stepsColor: '#7DAB4B',
+    });
     expect(campaign.wheel_logo).toBeNull();
     expect(campaign.business_wheel_theme).toBeUndefined();
     expect(campaign.business_wheel_theme_override).toBeUndefined();
@@ -337,6 +342,7 @@ describe('wheel theme in the public payload', () => {
       colors: { rim: '#111111', pointer: '#222222' },
       motion: { preset: 'fast' },
       centerLogo: true,
+      stepsColor: '#112233',
     });
     expect(campaign.wheel_logo).toBe(`/api/public/businesses/${businessId}/wheel-logo`);
   });
@@ -352,6 +358,7 @@ describe('wheel theme in the public payload', () => {
     expect(campaign.wheel_theme).toMatchObject({
       motion: { preset: 'standard' },
       centerLogo: true,
+      stepsColor: '#112233',
     });
     expect(campaign.wheel_logo).toBe(`/api/public/businesses/${businessId}/wheel-logo`);
     expect(campaign.business_wheel_design_access).toBeUndefined();
@@ -369,6 +376,7 @@ describe('wheel theme in the public payload', () => {
       colors: { rim: '#333333', pointer: '#444444' },
       motion: { preset: 'slow' },
       centerLogo: true,
+      stepsColor: '#112233',
     });
     expect(campaign.wheel_logo).toBe(`/api/public/businesses/${businessId}/wheel-logo`);
   });

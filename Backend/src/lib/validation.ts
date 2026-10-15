@@ -337,6 +337,8 @@ const planLimitsSchema = z.object({
   wheelDesign: z.number().int().min(0).max(1).optional(),
   /** Merchant logo at the wheel hub as a 0/1 flag. */
   wheelCenterLogo: z.number().int().min(0).max(1).optional(),
+  /** Gate step colour (badges + CTA buttons) as a 0/1 flag. */
+  wheelStepsColor: z.number().int().min(0).max(1).optional(),
 });
 
 /** The criteria blob stored in plans.features (limits + bullet features). */
@@ -591,6 +593,12 @@ export const wheelThemeSchema = z.object({
     preset: z.enum(WHEEL_MOTION_PRESETS),
   }),
   centerLogo: z.boolean(),
+  /**
+   * Brand colour for the gate step badges + CTA buttons on the public page.
+   * `.default()` keeps themes stored before this field parseable, so old rows
+   * resolve to the default instead of being dropped.
+   */
+  stepsColor: wheelHexColor.default('#7DAB4B'),
 });
 
 export type WheelTheme = z.infer<typeof wheelThemeSchema>;
@@ -604,6 +612,7 @@ export const DEFAULT_WHEEL_THEME: WheelTheme = {
   },
   motion: { preset: 'standard' },
   centerLogo: false,
+  stepsColor: '#7DAB4B',
 };
 
 /**
@@ -645,13 +654,20 @@ export function resolveWheelTheme(options: {
   overrideTheme: unknown;
   designAllowed: boolean;
   centerLogoAllowed: boolean;
+  stepsColorAllowed: boolean;
 }): WheelTheme {
   const override = parseWheelTheme(options.overrideTheme);
   const merchant = parseWheelTheme(options.merchantTheme);
 
   const base = options.designAllowed ? override ?? merchant ?? DEFAULT_WHEEL_THEME : DEFAULT_WHEEL_THEME;
-  if (!options.centerLogoAllowed) return { ...base, centerLogo: false };
-  return { ...base, centerLogo: (merchant ?? override)?.centerLogo ?? false };
+  const withLogo = options.centerLogoAllowed
+    ? { ...base, centerLogo: (merchant ?? override)?.centerLogo ?? false }
+    : { ...base, centerLogo: false };
+  // The gate step colour is the merchant's own brand asset (like the hub logo):
+  // their value wins over the operator override whenever the plan includes it.
+  return options.stepsColorAllowed
+    ? { ...withLogo, stepsColor: (merchant ?? override)?.stepsColor ?? DEFAULT_WHEEL_THEME.stepsColor }
+    : { ...withLogo, stepsColor: DEFAULT_WHEEL_THEME.stepsColor };
 }
 
 /** Serializes a theme for its column; `null` clears the merchant design. */
