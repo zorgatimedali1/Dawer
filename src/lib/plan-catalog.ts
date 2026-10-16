@@ -50,7 +50,7 @@ const homepagePlans: Record<Locale, readonly HomepagePlan[]> = {
       features: ['Jusqu’à 1 000 clients collectés', '1 000 e-mails marketing inclus (bientôt disponible)', '200 SMS inclus (bientôt disponible)', '200 WhatsApp marketing inclus (bientôt disponible)', 'Accès complet à la roue', 'Support e-mail prioritaire', 'Vue d’ensemble et analytics de base', 'Plaque QR code incluse', 'Gestion des récompenses', 'Logo central de la roue'],
     },
     {
-      name: 'Business', slug: 'scale', priceCents: 79900, interval: '3_years', badge: 'Offre de lancement',
+      name: 'Business', slug: 'scale', priceCents: 79900, interval: '2_years', badge: 'Offre de lancement',
       features: ['Jusqu’à 10 000 clients collectés', '10 000 e-mails marketing inclus (bientôt disponible)', '300 SMS inclus par an (bientôt disponible)', '300 WhatsApp marketing inclus par an (bientôt disponible)', 'Accès complet à la roue', 'Analytics avancées', 'Support prioritaire', 'Gestion des récompenses', 'Configuration avancée de la roue (couleurs et animations)', 'Logo central de la roue'],
     },
     {
@@ -68,7 +68,7 @@ const homepagePlans: Record<Locale, readonly HomepagePlan[]> = {
       features: ['Up to 1,000 collected customers', '1,000 marketing emails included (coming soon)', '200 SMS included (coming soon)', '200 WhatsApp marketing included (coming soon)', 'Full wheel access', 'Priority email support', 'Overview and basic analytics', 'QR code plate included', 'Rewards management', 'Centre wheel logo'],
     },
     {
-      name: 'Business', slug: 'scale', priceCents: 79900, interval: '3_years', badge: 'Launch offer',
+      name: 'Business', slug: 'scale', priceCents: 79900, interval: '2_years', badge: 'Launch offer',
       features: ['Up to 10,000 collected customers', '10,000 marketing emails included (coming soon)', '300 SMS per year included (coming soon)', '300 WhatsApp per year included (coming soon)', 'Full wheel access', 'Advanced analytics', 'Priority support', 'Rewards management', 'Advanced wheel design (colours and animation)', 'Centre wheel logo'],
     },
     {
@@ -119,8 +119,8 @@ export function formatPlanPrice(priceCents: number): string {
 }
 
 const planIntervals: Record<Locale, Record<string, string>> = {
-  fr: { year: '1 an', '3_years': '3 ans', '3_months': '3 mois' },
-  en: { year: '1 year', '3_years': '3 years', '3_months': '3 months' },
+  fr: { year: '1 an', '2_years': '2 ans', '3_years': '3 ans', '3_months': '3 mois' },
+  en: { year: '1 year', '2_years': '2 years', '3_years': '3 years', '3_months': '3 months' },
 };
 
 export function formatPlanInterval(interval: string, locale: Locale = 'fr'): string {

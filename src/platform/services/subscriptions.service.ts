@@ -25,8 +25,8 @@ export interface PlatformPagination {
   totalPages: number;
 }
 
-/** Mirrors the server presets, including the three-year Business and Enterprise terms. */
-export const APPROVE_DURATION_DAYS = [30, 90, 180, 365, 1095] as const;
+/** Mirrors the server presets, including the two-year Business and three-year Enterprise terms. */
+export const APPROVE_DURATION_DAYS = [30, 90, 180, 365, 730, 1095] as const;
 export type ApproveDurationDays = (typeof APPROVE_DURATION_DAYS)[number];
 
 export const DURATION_LABELS: Record<ApproveDurationDays, string> = {
@@ -34,6 +34,7 @@ export const DURATION_LABELS: Record<ApproveDurationDays, string> = {
   90: '3 mois',
   180: '6 mois',
   365: '12 mois',
+  730: '2 ans',
   1095: '3 ans',
 };
 

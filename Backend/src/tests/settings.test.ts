@@ -271,11 +271,19 @@ describe('billing', () => {
     expect(payload.plans[0].features.limits.customers).toBe(100);
     expect(payload.plans[1].features.limits.customers).toBe(1000);
     expect(payload.plans[1].features.features).toContain('Vue d’ensemble et analytics de base');
+    expect(payload.plans[1].interval).toBe('year');
     expect(payload.plans[2].features.limits.customers).toBe(10000);
-    expect(payload.plans[3].features.limits.customers).toBe(-1);
     expect(payload.plans[2].features.limits.campaigns).toBe(-1);
+    expect(payload.plans[2].interval).toBe('2_years');
+    expect(payload.plans[3].features.limits.customers).toBe(-1);
     expect(payload.plans[3].priceCents).toBe(149900);
     expect(payload.plans[3].interval).toBe('3_years');
+    // Step colour is an explicit stored limit for Pro/Business/Enterprise;
+    // Starter never gets the key so it stays locked.
+    expect(payload.plans[0].features.limits.wheelStepsColor ?? 0).toBe(0);
+    expect(payload.plans[1].features.limits.wheelStepsColor).toBe(1);
+    expect(payload.plans[2].features.limits.wheelStepsColor).toBe(1);
+    expect(payload.plans[3].features.limits.wheelStepsColor).toBe(1);
     expect(payload.subscription).toBeNull();
     expect(payload.pendingRequest).toBeNull();
     expect(payload.usage).toEqual({ campaigns: 0, customers: 0 });
@@ -301,6 +309,18 @@ describe('billing', () => {
     expect(stored).toHaveLength(1);
     expect(stored[0].status).toBe('PENDING');
     expect(stored[0].plan_id).toBe('plan_premium');
+  });
+
+  it('labels the Business plan period as two years in the WhatsApp link', async () => {
+    const response = await handleSettingsRoute(
+      jsonRequest('/api/billing/subscribe-request', 'POST', { planSlug: 'scale' }, alice.token),
+      env,
+    );
+    const payload = await body(response);
+
+    expect(response.status).toBe(200);
+    expect(payload.plan.slug).toBe('scale');
+    expect(decodeURIComponent(payload.whatsappUrl)).toContain('799 DT/2 ans');
   });
 
   it('surfaces the pending request and never activates the subscription', async () => {

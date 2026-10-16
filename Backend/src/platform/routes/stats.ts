@@ -9,6 +9,7 @@ const INTERVAL_MONTHS: Record<string, number> = {
   month: 1,
   '3_months': 3,
   year: 12,
+  '2_years': 24,
   '3_years': 36,
 };
 

@@ -181,6 +181,15 @@ describe('POST /api/admin/plans', () => {
     expect(response.status).toBe(400);
   });
 
+  it('accepts the two-year interval preset', async () => {
+    const response = await handlePlanAdminRoute(
+      createRequest({ slug: 'biennial', interval: '2_years' }),
+      env,
+    );
+    expect(response.status).toBe(201);
+    expect((await body(response)).plan?.interval).toBe('2_years');
+  });
+
   it('409s a duplicate slug', async () => {
     const response = await handlePlanAdminRoute(createRequest({ slug: 'growth' }), env);
     expect(response.status).toBe(409);

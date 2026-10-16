@@ -12,6 +12,7 @@ import { PlansService, type PlanPayload, type PlatformPlan } from '@/platform/se
 const INTERVAL_LABELS: Record<string, string> = {
   '3_months': '3 months',
   year: '1 year',
+  '2_years': '2 years',
   '3_years': '3 years',
 };
 

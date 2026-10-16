@@ -224,6 +224,18 @@ describe('POST /api/admin/subscriptions/requests/:id/approve', () => {
     expect((await body(response)).request.durationDays).toBe(1095);
   });
 
+  it('activates a two-year subscription term', async () => {
+    const requestId = await seedRequest();
+
+    const response = await handleSubscriptionRoute(
+      operatorRequest(`/api/admin/subscriptions/requests/${requestId}/approve`, 'POST', { durationDays: 730 }, operator.token),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect((await body(response)).request.durationDays).toBe(730);
+  });
+
   it('rejects a duration outside the presets', async () => {
     const requestId = await seedRequest();
 

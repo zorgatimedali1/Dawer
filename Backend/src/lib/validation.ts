@@ -357,7 +357,7 @@ export const subscribeRequestSchema = z.object({
 
 export type SubscribeRequest = z.infer<typeof subscribeRequestSchema>;
 
-export const PLAN_INTERVALS = ['3_months', 'year', '3_years'] as const;
+export const PLAN_INTERVALS = ['3_months', 'year', '2_years', '3_years'] as const;
 
 /** The numerical criteria an operator can tune per plan. */
 const planLimitsSchema = z.object({
@@ -401,7 +401,7 @@ export const planUpdateSchema = planUpsertSchema.partial();
 export type PlanUpdate = z.infer<typeof planUpdateSchema>;
 
 /** The operator only offers whole-month presets. */
-export const APPROVE_DURATION_DAYS = [30, 90, 180, 365, 1095] as const;
+export const APPROVE_DURATION_DAYS = [30, 90, 180, 365, 730, 1095] as const;
 
 export const approveSubscriptionSchema = z.object({
   durationDays: z.union([
@@ -410,6 +410,7 @@ export const approveSubscriptionSchema = z.object({
     z.literal(APPROVE_DURATION_DAYS[2]),
     z.literal(APPROVE_DURATION_DAYS[3]),
     z.literal(APPROVE_DURATION_DAYS[4]),
+    z.literal(APPROVE_DURATION_DAYS[5]),
   ]),
 });
 

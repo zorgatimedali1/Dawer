@@ -16,9 +16,16 @@ type SubscriptionWhatsAppDetails = {
   businessName: string;
 };
 
-export function buildSubscriptionWhatsAppUrl(details: SubscriptionWhatsAppDetails): string {
+const PERIOD_LABELS: Record<string, string> = {
+  year: 'an',
+  '2_years': '2 ans',
+  '3_years': '3 ans',
+  '3_months': '3 mois',
+};
+
+export function buildSubscriptionWhatsAppUrl(details: SubscriptionWhatsAppDetails): Response {
   const amount = (details.priceCents / 100).toFixed(details.priceCents % 100 === 0 ? 0 : 2);
-  const period = details.interval === 'year' ? 'an' : details.interval === '3_years' ? '3 ans' : '3 mois';
+  const period = PERIOD_LABELS[details.interval] ?? '3 mois';
   const message = [
     'Bonjour, je souhaite activer un abonnement CampaignFlow.',
     `Espace : ${details.businessName}`,
