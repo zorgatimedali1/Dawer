@@ -321,6 +321,7 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
         redirect_uri: env.GOOGLE_REDIRECT_URI,
         grant_type: 'authorization_code',
       }),
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!tokenResponse.ok) {
@@ -337,6 +338,7 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
       headers: {
         Authorization: `Bearer ${tokenData.access_token}`,
       },
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!profileResponse.ok) {
@@ -529,8 +531,13 @@ export async function forgotPassword(request: Request, env: Env): Promise<Respon
       .bind(crypto.randomUUID(), user.id, tokenHash, expiresAt, requestedAt.toISOString())
       .run();
 
-    const origin = env.APP_ORIGIN || new URL(request.url).origin;
-    const resetUrl = `${origin}/auth/reset-password?token=${encodeURIComponent(rawToken)}`;
+    // L1: never fall back to the request's Host for the reset link — an
+    // attacker who can present an arbitrary Host would get the victim's reset
+    // token mailed under an attacker-controlled origin. APP_ORIGIN is required.
+    if (!env.APP_ORIGIN) {
+      return errorResponse('Password reset is not configured.', 503);
+    }
+    const resetUrl = `${env.APP_ORIGIN}/auth/reset-password?token=${encodeURIComponent(rawToken)}`;
 
     const sent = await sendPasswordResetEmail(emailConfig, { to: email, resetUrl });
     if (!sent) {

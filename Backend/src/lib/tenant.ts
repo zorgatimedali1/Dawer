@@ -67,7 +67,8 @@ export async function getPrimaryBusinessId(userId: string, env: Env): Promise<st
 
 export const CAMPAIGN_COLUMNS = `id, business_id, name, description, public_code, status, start_at, end_at,
   game_type, require_customer_information, require_action, google_maps_name, google_maps_url,
-  google_place_id, facebook_url, instagram_url, created_at, updated_at, play_rules, latitude, longitude`;
+  google_place_id, facebook_url, instagram_url, created_at, updated_at, play_rules, latitude, longitude,
+  radius_meters`;
 
 export type CampaignRecord = {
   id: string;
@@ -91,6 +92,7 @@ export type CampaignRecord = {
   play_rules: string | null;
   latitude: number | null;
   longitude: number | null;
+  radius_meters: number | null;
 };
 
 /**

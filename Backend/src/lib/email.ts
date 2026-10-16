@@ -106,24 +106,31 @@ export function buildSender(fromEmail: string, senderName: string): { email: str
   return { email: fromEmail, name: safeName || 'CampaignFlow' };
 }
 
-/** Replaces `{{name}}`, `{{email}}`, `{{link}}` and `{{unsubscribe}}` per recipient. */
+/** Replaces `{{name}}`, `{{email}}`, `{{link}}` and `{{unsubscribe}}` per recipient.
+ * Recipient-derived values are HTML-escaped so a hostile row in a merchant's
+ * contact list can't inject markup into every recipient's email (M3). The
+ * merchant-authored `template` and the server-built `link`/`unsubscribe` URLs
+ * are trusted and passed through verbatim. */
 export function renderTemplate(
   template: string,
   values: { name?: string; email: string; link?: string; unsubscribe?: string },
 ): string {
+  const esc = (value: string): string =>
+    value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] ?? char);
   return template
-    .replace(/\{\{\s*name\s*\}\}/g, values.name ?? '')
-    .replace(/\{\{\s*email\s*\}\}/g, values.email)
+    .replace(/\{\{\s*name\s*\}\}/g, esc(values.name ?? ''))
+    .replace(/\{\{\s*email\s*\}\}/g, esc(values.email))
     .replace(/\{\{\s*link\s*\}\}/g, values.link ?? '')
     .replace(/\{\{\s*unsubscribe\s*\}\}/g, values.unsubscribe ?? '');
 }
 
 export type EmailRecipient = { email: string; name?: string };
 
-function hmacSecret(env: { GATEWAY_SECRET?: string }): string {
-  // Derived from an existing production secret so no new setup is required;
-  // the value only ever signs per-address unsubscribe links (not secrets).
-  return env.GATEWAY_SECRET || 'campaignflow-unsubscribe';
+/** Per-address HMAC proving an unsubscribe click came from one of our emails.
+ * Fails closed (H1): a missing `GATEWAY_SECRET` yields no signature at all
+ * rather than a publicly-known constant that anyone could forge. */
+function hmacSecret(env: { GATEWAY_SECRET?: string }): string | null {
+  return env.GATEWAY_SECRET || null;
 }
 
 async function hmacHex(secret: string, message: string): Promise<string> {
@@ -142,20 +149,24 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** Per-address HMAC proving an unsubscribe click came from one of our emails. */
+/** Per-address HMAC proving an unsubscribe click came from one of our emails.
+ * Returns `null` when `GATEWAY_SECRET` is unset (fail-closed — no forgeable default). */
 export async function unsubscribeSignature(
   env: { GATEWAY_SECRET?: string },
   email: string,
-): Promise<string> {
-  return hmacHex(hmacSecret(env), `unsubscribe:${email.toLowerCase()}`);
+): Promise<string | null> {
+  const secret = hmacSecret(env);
+  if (!secret) return null;
+  return hmacHex(secret, `unsubscribe:${email.toLowerCase()}`);
 }
 
 export async function unsubscribeUrl(
   env: { GATEWAY_SECRET?: string; APP_ORIGIN?: string },
   email: string,
-): Promise<string> {
+): Promise<string | null> {
   const normalized = email.toLowerCase();
   const signature = await unsubscribeSignature(env, normalized);
+  if (!signature) return null;
   return `${env.APP_ORIGIN ?? ''}/api/email/unsubscribe?e=${encodeURIComponent(normalized)}&s=${signature}`;
 }
 
@@ -166,6 +177,7 @@ export async function verifyUnsubscribe(
 ): Promise<boolean> {
   if (!email || !signature) return false;
   const expected = await unsubscribeSignature(env, email);
+  if (!expected) return false;
   return constantTimeEqual(expected, signature);
 }
 
@@ -758,6 +770,13 @@ export async function processEmailBatch(env: Env, campaignId: string): Promise<E
   const sendSlot = async (index: number): Promise<void> => {
     const recipient = chunk[index];
     const unsubscribe = await unsubscribeUrl(env, recipient.email);
+    if (!unsubscribe) {
+      // Fail closed (H1): without GATEWAY_SECRET we cannot mint a verifiable
+      // unsubscribe link, so the send is refused rather than shipping a
+      // non-compliant email with a forgeable/absent opt-out.
+      slots[index] = { kind: 'fatal', error: 'Unsubscribe links are not configured.' };
+      return;
+    }
     const values = {
       name: recipient.name,
       email: recipient.email,

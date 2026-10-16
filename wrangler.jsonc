@@ -60,6 +60,13 @@
 		//   npx wrangler secret put META_APP_SECRET
 		// Webhook verify token (pasted into Meta App Dashboard > Webhooks):
 		//   npx wrangler secret put WHATSAPP_WEBHOOK_VERIFY_TOKEN
+		// Cloudflare Turnstile (opt-in bot protection for the public spin page,
+		// M7). Create a widget in the Cloudflare dashboard (Turnstile → Add
+		// widget), then set the site key as a var below and the secret key as a
+		// secret. When TURNSTILE_SECRET_KEY is unset the check is skipped
+		// (fail-open), so nothing breaks until you opt in:
+		//   npx wrangler secret put TURNSTILE_SECRET_KEY
+		// and set vars.TURNSTILE_SITE_KEY (+ optional vars.TURNSTILE_HOSTNAMES).
 		// Local dev reads them from .dev.vars instead.
 		// Google OAuth redirect — must match the final serving origin
 		// (update it alongside any custom_domain route change above).
@@ -69,6 +76,10 @@
 		"APP_ORIGIN": "https://campaignflow-backend.mhoudou098.workers.dev",
 		// ISO country codes allowed to reach /api/public (comma separated).
 		"GEOFENCE_COUNTRIES": "TN",
+		// When "1", a missing country signal is REJECTED rather than passed
+		// through (fail-closed geofence, L12). Set to "0" to allow requests
+		// with no resolvable country.
+		"GEOFENCE_STRICT": "1",
 		// Per-campaign spin ceiling per UTC day. Bounds one campaign's share of
 		// the account-wide D1 write quota on the free plan (no card on file).
 		// Set to "0" to disable the cap.

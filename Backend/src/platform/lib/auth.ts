@@ -14,12 +14,19 @@ export type OperatorProfile = {
   lastName: string | null;
 };
 
+/** `__Host-` mandates Secure (HTTPS only) — same rule as the merchant cookie. */
+export function operatorSessionCookieName(request: Request): string {
+  return new URL(request.url).protocol === 'https:'
+    ? `__Host-${OPERATOR_SESSION_COOKIE}`
+    : OPERATOR_SESSION_COOKIE;
+}
+
 export function operatorSessionCookie(request: Request, token: string): string {
-  return buildCookie(request, OPERATOR_SESSION_COOKIE, token, OPERATOR_SESSION_MAX_AGE);
+  return buildCookie(request, operatorSessionCookieName(request), token, OPERATOR_SESSION_MAX_AGE);
 }
 
 export function clearedOperatorSessionCookie(request: Request): string {
-  return buildCookie(request, OPERATOR_SESSION_COOKIE, '', 0);
+  return buildCookie(request, operatorSessionCookieName(request), '', 0);
 }
 
 export function mintOperatorToken(): string {
@@ -31,7 +38,10 @@ export function mintOperatorToken(): string {
  * minted here can never resolve on the merchant Worker and vice versa.
  */
 export async function getOperator(request: Request, env: Env): Promise<Operator | null> {
-  const token = readCookie(request, OPERATOR_SESSION_COOKIE);
+  // Prefer the `__Host-` name, then the pre-rename name so sessions issued
+  // before the change keep working through their lifetime.
+  const token =
+    readCookie(request, `__Host-${OPERATOR_SESSION_COOKIE}`) ?? readCookie(request, OPERATOR_SESSION_COOKIE);
   if (!token) return null;
 
   const tokenHash = await sha256Hex(token);
@@ -61,5 +71,5 @@ export async function getOperatorProfile(operatorId: string, env: Env): Promise<
 }
 
 export async function currentOperatorToken(request: Request): Promise<string | null> {
-  return readCookie(request, OPERATOR_SESSION_COOKIE);
+  return readCookie(request, `__Host-${OPERATOR_SESSION_COOKIE}`) ?? readCookie(request, OPERATOR_SESSION_COOKIE);
 }

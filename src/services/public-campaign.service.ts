@@ -48,6 +48,8 @@ export interface ParticipationInput {
   deviceHash?: string | undefined;
   latitude?: number | undefined;
   longitude?: number | undefined;
+  /** Cloudflare Turnstile token (M7); only sent when the server requires it. */
+  turnstileToken?: string | undefined;
 }
 
 export interface CustomerDetailsInput {
@@ -90,7 +92,11 @@ async function parseError(response: Response): Promise<never> {
 const actionTickets = new Map<string, string>();
 
 export class PublicCampaignService {
-  static async load(publicCode: string): Promise<{ campaign: PublicCampaign; rewards: PublicReward[] } | null> {
+  static async load(publicCode: string): Promise<{
+    campaign: PublicCampaign;
+    rewards: PublicReward[];
+    turnstileSiteKey?: string;
+  } | null> {
     const response = await fetch(`/api/public/campaigns/${encodeURIComponent(publicCode)}`);
 
     if (response.status === 404) return null;
@@ -100,12 +106,17 @@ export class PublicCampaignService {
       campaign: PublicCampaign;
       rewards: PublicReward[];
       actionTicket?: string;
+      turnstileSiteKey?: string;
     };
 
     if (payload.actionTicket) actionTickets.set(publicCode, payload.actionTicket);
     else actionTickets.delete(publicCode);
 
-    return { campaign: payload.campaign, rewards: payload.rewards ?? [] };
+    return {
+      campaign: payload.campaign,
+      rewards: payload.rewards ?? [],
+      ...(payload.turnstileSiteKey ? { turnstileSiteKey: payload.turnstileSiteKey } : {}),
+    };
   }
 
   static async participate(publicCode: string, input: ParticipationInput): Promise<ParticipationResult> {

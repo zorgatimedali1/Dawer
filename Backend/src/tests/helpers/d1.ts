@@ -399,6 +399,11 @@ export type TestEnv = {
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_REDIRECT_URI?: string;
   COOKIE_SIGNING_KEY?: string;
+  GATEWAY_SECRET?: string;
+  APP_ORIGIN?: string;
+  TURNSTILE_SECRET_KEY?: string;
+  TURNSTILE_SITE_KEY?: string;
+  TURNSTILE_HOSTNAMES?: string;
 };
 
 export function createTestEnv(): TestEnv {
@@ -426,5 +431,9 @@ export function createTestEnv(): TestEnv {
     GOOGLE_CLIENT_SECRET: 'client-secret',
     GOOGLE_REDIRECT_URI: 'http://localhost/api/auth/google/callback',
     COOKIE_SIGNING_KEY: 'cookie-signing-key.test',
+    // Required production config (H1/L1): unsubscribe links and password-reset
+    // links fail closed without these, so the test env must provide them.
+    GATEWAY_SECRET: 'gateway-secret.test',
+    APP_ORIGIN: 'https://app.example.test',
   };
 }

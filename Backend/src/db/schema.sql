@@ -165,7 +165,8 @@ CREATE TABLE IF NOT EXISTS campaigns (
   updated_at TEXT NOT NULL,
   play_rules TEXT,
   latitude REAL,
-  longitude REAL
+  longitude REAL,
+  radius_meters REAL
 );
 
 CREATE TABLE IF NOT EXISTS campaign_actions (
@@ -529,7 +530,8 @@ CREATE INDEX IF NOT EXISTS idx_coupons_customer ON coupons(customer_id);
 CREATE INDEX IF NOT EXISTS idx_coupons_campaign ON coupons(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_coupons_reward ON coupons(reward_id);
 CREATE INDEX IF NOT EXISTS idx_coupons_business_status ON coupons(business_id, status);
-CREATE INDEX IF NOT EXISTS idx_coupons_participation ON coupons(participation_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_coupons_participation_unique
+  ON coupons(participation_id);
 CREATE INDEX IF NOT EXISTS idx_participations_campaign ON participations(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_participations_customer ON participations(customer_id);
 CREATE INDEX IF NOT EXISTS idx_participations_reward ON participations(reward_id);

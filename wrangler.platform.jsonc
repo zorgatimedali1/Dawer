@@ -37,7 +37,9 @@
 	"ratelimits": [
 		{
 			"name": "API_RATE_LIMITER",
-			"namespace_id": "92609302",
+			// Unique namespace (was 92609302, which collided with the main
+			// worker's WEBHOOK_RATE_LIMITER — two limits on one counter).
+			"namespace_id": "92609306",
 			"simple": {
 				"limit": 60,
 				"period": 60

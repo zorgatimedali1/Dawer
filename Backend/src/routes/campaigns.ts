@@ -278,7 +278,7 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
       `UPDATE campaigns
        SET name = ?, description = ?, require_action = ?,
            google_maps_name = ?, google_maps_url = ?, google_place_id = ?,
-           latitude = ?, longitude = ?,
+           latitude = ?, longitude = ?, radius_meters = ?,
            facebook_url = ?, instagram_url = ?, play_rules = ?,
            status = COALESCE(?, status),
            start_at = ?, end_at = ?, updated_at = ?
@@ -293,6 +293,7 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
         config.googlePlaceId || null,
         placeCoordinates?.latitude ?? null,
         placeCoordinates?.longitude ?? null,
+        config.radiusMeters ?? null,
         config.facebookUrl || null,
         config.instagramUrl || null,
         config.playRules ? JSON.stringify(config.playRules) : null,
@@ -316,9 +317,9 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
       `INSERT INTO campaigns (
         id, business_id, name, description, public_code, status, start_at, end_at,
         require_action, google_maps_name, google_maps_url, google_place_id,
-        latitude, longitude,
+        latitude, longitude, radius_meters,
         facebook_url, instagram_url, play_rules, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         campaignId,
@@ -335,6 +336,7 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
         config.googlePlaceId || null,
         placeCoordinates?.latitude ?? null,
         placeCoordinates?.longitude ?? null,
+        config.radiusMeters ?? null,
         config.facebookUrl || null,
         config.instagramUrl || null,
         config.playRules ? JSON.stringify(config.playRules) : null,
@@ -344,12 +346,19 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
       .run();
   }
 
+  // M8: attribute writes to the campaign's OWN business, not the caller's
+  // first business. A user with two businesses editing a campaign owned by the
+  // second one previously had its rewards/audit rows written under the first.
+  // For a freshly created campaign `target` is still null, so fall back to the
+  // business we just inserted under.
+  const effectiveBusinessId = target?.business_id ?? businessId;
+
   if (config.rewards) {
-    await syncRewards(env, { id: campaignId, business_id: businessId }, config.rewards);
+    await syncRewards(env, { id: campaignId, business_id: effectiveBusinessId }, config.rewards);
   }
 
   await writeAuditLog(env, {
-    businessId,
+    businessId: effectiveBusinessId,
     userId: user.id,
     action: 'campaign.config.updated',
     entityType: 'campaign',
@@ -582,7 +591,7 @@ async function handleCampaignDuplicate(
   const copyStatements: Array<ReturnType<typeof env.DB.prepare>> = [
     env.DB.prepare(
       `INSERT INTO campaigns (${CAMPAIGN_COLUMNS})
-       VALUES (?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       newId,
       source.business_id,
@@ -604,6 +613,7 @@ async function handleCampaignDuplicate(
       source.play_rules,
       source.latitude ?? null,
       source.longitude ?? null,
+      source.radius_meters ?? null,
     ),
   ];
 

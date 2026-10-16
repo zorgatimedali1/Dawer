@@ -148,6 +148,9 @@ export const errors: D<typeof frDict.errors> = {
   "You have reached today's win limit. Come back tomorrow.": "You have reached today's win limit. Come back tomorrow.",
   'The wheel is at capacity today. Please come back tomorrow.':
     'The wheel is at capacity today. Please come back tomorrow.',
+  'You must be at the venue to play.': 'You must be at the venue to play.',
+  'Please complete the security check.': 'Please complete the security check.',
+  'Bot check failed. Please try again.': 'Bot check failed. Please try again.',
   'This customer has already participated in this campaign.':
     'This customer has already participated in this campaign.',
   'You can create at most 4 campaigns. Delete or archive a campaign first.':

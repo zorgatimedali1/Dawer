@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { errorResponse, jsonResponse } from '../lib/http';
+import { timingSafeEqualString } from '../lib/crypto';
 import { getAuthenticatedUser, getPrimaryBusinessId, writeAuditLog } from '../lib/tenant';
 import { getBusinessAccess } from '../lib/subscription-access';
 import { getWhatsAppBroadcastLimits } from '../lib/subscription-limits';
@@ -626,7 +627,8 @@ async function handleResume(env: Env, user: AuthenticatedUser, businessId: strin
 
 async function handleInternalProgress(request: Request, env: Env): Promise<Response> {
   const provided = request.headers.get('x-callback-secret') ?? '';
-  if (!env.WHATSAPP_WEB_CALLBACK_SECRET || provided !== env.WHATSAPP_WEB_CALLBACK_SECRET) {
+  // L2: constant-time compare, matching every other secret check in the repo.
+  if (!env.WHATSAPP_WEB_CALLBACK_SECRET || !timingSafeEqualString(provided, env.WHATSAPP_WEB_CALLBACK_SECRET)) {
     return errorResponse('Invalid callback secret.', 403);
   }
 

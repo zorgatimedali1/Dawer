@@ -339,13 +339,19 @@ async function handleUnsubscribe(request: Request, env: Env): Promise<Response> 
 
   await addSuppression(env, email, 'unsubscribe');
 
+  const escaped = email
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
   return new Response(
     '<!doctype html><html lang="fr"><head><meta charset="utf-8">' +
       '<meta name="viewport" content="width=device-width,initial-scale=1">' +
       '<title>Désabonnement</title></head>' +
       '<body style="font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;background:#f9fafb">' +
       '<div style="text-align:center;padding:24px"><h1 style="font-size:20px">Vous êtes désabonné</h1>' +
-      `<p style="color:#6b7280">${email} ne recevra plus d'e-mails marketing de notre part.</p>` +
+      `<p style="color:#6b7280">${escaped} ne recevra plus d'e-mails marketing de notre part.</p>` +
       '</div></body></html>',
     { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } },
   );

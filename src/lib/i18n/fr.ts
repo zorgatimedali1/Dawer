@@ -145,6 +145,9 @@ export const errors = {
   "You have reached today's win limit. Come back tomorrow.": 'Vous avez atteint la limite de gains du jour. Revenez demain.',
   'The wheel is at capacity today. Please come back tomorrow.':
     'La roue a atteint sa capacité pour aujourd’hui. Revenez demain !',
+  'You must be at the venue to play.': 'Vous devez être sur place pour jouer.',
+  'Please complete the security check.': 'Veuillez compléter la vérification de sécurité.',
+  'Bot check failed. Please try again.': 'La vérification anti-robot a échoué. Veuillez réessayer.',
   'This customer has already participated in this campaign.':
     'Ce client a déjà participé à cette campagne.',
   'You can create at most 4 campaigns. Delete or archive a campaign first.':

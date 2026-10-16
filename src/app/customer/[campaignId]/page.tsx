@@ -19,6 +19,7 @@ import {
   wheelMotionDurationMs,
 } from '@/lib/wheel-theme';
 import { PrizeWheel } from '@/components/wheel/prize-wheel';
+import { TurnstileWidget } from '@/components/turnstile';
 import {
   PublicCampaignService,
   type ParticipationResult,
@@ -211,6 +212,12 @@ export default function CampaignCustomerPage() {
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [detailsSent, setDetailsSent] = useState(false);
   const [alreadyPlayed, setAlreadyPlayed] = useState(false);
+  // M7 bot protection: only set when the server surfaced a Turnstile site key
+  // (i.e. the operator enabled enforcement). The token is kept in a ref so it
+  // never triggers re-renders, and reset after each attempt (single-use).
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState<string | null>(null);
+  const [turnstileReset, setTurnstileReset] = useState(0);
+  const turnstileTokenRef = useRef<string | null>(null);
   // One in-flight geolocation request for the campaign, started non-blocking
   // as soon as the page knows the campaign has a location (P2-7).
   const locationRequestRef = useRef<Promise<GeoCoords | null> | null>(null);
@@ -233,6 +240,7 @@ export default function CampaignCustomerPage() {
         setCampaign(loaded.campaign);
         setRewards(loaded.rewards);
         setAlreadyPlayed(!isWindowedCampaign(loaded.campaign) && hasPlayed(loaded.campaign.public_code));
+        setTurnstileSiteKey(loaded.turnstileSiteKey ?? null);
       })
       .catch((error: unknown) => {
         if (!cancelled) setLoadError(msg(t, error instanceof Error ? error.message : 'Unable to load this campaign.'));
@@ -462,6 +470,15 @@ export default function CampaignCustomerPage() {
   const handleSpin = async () => {
     if (spinning || !campaign || result) return;
 
+    // M7: when the server requires a Turnstile token, wait for one. A missing
+    // token (widget still solving / failed to load) blocks the request so the
+    // server doesn't reject it, and the widget is reset for a fresh attempt.
+    if (turnstileSiteKey && !turnstileTokenRef.current) {
+      setSpinError(msg(t, 'Please complete the security check.'));
+      setTurnstileReset((n) => n + 1);
+      return;
+    }
+
     setSpinning(true);
     setSpinError(null);
 
@@ -475,6 +492,9 @@ export default function CampaignCustomerPage() {
         anonymousId: anonymousIdFor(campaign.public_code),
         deviceHash: deviceHashFor(),
         ...(coords ? { latitude: coords.latitude, longitude: coords.longitude } : {}),
+        ...(turnstileSiteKey && turnstileTokenRef.current
+          ? { turnstileToken: turnstileTokenRef.current }
+          : {}),
       });
       markPlayed(campaign.public_code);
 
@@ -495,6 +515,11 @@ export default function CampaignCustomerPage() {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unable to spin right now.';
       setSpinning(false);
+
+      // The token was consumed by this attempt (single-use); mint a fresh one
+      // so a retry after a recoverable failure works.
+      turnstileTokenRef.current = null;
+      setTurnstileReset((n) => n + 1);
 
       // The visitor already holds the claim for this campaign — show them the
       // same card they get on arrival instead of an error on the wheel.
@@ -810,6 +835,19 @@ export default function CampaignCustomerPage() {
               {spinError && (
                 <div className="mt-4 rounded-xl border border-danger-300/60 bg-danger-50 p-3 text-sm text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200">
                   {spinError}
+                </div>
+              )}
+
+              {turnstileSiteKey && (
+                <div className="mt-4 flex justify-center">
+                  <TurnstileWidget
+                    siteKey={turnstileSiteKey}
+                    action="participate"
+                    resetSignal={turnstileReset}
+                    onToken={(token) => {
+                      turnstileTokenRef.current = token;
+                    }}
+                  />
                 </div>
               )}
 

@@ -48,6 +48,9 @@ export const participationSchema = z.object({
   /** Optional reported position for the P2-7 proximity signal (soft). */
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
+  /** Cloudflare Turnstile token (M7). Only required when the operator has
+   *  enabled Turnstile; otherwise ignored. */
+  turnstileToken: z.string().trim().min(1).max(2048).optional(),
 });
 
 export const ACTION_CLAIM_KINDS = [
@@ -117,10 +120,22 @@ export const couponUpdateSchema = z
   })
   .refine((value) => Object.keys(value).length > 0, 'Provide a status or expiry date.');
 
-const optionalUrl = z.string().trim().max(2048).refine(
-  (value) => value === '' || URL.canParse(value),
-  'Enter a valid URL.',
-);
+const optionalUrl = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine(
+    (value) => {
+      if (value === '') return true;
+      // M4: only http(s) links are accepted — a `javascript:` (or `data:`,
+      // `vbscript:`, etc.) URL rendered as an <a href> on a public page is a
+      // stored-XSS vector.
+      if (!URL.canParse(value)) return false;
+      const { protocol } = new URL(value);
+      return protocol === 'http:' || protocol === 'https:';
+    },
+    'Enter a valid http(s) URL.',
+  );
 
 export const campaignStatusSchema = z.enum([
   'DRAFT',
@@ -173,6 +188,10 @@ export const campaignConfigSchema = z.object({
   endAt: isoDateTime.optional(),
   rewards: z.array(rewardInputSchema).max(20).optional(),
   playRules: playRulesSchema.optional(),
+  /** Optional hard geofence radius in metres. When set (and the campaign has
+   * resolved coordinates), spins farther than this from the venue are rejected
+   * server-side. NULL/omitted keeps the historic advisory-only proximity. */
+  radiusMeters: z.number().int().min(50).max(5000).nullable().optional(),
 });
 
 export const campaignCreateSchema = z
@@ -291,7 +310,22 @@ export const businessSettingsSchema = z.object({
  linkedinUrl: optionalUrl,
  tiktokUrl: optionalUrl,
  youtubeUrl: optionalUrl,
-  logo: z.string().trim().max(2048),
+  // L6: the logo is rendered as an <img src> on public pages. Allow only an
+  // http(s) URL, an inline data:image, or empty — never an arbitrary scheme.
+  logo: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine(
+      (value) => {
+        if (value === '') return true;
+        if (value.startsWith('data:image/')) return true;
+        if (!URL.canParse(value)) return false;
+        const { protocol } = new URL(value);
+        return protocol === 'http:' || protocol === 'https:';
+      },
+      'Enter a valid image URL.',
+    ),
   primaryColor: hexColor,
   secondaryColor: hexColor,
   notifications: z.object({
@@ -551,7 +585,10 @@ export const LOGO_MIME_TYPES = [
   'image/jpeg',
   'image/webp',
   'image/gif',
-  'image/svg+xml',
+  // L3: image/svg+xml is intentionally NOT allowed. SVG can embed <script> and
+  // event handlers, and these logos are stored in D1 and re-served with the
+  // client-declared content type on the app origin — a stored-XSS vector that
+  // only the API-wide CSP currently blunts. Raster formats only.
 ] as const;
 
 export const MAX_LOGO_BYTES = 512 * 1024;

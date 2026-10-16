@@ -51,4 +51,14 @@ export type Env = Cloudflare.Env & {
   WHATSAPP_WEB_ALLOWLIST?: string;
   /** Shared secret for gateway-to-Worker progress callbacks. */
   WHATSAPP_WEB_CALLBACK_SECRET?: string;
+  /** Cloudflare Turnstile secret key (opt-in bot protection, M7). When set,
+   *  the public participate endpoint requires a valid Turnstile token. When
+   *  unset the check is skipped (fail-open) so nothing breaks before the
+   *  operator provisions a widget. */
+  TURNSTILE_SECRET_KEY?: string;
+  /** Turnstile site key (public), surfaced to the SPA so it can render the
+   *  widget only when enforcement is on. */
+  TURNSTILE_SITE_KEY?: string;
+  /** Optional CSV of frontend hostnames Siteverify must match. */
+  TURNSTILE_HOSTNAMES?: string;
 };

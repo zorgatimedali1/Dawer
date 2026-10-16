@@ -5,6 +5,7 @@ import { actionClaimSchema, customerDetailsSchema, participationSchema, parsePla
 import { secureRandomHex, sha256Hex } from '../lib/crypto';
 import { buildCookie, mintSpinVisitorValue, readSpinVisitor, spinVisitorCookieName, verifySpinVisitorValue } from '../lib/cookie';
 import { mintActionTicket, verifyActionTicket } from '../lib/action-ticket';
+import { verifyTurnstile } from '../lib/turnstile';
 import { distanceMetersBetween } from '../lib/geo';
 import { getCustomerLimit, customerLimitFromAccess, wheelCenterLogoAllowed, wheelDesignAllowed, wheelStepsColorAllowed } from '../lib/subscription-limits';
 import { accessFromSubscriptionRow, readStarterPlan, type BusinessAccess } from '../lib/subscription-access';
@@ -31,6 +32,7 @@ interface SharedCampaignRow {
   instagram_url: string | null;
   latitude: number | null;
   longitude: number | null;
+  radius_meters: number | null;
   business_id: string;
   business_play_policy: string | null;
   business_name: string | null;
@@ -334,6 +336,11 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       campaign,
       rewards: wheelRewards.map(({ quantityInitial: _quantityInitial, ...row }) => row),
       ...(actionTicket ? { actionTicket } : {}),
+      // M7: only surface the site key when enforcement is actually on, so the
+      // SPA renders the Turnstile widget exactly when the server will require it.
+      ...(env.TURNSTILE_SECRET_KEY && env.TURNSTILE_SITE_KEY
+        ? { turnstileSiteKey: env.TURNSTILE_SITE_KEY }
+        : {}),
     });
 
     if (freshCookieValue) {
@@ -415,9 +422,16 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       return errorResponse('Campaign not found.', 404);
     }
 
-    // P2-7 proximity: a soft signal for fraud review. Missing coordinates on
-    // either side (or a client that sends none) just yields no signal — it
-    // never blocks the spin.
+    // M7 bot protection: opt-in Turnstile. Enforced only when the operator has
+    // set TURNSTILE_SECRET_KEY (verifyTurnstile is fail-open on config); a
+    // missing/invalid token is rejected here, before any claim or write work.
+    if (!(await verifyTurnstile(request, env, body.turnstileToken, 'participate'))) {
+      return errorResponse('Bot check failed. Please try again.', 403);
+    }
+
+    // P2-7 proximity: recorded as a soft signal for fraud review. Missing
+    // coordinates on either side (or a client that sends none) just yields no
+    // signal — it never blocks the spin.
     const distanceMeters = (() => {
       if (campaign.latitude == null || campaign.longitude == null) return null;
       if (body.latitude === undefined || body.longitude === undefined) return null;
@@ -425,6 +439,22 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
         distanceMetersBetween(Number(campaign.latitude), Number(campaign.longitude), body.latitude, body.longitude),
       );
     })();
+
+    // Hard geofence (H2): when the merchant opted into a radius and the
+    // campaign has resolved coordinates, a spin farther than `radius_meters`
+    // from the venue is rejected. Coordinates remain client-reported (and thus
+    // spoofable), but this closes the "spin from anywhere on earth" hole for
+    // merchants who want it, while campaigns without a radius keep the
+    // historic advisory-only behaviour.
+    if (
+      campaign.radius_meters != null &&
+      campaign.latitude != null &&
+      campaign.longitude != null &&
+      distanceMeters != null &&
+      distanceMeters > campaign.radius_meters
+    ) {
+      return errorResponse('You must be at the venue to play.', 403);
+    }
 
     const withinWindow =
       (!campaign.start_at || campaign.start_at <= nowIso) &&
@@ -1195,10 +1225,14 @@ async function handleCustomerDetails(
     // `WHERE NOT EXISTS` guard makes a replayed submit idempotent, and a
     // `type = 'none'` slice never wins a coupon at all.
     if (participation.reward_id && participation.reward_type !== 'none') {
+      // Race-safe (M1): the partial UNIQUE index on participation_id plus
+      // `ON CONFLICT ... DO NOTHING` means two concurrent submits can never
+      // mint two codes — the loser simply gets no row and falls through to the
+      // SELECT below, which returns the winner's code.
       await env.DB.prepare(
         `INSERT INTO coupons (id, business_id, campaign_id, customer_id, participation_id, reward_id, code, status, issued_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, 'ISSUED', ?
-         WHERE NOT EXISTS (SELECT 1 FROM coupons WHERE participation_id = ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'ISSUED', ?)
+         ON CONFLICT(participation_id) DO NOTHING`,
       )
         .bind(
           crypto.randomUUID(),
@@ -1209,7 +1243,6 @@ async function handleCustomerDetails(
           participation.reward_id,
           `CF-${secureRandomHex(8).toUpperCase()}`,
           now,
-          participation.id,
         )
         .run();
     }

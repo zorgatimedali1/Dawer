@@ -331,9 +331,9 @@ async function handleCouponUpdate(request: Request, env: Env, user: Authenticate
   const expiresAt = input.expiresAt ?? coupon.expires_at;
 
   await env.DB.prepare(
-    `UPDATE coupons SET status = ?, redeemed_at = ?, expires_at = ? WHERE id = ?`,
+    `UPDATE coupons SET status = ?, redeemed_at = ?, expires_at = ? WHERE id = ? AND business_id = ?`,
   )
-    .bind(nextStatus, redeemedAt, expiresAt, couponId)
+    .bind(nextStatus, redeemedAt, expiresAt, couponId, coupon.business_id)
     .run();
 
   if (coupon.status !== 'REDEEMED' && nextStatus === 'REDEEMED') {
@@ -463,8 +463,8 @@ async function handleRewardPatch(request: Request, env: Env, user: Authenticated
   updates.push('updated_at = ?');
   params.push(new Date().toISOString());
 
-  await env.DB.prepare(`UPDATE rewards SET ${updates.join(', ')} WHERE id = ?`)
-    .bind(...params, rewardId)
+  await env.DB.prepare(`UPDATE rewards SET ${updates.join(', ')} WHERE id = ? AND business_id = ?`)
+    .bind(...params, rewardId, reward.business_id)
     .run();
 
   // A merchant emptying a capped reward's stock is exactly the sold-out case:
@@ -620,8 +620,10 @@ async function handleQrPatch(request: Request, env: Env, user: AuthenticatedUser
   if (input.active !== undefined) { updates.push('active = ?'); params.push(input.active ? 1 : 0); }
 
   if (updates.length > 0) {
-    await env.DB.prepare(`UPDATE qr_codes SET ${updates.join(', ')} WHERE id = ?`)
-      .bind(...params, qrId)
+    await env.DB.prepare(
+      `UPDATE qr_codes SET ${updates.join(', ')} WHERE id = ? AND business_id IN (${placeholders(businessIds.length)})`,
+    )
+      .bind(...params, qrId, ...businessIds)
       .run();
   }
 
@@ -745,8 +747,8 @@ async function handlePosterPatch(request: Request, env: Env, user: Authenticated
   updates.push('updated_at = ?');
   params.push(new Date().toISOString());
 
-  await env.DB.prepare(`UPDATE posters SET ${updates.join(', ')} WHERE id = ?`)
-    .bind(...params, posterId)
+  await env.DB.prepare(`UPDATE posters SET ${updates.join(', ')} WHERE id = ? AND business_id = ?`)
+    .bind(...params, posterId, poster.business_id)
     .run();
 
   await writeAuditLog(env, {
