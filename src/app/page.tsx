@@ -10,7 +10,8 @@ import {
   Workflow,
   X,
 } from 'lucide-react';
-import { getHomepagePlans, formatPlanInterval, formatPlanPrice } from '@/lib/plan-catalog';
+import { mergeLiveHomepagePlans, formatPlanInterval, formatPlanPrice, type LivePlan } from '@/lib/plan-catalog';
+import { PublicPlansService } from '@/services/public-plans.service';
 import { DEMO_VIDEO_EMBED_URL } from '@/lib/demo-video';
 import { DawerLogo } from '@/components/brand/dawer-logo';
 import { PartnerMarquee } from '@/components/marketing/partner-marquee';
@@ -37,6 +38,23 @@ export default function Home() {
   const locale = useLocale();
   const weekDays = locale === 'fr' ? weekDaysFr : weekDaysEn;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Live operator-maintained plans; null until the feed answers, in which case
+  // the bundled catalog stays (never a blank pricing section).
+  const [livePlans, setLivePlans] = useState<LivePlan[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void PublicPlansService.list()
+      .then((plans) => {
+        if (!cancelled && plans.length > 0) setLivePlans(plans);
+      })
+      .catch(() => {
+        // A pricing feed failure must never break the page: keep the catalog.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Arriving with a #demo hash (e.g. right after sign-out): the browser's own
   // fragment scroll fires before this SPA renders, so re-run it once the
@@ -390,7 +408,7 @@ export default function Home() {
           </div>
 
           <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-            {getHomepagePlans(locale).map((plan) => {
+            {mergeLiveHomepagePlans(locale, livePlans).map((plan) => {
               const featured = plan.slug === 'growth';
               const badge = plan.badge;
               return (

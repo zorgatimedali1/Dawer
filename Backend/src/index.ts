@@ -15,6 +15,7 @@ import { handleBusinessRoute } from './routes/business';
 import { handleEmailAssetRoute, handleEmailRoute } from './routes/email';
 import { handlePlacesAutocomplete } from './routes/places';
 import { handlePublicPartnerRoute } from './routes/partners';
+import { handlePublicPlansRoute } from './routes/public-plans';
 import { handlePublicCampaignRoute } from './routes/public';
 import { handleSettingsRoute } from './routes/settings';
 import { handleWhatsAppRoute } from './routes/whatsapp';
@@ -138,6 +139,14 @@ app.use(
   '/api/public/partners',
   createRateLimitMiddleware(env.PUBLIC_RATE_LIMITER),
   createWorkerRoute(handlePublicPartnerRoute, env, { cacheTtlSeconds: 30 }),
+);
+// Public pricing feed for the landing page: same treatment as the partner
+// marquee (global reach, public bucket, 30s edge cache) so operator plan
+// edits reach visitors without waiting on a redeploy.
+app.use(
+  '/api/public/plans',
+  createRateLimitMiddleware(env.PUBLIC_RATE_LIMITER),
+  createWorkerRoute(handlePublicPlansRoute, env, { cacheTtlSeconds: 30 }),
 );
 // Campaign attachment bytes (inline images fetched by mail scanners from
 // inside the inbox): served outside the TN geofence on purpose — the

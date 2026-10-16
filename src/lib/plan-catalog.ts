@@ -25,9 +25,18 @@ export interface HomepagePlan {
   readonly slug: string;
   readonly priceCents: number;
   readonly interval: string;
-  readonly badge?: string;
-  readonly featured?: boolean;
+  readonly badge?: string | undefined;
+  readonly featured?: boolean | undefined;
   readonly features: readonly string[];
+}
+
+/** A live plan row from `GET /api/public/plans` (operator-maintained). */
+export interface LivePlan {
+  name: string;
+  slug: string;
+  priceCents: number;
+  interval: string;
+  features: string[];
 }
 
 const homepagePlans: Record<Locale, readonly HomepagePlan[]> = {
@@ -75,6 +84,33 @@ export function getPlanMarketing(locale: Locale): Record<string, MarketingPlan> 
 
 export function getHomepagePlans(locale: Locale): readonly HomepagePlan[] {
   return homepagePlans[locale];
+}
+
+/**
+ * Overlays the operator-maintained plan list (name, price, interval, bullets)
+ * onto the bundled catalog. The catalog only supplies what D1 does not store:
+ * the localized badge and the featured flag, matched by slug. An empty or
+ * failed live list keeps the bundled catalog, so the section never blanks.
+ */
+export function mergeLiveHomepagePlans(
+  locale: Locale,
+  live: readonly LivePlan[] | null,
+): readonly HomepagePlan[] {
+  const fallback = homepagePlans[locale];
+  if (!live || live.length === 0) return fallback;
+
+  return live.map((plan) => {
+    const catalogEntry = fallback.find((entry) => entry.slug === plan.slug);
+    return {
+      name: plan.name,
+      slug: plan.slug,
+      priceCents: plan.priceCents,
+      interval: plan.interval,
+      badge: catalogEntry?.badge,
+      featured: catalogEntry?.featured,
+      features: plan.features.length > 0 ? plan.features : (catalogEntry?.features ?? []),
+    } satisfies HomepagePlan;
+  });
 }
 
 export function formatPlanPrice(priceCents: number): string {
