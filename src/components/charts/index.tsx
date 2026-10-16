@@ -10,7 +10,7 @@ function niceMax(value: number): number {
   return step * magnitude;
 }
 
-function ChartEmpty({ children }: { children: React.ReactNode }) {
+export function ChartEmpty({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-line-strong bg-surface-2/50 px-6 text-center">
       <svg viewBox="0 0 48 32" className="h-8 w-12 text-brand-500/70" aria-hidden fill="none">
@@ -43,13 +43,15 @@ export function BarChart({
   data,
   ariaLabel,
   formatValue = (value) => value.toLocaleString(),
+  emptyLabel = 'No data in this window.',
 }: {
   data: BarDatum[];
   ariaLabel: string;
   formatValue?: (value: number) => string;
+  emptyLabel?: string;
 }) {
   if (data.length === 0 || data.every((point) => point.value <= 0)) {
-    return <ChartEmpty>No data in this window.</ChartEmpty>;
+    return <ChartEmpty>{emptyLabel}</ChartEmpty>;
   }
 
   const plotWidth = WIDTH - PAD.left - PAD.right;
@@ -167,13 +169,15 @@ export function LineChart({
   points,
   series,
   ariaLabel,
+  emptyLabel = 'No activity in this window.',
 }: {
   points: LinePoint[];
   series: Array<{ key: string; label: string; variable: string }>;
   ariaLabel: string;
+  emptyLabel?: string;
 }) {
   if (points.length === 0 || points.every((point) => point.values.every((value) => value <= 0))) {
-    return <ChartEmpty>No activity in this window.</ChartEmpty>;
+    return <ChartEmpty>{emptyLabel}</ChartEmpty>;
   }
 
   const plotWidth = WIDTH - PAD.left - PAD.right;
@@ -291,15 +295,29 @@ export interface DonutSlice {
   label: string;
   value: number;
   variable: string;
+  /** Optional legend override (e.g. "12%"); defaults to the raw value. */
+  display?: React.ReactNode;
 }
 
 /**
  * Donut chart for plan distribution. Values below 4% are merged into a single
  * "Other" slice so the legend stays readable — callers can pre-merge instead.
  */
-export function DonutChart({ slices, ariaLabel, centerLabel }: { slices: DonutSlice[]; ariaLabel: string; centerLabel?: string }) {
+export function DonutChart({
+  slices,
+  ariaLabel,
+  centerLabel,
+  totalLabel = 'total',
+  emptyLabel = 'No data yet.',
+}: {
+  slices: DonutSlice[];
+  ariaLabel: string;
+  centerLabel?: string;
+  totalLabel?: string;
+  emptyLabel?: string;
+}) {
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
-  if (total <= 0) return <ChartEmpty>No subscriptions yet.</ChartEmpty>;
+  if (total <= 0) return <ChartEmpty>{emptyLabel}</ChartEmpty>;
 
   const radius = 70;
   const stroke = 26;
@@ -341,7 +359,7 @@ export function DonutChart({ slices, ariaLabel, centerLabel }: { slices: DonutSl
           {total.toLocaleString()}
         </text>
         <text x="90" y="106" textAnchor="middle" fontSize="11" style={{ fill: 'rgb(var(--chart-label))' }}>
-          {centerLabel ?? 'total'}
+          {centerLabel ?? totalLabel}
         </text>
       </svg>
 
@@ -356,7 +374,7 @@ export function DonutChart({ slices, ariaLabel, centerLabel }: { slices: DonutSl
               />
               {slice.label}
             </span>
-            <span className="numeric font-semibold text-ink">{slice.value}</span>
+            <span className="numeric font-semibold text-ink">{slice.display ?? slice.value}</span>
           </li>
         ))}
       </ul>
@@ -389,4 +407,50 @@ export function MetricBar({ label, value, max, hint }: { label: string; value: n
   );
 }
 
-export { ChartEmpty };
+/**
+ * Tiny inline trend line for KPI card footers. Decorative by default
+ * (`aria-hidden`); pass `ariaLabel` when the trend itself is information.
+ */
+export function Sparkline({
+  values,
+  className,
+  ariaLabel,
+  variable = '--series-1',
+}: {
+  values: number[];
+  className?: string;
+  ariaLabel?: string;
+  variable?: string;
+}) {
+  if (values.length === 0) return null;
+
+  const width = 96;
+  const height = 28;
+  const max = Math.max(...values, 0);
+  const min = Math.min(...values, 0);
+  const span = max - min || 1;
+  const xAt = (index: number): number => (values.length === 1 ? width / 2 : (index / (values.length - 1)) * width);
+  const yAt = (value: number): number => height - 2 - ((value - min) / span) * (height - 4);
+  const path = values.map((value, index) => `${index === 0 ? 'M' : 'L'}${xAt(index)} ${yAt(value)}`).join(' ');
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className={className ?? 'h-7 w-full'}
+      role={ariaLabel ? 'img' : undefined}
+      aria-label={ariaLabel}
+      aria-hidden={ariaLabel ? undefined : true}
+      preserveAspectRatio="none"
+    >
+      <path
+        d={path}
+        fill="none"
+        stroke={`rgb(var(${variable}))`}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}

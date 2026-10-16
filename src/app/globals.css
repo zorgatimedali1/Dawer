@@ -32,10 +32,12 @@
   --shadow-color: 23 32 20;
 
   /* Data-visualisation hues. Green leads; blue and amber separate the
-     remaining series without turning the dashboard into a rainbow. */
+     remaining series without turning the dashboard into a rainbow.
+     Violet is reserved for the scans overlay (drawn dashed). */
   --series-1: 125 171 75; /* #7DAB4B */
   --series-2: 47 111 172; /* #2F6FAC */
   --series-3: 184 123 18; /* #B87B12 */
+  --series-4: 139 107 181; /* #8B6BB5 */
   --chart-grid: 227 235 217; /* #E3EBD9 */
   --chart-label: 102 112 95; /* #66705F */
 
@@ -68,6 +70,7 @@ html.dark {
   --series-1: 165 207 104; /* #A5CF68 */
   --series-2: 74 139 204; /* #4A8BCC */
   --series-3: 222 155 34; /* #DE9B22 */
+  --series-4: 180 155 224; /* #B49BE0 */
   --chart-grid: 42 56 35; /* #2A3823 */
   --chart-label: 167 177 158; /* #A7B19E */
 

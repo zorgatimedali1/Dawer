@@ -1,4 +1,4 @@
-﻿import { act, render, screen, waitFor } from '@testing-library/react';
+﻿import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -273,5 +273,91 @@ describe('merchant analytics page', () => {
     // Rare (70) sold out: only Prochaine fois keeps weight, so it is 100%.
     expect(screen.getByText('0%')).toBeInTheDocument();
     expect(screen.getByText('100%')).toBeInTheDocument();
+  });
+
+  it('renders period-over-period deltas when the previous window has data', async () => {
+    stubFetch((url) => {
+      if (url.includes('/api/analytics/timeseries')) {
+        // Current window: 4 participations/day. The doubled fetch returns a
+        // 60-day series whose first half (previous window) is 2/day, so the
+        // player count must read +100%.
+        if (url.includes('days=60')) {
+          const series = [
+            ...Array.from({ length: 30 }, () => ({
+              day: '2026-08-15',
+              participations: 2,
+              rewardsClaimed: 1,
+              couponsRedeemed: 0,
+              scans: 3,
+              total: 2,
+            })),
+            ...Array.from({ length: 30 }, () => ({
+              day: '2026-09-14',
+              participations: 4,
+              rewardsClaimed: 2,
+              couponsRedeemed: 1,
+              scans: 6,
+              total: 4,
+            })),
+          ];
+          return jsonResponse({ success: true, days: 60, series });
+        }
+        return jsonResponse(seriesPayload(url.includes('days=7') ? 7 : 30));
+      }
+      if (url.includes('/api/analytics/funnel')) return jsonResponse(FUNNEL);
+      if (url.includes('/api/analytics/rankings')) return jsonResponse(RANKINGS);
+      if (url.includes('/api/analytics/overview')) return jsonResponse(OVERVIEW);
+      if (url.includes('/api/business/rewards')) return jsonResponse({ success: true, rewards: [] });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Scans (30 j)')).toBeInTheDocument();
+    // Scans, players, rewards and redeemed all doubled vs the previous window.
+    expect(screen.getAllByText('+100%').length).toBeGreaterThanOrEqual(4);
+    expect(screen.getAllByText('vs 30 j précédents').length).toBeGreaterThanOrEqual(4);
+    // Conversion: current 25% vs previous 0% (redeemed 0 in the old window)
+    // has no rate change base... previous redeemed is 30 (1/day×30) over 60
+    // participations = 5%, so 25% - 5% = +20 pts.
+    expect(screen.getAllByText(/\+[\d.]+ pts/).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('opens the campaign drill-down from a ranking row', async () => {
+    stubFetch((url) => {
+      if (url.includes('/api/analytics/campaigns/c1')) {
+        return jsonResponse({
+          success: true,
+          events: [
+            {
+              id: 'e1',
+              event_type: 'PARTICIPATION',
+              event_data: null,
+              created_at: '2026-09-14T10:00:00.000Z',
+            },
+            {
+              id: 'e2',
+              event_type: 'COUPON_REDEEMED',
+              event_data: null,
+              created_at: '2026-09-13T09:00:00.000Z',
+            },
+          ],
+        });
+      }
+      return defaultHandler()(url);
+    });
+
+    const user = userEvent.setup();
+    renderPage();
+
+    const trigger = await screen.findByRole('button', { name: 'Coffee Spin' });
+    await user.click(trigger);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByText('Activité de la campagne')).toBeInTheDocument();
+    expect(within(dialog).getByText('Participations aux campagnes')).toBeInTheDocument();
+    expect(within(dialog).getByText('Coupons utilisés')).toBeInTheDocument();
+    expect(within(dialog).getByText('Derniers événements')).toBeInTheDocument();
   });
 });

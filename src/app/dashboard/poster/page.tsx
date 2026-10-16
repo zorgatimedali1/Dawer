@@ -18,7 +18,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import QRCode from 'qrcode';
-import { DawerLogo } from '@/components/brand/dawer-logo';
+import dawerBlancLogo from '@/assets/logo dawer blanc.png';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -730,7 +730,7 @@ function PosterPreview({
           </span>
 
           <div
-            className={moveableClass('logo', 'absolute bottom-[5cqw] right-[5cqw] flex flex-row items-center gap-[4cqw]')}
+            className={moveableClass('logo', 'absolute bottom-[5cqw] right-[5cqw] flex flex-row items-center gap-[2cqw]')}
             style={moveableStyle('logo')}
             data-testid="poster-logo"
             onPointerDown={moveMode ? (event) => startDrag('logo', event) : undefined}
@@ -738,14 +738,14 @@ function PosterPreview({
             onPointerUp={moveMode ? (event) => endDrag('logo', event) : undefined}
             onPointerCancel={moveMode ? (event) => endDrag('logo', event) : undefined}
           >
-            <span className="font-semibold text-white/90" style={{ fontSize: '3.4cqw' }}>
+            <span className="font-semibold text-white/90" style={{ fontSize: '2.8cqw' }}>
               Powered by
             </span>
-            <DawerLogo
+            <img
+              src={dawerBlancLogo}
               alt={t.poster.logoAlt}
-              tone="white"
               draggable={false}
-              className="block h-[4.2cqw] w-auto object-contain drop-shadow-[0_0.2cqw_0.4cqw_rgba(20,60,20,0.25)]"
+              className="block h-[20.4cqw] w-[20.4cqw] object-contain drop-shadow-[0_0.2cqw_0.4cqw_rgba(20,60,20,0.25)]"
             />
           </div>
           {qrError && <p className="absolute bottom-1 left-2 right-2 text-[10px] text-rose-700">{qrError}</p>}

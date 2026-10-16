@@ -4,15 +4,25 @@ import { getBusinessAccess } from '../lib/subscription-access';
 import type { Env } from '../types';
 
 /** D1 stores ISO-8601 strings, so a plain substring is a UTC calendar date. */
-const DAY_BUCKETS = new Set([7, 30, 90]);
+const MIN_DAYS = 1;
+const MAX_DAYS = 365;
+const DEFAULT_DAYS = 30;
 
 function isoDay(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * Accepts any integer window in [1, 365] so the dashboard can request a
+ * doubled window (e.g. 60 or 180 days) for previous-period KPI deltas.
+ * Anything else (missing, non-numeric, out of range) falls back to 30.
+ */
 function parseDayParam(raw: string | null): number {
-  const parsed = Number(raw ?? '30');
-  return DAY_BUCKETS.has(parsed) ? parsed : 30;
+  const parsed = Number(raw ?? String(DEFAULT_DAYS));
+  if (!Number.isFinite(parsed)) return DEFAULT_DAYS;
+  const days = Math.floor(parsed);
+  if (days < MIN_DAYS || days > MAX_DAYS) return DEFAULT_DAYS;
+  return days;
 }
 
 /**

@@ -218,6 +218,11 @@ export default function CampaignsPage() {
           {t.campaigns.configureWheel}
         </Link>
       </Button>
+      <Button asChild variant="outline" size={size}>
+        <Link to={`/dashboard/analytics?campaign=${encodeURIComponent(campaign.id)}`}>
+          {t.campaigns.viewAnalytics}
+        </Link>
+      </Button>
       <Button
         variant="outline"
         size={size}

@@ -1,7 +1,22 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { FunnelChart, TimeSeriesChart } from '@/components/analytics-charts';
+import { FunnelChart, TimeSeriesChart, type FunnelLabels, type TimeSeriesLabels } from '@/components/analytics-charts';
 import type { FunnelResult, TimeseriesPoint } from '@/services/analytics.service';
+
+const LABELS: TimeSeriesLabels = {
+  played: 'Played',
+  rewards: 'Rewards',
+  redeemed: 'Redeemed',
+  scans: 'Scans',
+  empty: 'No activity in this window.',
+  aria: 'Daily campaign activity',
+};
+
+const FUNNEL_LABELS: FunnelLabels = {
+  rewardRate: 'Reward rate',
+  redemptionRate: 'Redemption rate',
+  uniqueCustomers: 'Unique customers',
+};
 
 function buildSeries(days: number): TimeseriesPoint[] {
   return Array.from({ length: days }, (_, index) => ({
@@ -16,16 +31,16 @@ function buildSeries(days: number): TimeseriesPoint[] {
 
 describe('TimeSeriesChart', () => {
   it('renders a point per day', () => {
-    const { container } = render(<TimeSeriesChart data={buildSeries(7)} />);
+    const { container } = render(<TimeSeriesChart data={buildSeries(7)} labels={LABELS} />);
     const paths = container.querySelectorAll('path');
 
-    // one area band + one stroke per series
+    // one area band + one stroke per stacked series (no scans line when flat)
     expect(paths.length).toBe(6);
     expect(screen.getByRole('img', { name: /daily campaign activity/i })).toBeInTheDocument();
   });
 
   it('renders one area band per series even when every value is zero', () => {
-    const { container } = render(<TimeSeriesChart data={buildSeries(30)} />);
+    const { container } = render(<TimeSeriesChart data={buildSeries(30)} labels={LABELS} />);
     expect(container.querySelectorAll('path')).toHaveLength(6);
 
     for (const path of container.querySelectorAll('path')) {
@@ -33,15 +48,23 @@ describe('TimeSeriesChart', () => {
     }
   });
 
+  it('overlays a dashed scans line when scans are present', () => {
+    const data = buildSeries(7).map((point) => ({ ...point, scans: 3 }));
+    const { container } = render(<TimeSeriesChart data={data} labels={LABELS} />);
+    // 3 bands + 3 strokes + 1 scans overlay
+    expect(container.querySelectorAll('path')).toHaveLength(7);
+    expect(screen.getByText('Scans')).toBeInTheDocument();
+  });
+
   it('shows an empty state instead of a chart', () => {
-    render(<TimeSeriesChart data={[]} />);
+    render(<TimeSeriesChart data={[]} labels={LABELS} />);
     expect(screen.getByText(/no activity in this window/i)).toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
   it('labels a single-day window without dividing by zero', () => {
     const { container } = render(
-      <TimeSeriesChart data={[{ day: '2026-01-01', participations: 5, rewardsClaimed: 0, couponsRedeemed: 0, scans: 0, total: 5 }]} />,
+      <TimeSeriesChart data={[{ day: '2026-01-01', participations: 5, rewardsClaimed: 0, couponsRedeemed: 0, scans: 0, total: 5 }]} labels={LABELS} />,
     );
     expect(container.querySelectorAll('path').length).toBe(6);
   });
@@ -57,7 +80,7 @@ describe('TimeSeriesChart', () => {
       total: index === 15 ? 1 : 0,
     }));
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    render(<TimeSeriesChart data={data} />);
+    render(<TimeSeriesChart data={data} labels={LABELS} />);
     const duplicateKeyWarnings = errorSpy.mock.calls.filter((args) =>
       String(args[0]).includes('same key'),
     );
@@ -85,7 +108,7 @@ describe('FunnelChart', () => {
   };
 
   it('renders every stage with its value', () => {
-    render(<FunnelChart result={result} />);
+    render(<FunnelChart result={result} labels={FUNNEL_LABELS} />);
     expect(screen.getByText('Played')).toBeInTheDocument();
     expect(screen.getByText('Reward earned')).toBeInTheDocument();
     expect(screen.getByText('Coupon redeemed')).toBeInTheDocument();
@@ -95,7 +118,7 @@ describe('FunnelChart', () => {
   });
 
   it('shows the summary rates', () => {
-    render(<FunnelChart result={result} />);
+    render(<FunnelChart result={result} labels={FUNNEL_LABELS} />);
     expect(screen.getByText('Reward rate')).toBeInTheDocument();
     expect(screen.getByText('Redemption rate')).toBeInTheDocument();
     expect(screen.getByText('Unique customers')).toBeInTheDocument();
@@ -119,7 +142,7 @@ describe('FunnelChart', () => {
       },
     };
 
-    render(<FunnelChart result={empty} />);
+    render(<FunnelChart result={empty} labels={FUNNEL_LABELS} />);
     expect(screen.getByText('Played')).toBeInTheDocument();
     expect(screen.getByText('Reward rate')).toBeInTheDocument();
   });

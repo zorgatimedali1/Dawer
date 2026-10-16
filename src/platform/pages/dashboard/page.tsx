@@ -11,7 +11,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import StatCard from '@/components/ui/stat-card';
-import { BarChart, DonutChart, LineChart, type DonutSlice } from '@/platform/components/charts';
+import { BarChart, DonutChart, LineChart, type DonutSlice } from '@/components/charts';
 import {
   StatsService,
   formatTND,
@@ -232,7 +232,7 @@ export default function DashboardPage() {
               <h3 className="text-base font-medium text-ink">Plan distribution</h3>
               <p className="text-sm text-ink-muted">Active subscriptions by plan</p>
             </div>
-            <DonutChart slices={planSlices} ariaLabel="Active subscriptions by plan" centerLabel="subscriptions" />
+            <DonutChart slices={planSlices} ariaLabel="Active subscriptions by plan" centerLabel="subscriptions" emptyLabel="No subscriptions yet." />
           </div>
         </Card>
       </div>

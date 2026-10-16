@@ -102,7 +102,7 @@ export class AnalyticsService {
     };
   }
 
-  static async timeSeries(days: 7 | 30 | 90 = 30): Promise<TimeseriesPoint[]> {
+  static async timeSeries(days: number = 30): Promise<TimeseriesPoint[]> {
     const result = await apiRequest<{ success: boolean; series: TimeseriesPoint[] }>(
       'GET',
       `/api/analytics/timeseries?days=${days}`,
@@ -112,7 +112,7 @@ export class AnalyticsService {
     return result.series ?? [];
   }
 
-  static async funnel(days: 7 | 30 | 90 = 30): Promise<FunnelResult> {
+  static async funnel(days: number = 30): Promise<FunnelResult> {
     const result = await apiRequest<{ success: boolean; stages: FunnelStage[]; conversion: FunnelConversion }>(
       'GET',
       `/api/analytics/funnel?days=${days}`,
@@ -134,7 +134,7 @@ export class AnalyticsService {
     };
   }
 
-  static async rankings(days: 7 | 30 | 90 = 30): Promise<Rankings> {
+  static async rankings(days: number = 30): Promise<Rankings> {
     const result = await apiRequest<{ success: boolean; campaigns: RankedCampaign[]; rewards: RankedReward[] }>(
       'GET',
       `/api/analytics/rankings?days=${days}`,

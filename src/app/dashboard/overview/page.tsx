@@ -12,7 +12,7 @@ import {
   UserRound,
   Users,
 } from 'lucide-react';
-import { AnalyticsService, type AnalyticsSummary } from '@/services/analytics.service';
+import { AnalyticsService, type AnalyticsSummary, type TimeseriesPoint } from '@/services/analytics.service';
 import { CampaignService, type Campaign, type CampaignStatusKey } from '@/services/campaign.service';
 import { RewardService, type RewardSummary } from '@/services/reward.service';
 import type { BillingAccess } from '@/services/billing.service';
@@ -25,6 +25,7 @@ import { PageHeader, Section } from '@/components/ui/page-header';
 import { Progress } from '@/components/ui/toast';
 import { Skeleton, SkeletonCard } from '@/components/ui/skeleton';
 import { StatCard } from '@/components/ui/stat-card';
+import { Sparkline } from '@/components/charts';
 import { EntityTile } from '@/components/ui/avatar';
 import { interpolate, msg, type Dictionary } from '@/lib/i18n';
 import { useLocale, useT } from '@/hooks/use-t';
@@ -36,6 +37,8 @@ interface OverviewData {
   access: BillingAccess;
   hasAnalytics: boolean;
   daysLeft: number | null;
+  /** Last-30-day daily series for the KPI sparklines; null without analytics. */
+  timeseries: TimeseriesPoint[] | null;
 }
 
 function formatDate(value: string, fallback: string): string {
@@ -85,8 +88,11 @@ export default function OverviewPage() {
       CampaignService.getCampaigns({ limit: 20 }),
       RewardService.list(),
       hasAnalytics ? AnalyticsService.overview() : Promise.resolve(null),
+      hasAnalytics
+        ? AnalyticsService.timeSeries(30).catch(() => null)
+        : Promise.resolve(null),
     ])
-      .then(([campaigns, rewards, overview]) => {
+      .then(([campaigns, rewards, overview, timeseries]) => {
         setData({
           summary: overview?.summary ?? null,
           campaigns,
@@ -96,6 +102,7 @@ export default function OverviewPage() {
           daysLeft: access.endsAt
             ? Math.max(0, Math.ceil((new Date(access.endsAt).getTime() - Date.now()) / 86_400_000))
             : null,
+          timeseries,
         });
       })
       .catch((cause: unknown) =>
@@ -131,10 +138,15 @@ export default function OverviewPage() {
     );
   }
 
-  const { summary, campaigns, rewards, access, hasAnalytics } = data;
+  const { summary, campaigns, rewards, access, hasAnalytics, timeseries } = data;
   const activeCampaigns = campaigns.filter((campaign) => campaign.status !== 'archived').slice(0, 5);
   const topRewards = [...rewards].sort((a, b) => b.issuedCount - a.issuedCount).slice(0, 5);
   const maxParticipants = Math.max(1, ...campaigns.map((campaign) => campaign.participantCount));
+
+  // Sparkline inputs: daily values over the last 30 days. Customers has no
+  // daily event series, so that card stays sparkline-free.
+  const sparkline = (pick: (point: TimeseriesPoint) => number): number[] | undefined =>
+    timeseries && timeseries.length > 1 ? timeseries.map(pick) : undefined;
 
   const cards = summary
     ? [
@@ -144,9 +156,20 @@ export default function OverviewPage() {
           value: summary.participations.toLocaleString(),
           icon: Users,
           featured: true,
+          spark: sparkline((point) => point.participations),
         },
-        { label: t.overview.statRewardsIssued, value: summary.coupons.toLocaleString(), icon: Award },
-        { label: t.overview.statCouponsRedeemed, value: summary.redeemed.toLocaleString(), icon: Ticket },
+        {
+          label: t.overview.statRewardsIssued,
+          value: summary.coupons.toLocaleString(),
+          icon: Award,
+          spark: sparkline((point) => point.rewardsClaimed),
+        },
+        {
+          label: t.overview.statCouponsRedeemed,
+          value: summary.redeemed.toLocaleString(),
+          icon: Ticket,
+          spark: sparkline((point) => point.couponsRedeemed),
+        },
       ]
     : [];
 
@@ -194,6 +217,9 @@ export default function OverviewPage() {
               value={card.value}
               icon={card.icon}
               featured={card.featured}
+              footer={
+                card.spark ? <Sparkline values={card.spark} className="h-7 w-full" /> : undefined
+              }
             />
           ))}
         </div>

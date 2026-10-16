@@ -9,7 +9,8 @@ import { Field } from '@/components/ui/field';
 import { Input, Select } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Ticket } from 'lucide-react';
+import { StatCard } from '@/components/ui/stat-card';
+import { BadgeCheck, Percent, Ticket } from 'lucide-react';
 import { CouponService, type Coupon, type CouponStatus } from '@/services/coupon.service';
 import { msg } from '@/lib/i18n';
 import { useT } from '@/hooks/use-t';
@@ -44,6 +45,27 @@ export default function CouponsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [redeemingId, setRedeemingId] = useState<string | null>(null);
+  // Global counts (not the filtered page): two limit-1 queries read the exact
+  // totals off the paginated endpoint without pulling any rows.
+  const [stats, setStats] = useState<{ total: number; redeemed: number } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      CouponService.list({ status: 'ALL', limit: 1 }),
+      CouponService.list({ status: 'REDEEMED', limit: 1 }),
+    ])
+      .then(([all, redeemed]) => {
+        if (!cancelled) setStats({ total: all.total, redeemed: redeemed.total });
+      })
+      .catch(() => {
+        // Stats are decoration: the list below still works without them.
+        if (!cancelled) setStats(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const load = () => {
     setLoading(true);
@@ -77,6 +99,9 @@ export default function CouponsPage() {
     }
   };
 
+  const redemptionRate =
+    stats && stats.total > 0 ? Math.min(Math.round((stats.redeemed / stats.total) * 1000) / 10, 100) : 0;
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -84,6 +109,19 @@ export default function CouponsPage() {
         title={t.coupons.title}
         description={t.coupons.description}
       />
+
+      {stats ? (
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatCard label={t.coupons.statTotal} value={stats.total} icon={Ticket} />
+          <StatCard label={t.coupons.statRedeemed} value={stats.redeemed} icon={BadgeCheck} />
+          <StatCard
+            label={t.coupons.statRedemptionRate}
+            value={`${redemptionRate}%`}
+            icon={Percent}
+            featured
+          />
+        </div>
+      ) : null}
 
       <Card className="p-5 sm:p-6">
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)]">

@@ -11,7 +11,7 @@ import {
   BarChart,
   LineChart,
   MetricBar,
-} from '@/platform/components/charts';
+} from '@/components/charts';
 import {
   StatsService,
   type ActivityStats,

@@ -265,6 +265,31 @@ describe('GET /api/analytics/timeseries', () => {
     expect(payload.series).toHaveLength(30);
   });
 
+  it('honors arbitrary windows so the dashboard can double-fetch for deltas', async () => {
+    for (const days of [14, 60, 180]) {
+      const payload = await body(
+        await handleAnalyticsRoute(
+          jsonRequest(`/api/analytics/timeseries?days=${days}`, 'GET', undefined, alice.token),
+          env,
+        ),
+      );
+      expect(payload.days).toBe(days);
+      expect(payload.series).toHaveLength(days);
+    }
+  });
+
+  it('clamps out-of-range and non-numeric windows to the 30-day default', async () => {
+    for (const raw of ['0', '-7', '366', 'abc']) {
+      const payload = await body(
+        await handleAnalyticsRoute(
+          jsonRequest(`/api/analytics/timeseries?days=${raw}`, 'GET', undefined, alice.token),
+          env,
+        ),
+      );
+      expect(payload.days).toBe(30);
+    }
+  });
+
   it('excludes other tenants', async () => {
     const payload = await body(
       await handleAnalyticsRoute(
