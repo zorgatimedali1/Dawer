@@ -1,6 +1,12 @@
 import { errorResponse, jsonResponse } from '../lib/http';
 import { findCampaignForUser, getAuthenticatedUser, getBusinessIds, getPrimaryBusinessId } from '../lib/tenant';
 import { getBusinessAccess } from '../lib/subscription-access';
+import {
+  analyticsCacheKey,
+  analyticsTtlSeconds,
+  readAnalyticsCache,
+  writeAnalyticsCache,
+} from '../lib/analytics-cache';
 import type { Env } from '../types';
 
 /** D1 stores ISO-8601 strings, so a plain substring is a UTC calendar date. */
@@ -36,9 +42,61 @@ function analyticsDb(env: Env): D1DatabaseSession {
   return env.DB.withSession('first-unconstrained');
 }
 
+/**
+ * KV-cached analytics: identical (tenant × endpoint × days) requests inside
+ * the TTL window return the stored body without touching D1. `?fresh=1`
+ * bypasses the read, recomputes and re-arms the window (the Refresh button).
+ * Tenants with no businesses skip the cache entirely — their responses are
+ * trivial zeroed payloads and there is nothing to key on.
+ */
+function cachedJsonResponse(body: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'X-Cache': 'HIT',
+    },
+  });
+}
+
+function missJsonResponse(payload: unknown): Response {
+  const response = jsonResponse(payload);
+  response.headers.set('X-Cache', 'MISS');
+  return response;
+}
+
+async function openAnalyticsCache(
+  env: Env,
+  url: URL,
+  businessIds: string[],
+  endpoint: string,
+  days: number,
+): Promise<{ key: string | null; hit: string | null }> {
+  if (businessIds.length === 0) return { key: null, hit: null };
+  const key = await analyticsCacheKey(businessIds, endpoint, days);
+  if (url.searchParams.get('fresh') === '1') return { key, hit: null };
+  return { key, hit: await readAnalyticsCache(env, key) };
+}
+
+async function storeAnalyticsCache(
+  env: Env,
+  key: string | null,
+  days: number,
+  payload: unknown,
+): Promise<Response> {
+  if (!key) {
+    // Not cacheable (no tenant to key on): plain response, no X-Cache stamp.
+    return jsonResponse(payload);
+  }
+  await writeAnalyticsCache(env, key, payload, analyticsTtlSeconds(days));
+  return missJsonResponse(payload);
+}
+
 async function handleTimeSeries(request: Request, env: Env, businessIds: string[]): Promise<Response> {
   const url = new URL(request.url);
   const days = parseDayParam(url.searchParams.get('days'));
+  const cache = await openAnalyticsCache(env, url, businessIds, 'timeseries', days);
+  if (cache.hit !== null) return cachedJsonResponse(cache.hit);
   const since = isoDay(new Date(Date.now() - (days - 1) * 86_400_000));
 
   const byDay = new Map<string, Record<string, number>>();
@@ -103,12 +161,14 @@ async function handleTimeSeries(request: Request, env: Env, businessIds: string[
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
 
-  return jsonResponse({ success: true, days, series });
+  return storeAnalyticsCache(env, cache.key, days, { success: true, days, series });
 }
 
 async function handleFunnel(request: Request, env: Env, businessIds: string[]): Promise<Response> {
   const url = new URL(request.url);
   const days = parseDayParam(url.searchParams.get('days'));
+  const cache = await openAnalyticsCache(env, url, businessIds, 'funnel', days);
+  if (cache.hit !== null) return cachedJsonResponse(cache.hit);
   // Day-truncated, not `now - (days-1)24h`: the timeseries buckets whole UTC
   // days, so both endpoints must open the same window or the stat cards and
   // the funnel disagree for one and the same "30 days" label.
@@ -192,7 +252,7 @@ async function handleFunnel(request: Request, env: Env, businessIds: string[]): 
     { key: 'couponsRedeemed', label: 'Coupon redeemed', value: couponsRedeemed, rateFromPrevious: rate(couponsRedeemed, rewardsClaimed) },
   ];
 
-  return jsonResponse({
+  return storeAnalyticsCache(env, cache.key, days, {
     success: true,
     days,
     stages,
@@ -211,6 +271,8 @@ async function handleFunnel(request: Request, env: Env, businessIds: string[]): 
 async function handleRankings(request: Request, env: Env, businessIds: string[]): Promise<Response> {
   const url = new URL(request.url);
   const days = parseDayParam(url.searchParams.get('days'));
+  const cache = await openAnalyticsCache(env, url, businessIds, 'rankings', days);
+  if (cache.hit !== null) return cachedJsonResponse(cache.hit);
   // Same day-truncated window as the timeseries and the funnel (see above).
   const since = isoDay(new Date(Date.now() - (days - 1) * 86_400_000));
 
@@ -247,7 +309,7 @@ async function handleRankings(request: Request, env: Env, businessIds: string[])
     .bind(since, ...businessIds)
     .all<{ id: string; name: string; type: string; value: number; claims: number; reward_count: number }>();
 
-  return jsonResponse({
+  return storeAnalyticsCache(env, cache.key, days, {
     success: true,
     days,
     campaigns: (topCampaigns.results ?? []).map((campaign) => ({
@@ -308,6 +370,12 @@ export async function handleAnalyticsRoute(request: Request, env: Env): Promise<
       });
     }
 
+    // All-time totals have no window; the day sentinel 30 only selects the
+    // long TTL tier — these counts change far too slowly for the short one.
+    const overviewDays = 30;
+    const cache = await openAnalyticsCache(env, url, businessIds, 'overview', overviewDays);
+    if (cache.hit !== null) return cachedJsonResponse(cache.hit);
+
     const placeholders = businessIds.map(() => '?').join(', ');
     const counts = await analyticsDb(env).prepare(
       `SELECT event_type, COUNT(*) AS count
@@ -345,7 +413,7 @@ export async function handleAnalyticsRoute(request: Request, env: Env): Promise<
     }
     totals.sort((a, b) => String(a.event_type).localeCompare(String(b.event_type)));
 
-    return jsonResponse({
+    return storeAnalyticsCache(env, cache.key, overviewDays, {
       success: true,
       totals,
       summary: summary ?? { participations: 0, coupons: 0, redeemed: 0, customers: 0 },

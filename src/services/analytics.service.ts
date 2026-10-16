@@ -26,6 +26,20 @@ export interface CampaignEvent {
 
 export type RangeDays = 7 | 30 | 90;
 
+/**
+ * The backend caches each analytics response in KV for 1h (≤ 7-day windows)
+ * or 3h (longer). `fresh: true` appends `fresh=1`, which bypasses that cache,
+ * recomputes from D1 and re-arms the window — the server's Refresh escape
+ * hatch when a merchant wants numbers newer than the cached snapshot.
+ */
+export interface AnalyticsFetchOptions {
+  fresh?: boolean | undefined;
+}
+
+function freshParam(options?: AnalyticsFetchOptions): string {
+  return options?.fresh ? '&fresh=1' : '';
+}
+
 export interface TimeseriesPoint {
   day: string;
   participations: number;
@@ -80,10 +94,10 @@ export interface Rankings {
 }
 
 export class AnalyticsService {
-  static async overview(): Promise<OverviewAnalytics> {
+  static async overview(options?: AnalyticsFetchOptions): Promise<OverviewAnalytics> {
     const result = await apiRequest<{ success: boolean; totals: AnalyticsTotals[]; summary: AnalyticsSummary }>(
       'GET',
-      '/api/analytics/overview',
+      `/api/analytics/overview${freshParam(options)}`,
       undefined,
       'Unable to load analytics.',
     );
@@ -102,20 +116,20 @@ export class AnalyticsService {
     };
   }
 
-  static async timeSeries(days: number = 30): Promise<TimeseriesPoint[]> {
+  static async timeSeries(days: number = 30, options?: AnalyticsFetchOptions): Promise<TimeseriesPoint[]> {
     const result = await apiRequest<{ success: boolean; series: TimeseriesPoint[] }>(
       'GET',
-      `/api/analytics/timeseries?days=${days}`,
+      `/api/analytics/timeseries?days=${days}${freshParam(options)}`,
       undefined,
       'Unable to load the activity timeline.',
     );
     return result.series ?? [];
   }
 
-  static async funnel(days: number = 30): Promise<FunnelResult> {
+  static async funnel(days: number = 30, options?: AnalyticsFetchOptions): Promise<FunnelResult> {
     const result = await apiRequest<{ success: boolean; stages: FunnelStage[]; conversion: FunnelConversion }>(
       'GET',
-      `/api/analytics/funnel?days=${days}`,
+      `/api/analytics/funnel?days=${days}${freshParam(options)}`,
       undefined,
       'Unable to load the conversion funnel.',
     );
@@ -134,10 +148,10 @@ export class AnalyticsService {
     };
   }
 
-  static async rankings(days: number = 30): Promise<Rankings> {
+  static async rankings(days: number = 30, options?: AnalyticsFetchOptions): Promise<Rankings> {
     const result = await apiRequest<{ success: boolean; campaigns: RankedCampaign[]; rewards: RankedReward[] }>(
       'GET',
-      `/api/analytics/rankings?days=${days}`,
+      `/api/analytics/rankings?days=${days}${freshParam(options)}`,
       undefined,
       'Unable to load rankings.',
     );

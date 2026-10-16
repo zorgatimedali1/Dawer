@@ -175,23 +175,32 @@ export function createLockRegistry() {
 }
 
 /**
- * Minimal stand-in for the `TOKENS` KV namespace used by the OAuth handoff.
+ * Minimal stand-in for the `TOKENS` KV namespace used by the OAuth handoff
+ * and the analytics response cache. Records the `expirationTtl` of each put
+ * so cache tests can assert the tiered TTL policy without a real KV clock.
  */
 function createTokenStore() {
   const store = new Map<string, string>();
+  const ttls = new Map<string, number>();
 
   return {
-    async get(key: string): Promise<string | null> {
+    async get(key: string, _options?: { cacheTtl?: number }): Promise<string | null> {
       return store.get(key) ?? null;
     },
-    async put(key: string, value: string): Promise<void> {
+    async put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void> {
       store.set(key, value);
+      if (options?.expirationTtl !== undefined) ttls.set(key, options.expirationTtl);
     },
     async delete(key: string): Promise<void> {
       store.delete(key);
+      ttls.delete(key);
     },
     keys(): string[] {
       return [...store.keys()];
+    },
+    /** Test helper: expirationTtl recorded at put() time, if any. */
+    ttlOf(key: string): number | undefined {
+      return ttls.get(key);
     },
   };
 }

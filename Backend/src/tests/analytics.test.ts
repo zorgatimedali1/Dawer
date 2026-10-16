@@ -495,3 +495,154 @@ describe('GET /api/analytics/campaigns/:id', () => {
     expect(response.status).toBe(400);
   });
 });
+
+describe('analytics KV response cache', () => {
+  // The route only stamps X-Cache on cacheable GETs; the drill-down and the
+  // empty-tenant shortcuts deliberately stay uncached.
+  function cacheHeader(response: Response): string | null {
+    return response.headers.get('X-Cache');
+  }
+
+  function cacheKeys(): string[] {
+    return (env.TOKENS as unknown as { keys(): string[] }).keys().filter((key) => key.startsWith('analytics:v1:'));
+  }
+
+  function cacheTtlOf(key: string): number | undefined {
+    return (env.TOKENS as unknown as { ttlOf(key: string): number | undefined }).ttlOf(key);
+  }
+
+  it('serves the second identical request from cache without re-querying D1', async () => {
+    const url = '/api/analytics/timeseries?days=30';
+
+    const first = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, alice.token), env);
+    expect(cacheHeader(first)).toBe('MISS');
+    const firstPayload = await body(first);
+    expect(firstPayload.series).toHaveLength(30);
+
+    // A write lands between the two reads: a cache HIT must still return the
+    // first snapshot, which proves the second request never touched D1.
+    seedEvent(alice.businessId, aliceCampaign, 'PARTICIPATION');
+
+    const second = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, alice.token), env);
+    expect(cacheHeader(second)).toBe('HIT');
+    const secondPayload = await body(second);
+    expect(secondPayload).toEqual(firstPayload);
+  });
+
+  it('recomputes and re-arms the window on ?fresh=1', async () => {
+    const url = '/api/analytics/timeseries?days=30';
+
+    const first = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, alice.token), env);
+    expect(cacheHeader(first)).toBe('MISS');
+    const firstPayload = await body(first);
+
+    seedEvent(alice.businessId, aliceCampaign, 'PARTICIPATION');
+
+    const fresh = await handleAnalyticsRoute(
+      jsonRequest(`${url}&fresh=1`, 'GET', undefined, alice.token),
+      env,
+    );
+    expect(cacheHeader(fresh)).toBe('MISS');
+    // The recomputed snapshot picks up the event written after the first read.
+    const freshPayload = await body(fresh);
+    expect(freshPayload).not.toEqual(firstPayload);
+
+    // fresh=1 re-armed the entry: the next plain request is a HIT on the new data.
+    const third = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, alice.token), env);
+    expect(cacheHeader(third)).toBe('HIT');
+    expect(await body(third)).toEqual(freshPayload);
+  });
+
+  it('keys each days window separately', async () => {
+    const seven = await handleAnalyticsRoute(
+      jsonRequest('/api/analytics/timeseries?days=7', 'GET', undefined, alice.token),
+      env,
+    );
+    expect(cacheHeader(seven)).toBe('MISS');
+
+    const thirty = await handleAnalyticsRoute(
+      jsonRequest('/api/analytics/timeseries?days=30', 'GET', undefined, alice.token),
+      env,
+    );
+    expect(cacheHeader(thirty)).toBe('MISS');
+
+    const sevenAgain = await handleAnalyticsRoute(
+      jsonRequest('/api/analytics/timeseries?days=7', 'GET', undefined, alice.token),
+      env,
+    );
+    expect(cacheHeader(sevenAgain)).toBe('HIT');
+    expect((await body(sevenAgain)).series).toHaveLength(7);
+  });
+
+  it('applies the tiered TTL: 1h for short windows, 3h for longer ones', async () => {
+    await handleAnalyticsRoute(
+      jsonRequest('/api/analytics/timeseries?days=7', 'GET', undefined, alice.token),
+      env,
+    );
+    await handleAnalyticsRoute(
+      jsonRequest('/api/analytics/timeseries?days=30', 'GET', undefined, alice.token),
+      env,
+    );
+
+    const keys = cacheKeys();
+    const shortKey = keys.find((key) => key.endsWith(':timeseries:7'));
+    const longKey = keys.find((key) => key.endsWith(':timeseries:30'));
+    expect(shortKey).toBeDefined();
+    expect(longKey).toBeDefined();
+    expect(cacheTtlOf(shortKey!)).toBe(3_600);
+    expect(cacheTtlOf(longKey!)).toBe(10_800);
+  });
+
+  it('caches every aggregation endpoint under its own key', async () => {
+    for (const path of ['/api/analytics/funnel', '/api/analytics/rankings', '/api/analytics/overview']) {
+      const first = await handleAnalyticsRoute(jsonRequest(path, 'GET', undefined, alice.token), env);
+      expect(cacheHeader(first), path).toBe('MISS');
+      const second = await handleAnalyticsRoute(jsonRequest(path, 'GET', undefined, alice.token), env);
+      expect(cacheHeader(second), path).toBe('HIT');
+    }
+  });
+
+  it('never serves one tenant the cache entry of another', async () => {
+    // Give Alice a second event so the two tenants' payloads cannot coincide;
+    // if Bob were served Alice's entry the counts would match exactly.
+    seedEvent(alice.businessId, aliceCampaign, 'PARTICIPATION');
+
+    const url = '/api/analytics/timeseries?days=30';
+    const aliceResponse = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, alice.token), env);
+    const alicePayload = await body(aliceResponse);
+    const aliceParticipations = alicePayload.series.reduce(
+      (sum: number, point: { participations: number }) => sum + point.participations,
+      0,
+    );
+    expect(aliceParticipations).toBe(2);
+
+    const bobResponse = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, bob.token), env);
+    // Bob's miss computes his own data instead of reading Alice's entry.
+    expect(cacheHeader(bobResponse)).toBe('MISS');
+    const bobPayload = await body(bobResponse);
+    const bobParticipations = bobPayload.series.reduce(
+      (sum: number, point: { participations: number }) => sum + point.participations,
+      0,
+    );
+    expect(bobParticipations).toBe(1);
+  });
+
+  it('leaves the campaign drill-down uncached so investigations stay live', async () => {
+    const url = `/api/analytics/campaigns/${aliceCampaign}`;
+    const first = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, alice.token), env);
+    expect(cacheHeader(first)).toBeNull();
+    const second = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, alice.token), env);
+    expect(cacheHeader(second)).toBeNull();
+    expect(cacheKeys()).toHaveLength(0);
+  });
+
+  it('skips the cache for users with no business', async () => {
+    const stranger = await seedMerchant(db, { email: 'stranger-cache@example.test', withBusiness: false });
+    const response = await handleAnalyticsRoute(
+      jsonRequest('/api/analytics/timeseries?days=30', 'GET', undefined, stranger.token),
+      env,
+    );
+    expect(cacheHeader(response)).toBeNull();
+    expect(cacheKeys()).toHaveLength(0);
+  });
+});

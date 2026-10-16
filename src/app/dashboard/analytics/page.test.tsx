@@ -360,4 +360,37 @@ describe('merchant analytics page', () => {
     expect(within(dialog).getByText('Coupons utilisés')).toBeInTheDocument();
     expect(within(dialog).getByText('Derniers événements')).toBeInTheDocument();
   });
+
+  it('re-fetches the analytics with fresh=1 when Refresh is clicked', async () => {
+    const fetchMock = stubFetch(defaultHandler());
+
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText('Scans (30 j)')).toBeInTheDocument();
+
+    // The initial load never bypasses the server cache.
+    const initialAnalyticsCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes('/api/analytics'),
+    );
+    expect(initialAnalyticsCalls.length).toBeGreaterThan(0);
+    expect(initialAnalyticsCalls.every(([input]) => !String(input).includes('fresh=1'))).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: 'Actualiser' }));
+
+    // Every analytics request of the refresh carries the cache bypass; the
+    // rewards odds read is uncached server-side and must not gain the param.
+    await waitFor(() => {
+      const refreshed = fetchMock.mock.calls.filter(([input]) => String(input).includes('fresh=1'));
+      expect(refreshed.length).toBeGreaterThanOrEqual(5);
+    });
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.some((url) => url.includes('/api/analytics/timeseries') && url.includes('fresh=1'))).toBe(true);
+    expect(urls.some((url) => url.includes('/api/analytics/funnel') && url.includes('fresh=1'))).toBe(true);
+    expect(urls.some((url) => url.includes('/api/analytics/rankings') && url.includes('fresh=1'))).toBe(true);
+    expect(urls.some((url) => url.includes('/api/analytics/overview') && url.includes('fresh=1'))).toBe(true);
+    expect(urls.some((url) => url.includes('/api/business/rewards') && url.includes('fresh=1'))).toBe(false);
+
+    // The refreshed data still renders.
+    expect(await screen.findByText('Scans (30 j)')).toBeInTheDocument();
+  });
 });

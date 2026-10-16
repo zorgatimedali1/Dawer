@@ -12,6 +12,7 @@ import {
   Megaphone,
   Percent,
   QrCode,
+  RefreshCw,
   Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -177,10 +178,13 @@ export default function AnalyticsPage() {
   );
 
   const load = useCallback(
-    (days: RangeDays) => {
+    (days: RangeDays, fresh = false) => {
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
       const isStale = () => requestIdRef.current !== requestId;
+      // `fresh` bypasses the server's KV cache so the merchant sees D1-latest
+      // numbers; the odds card reads the settings table and stays uncached.
+      const freshOption = fresh ? { fresh: true } : undefined;
 
       const settle = async <T,>(task: Promise<T>, set: (value: Loadable<T>) => void): Promise<void> => {
         try {
@@ -205,8 +209,8 @@ export default function AnalyticsPage() {
       // window and the previous one, so KPI deltas need no extra endpoint.
       const previousWindowDays = Math.min(days * 2, 365);
       const timeseriesBundle = Promise.all([
-        AnalyticsService.timeSeries(days),
-        AnalyticsService.timeSeries(previousWindowDays),
+        AnalyticsService.timeSeries(days, freshOption),
+        AnalyticsService.timeSeries(previousWindowDays, freshOption),
       ]).then(([current, combined]) => {
         const previousPoints = combined.slice(0, Math.max(combined.length - current.length, 0));
         return {
@@ -218,10 +222,13 @@ export default function AnalyticsPage() {
       // Independent requests: the odds card is gated behind the rewards plan
       // feature, so its 403 may only degrade that one section.
       void settle(timeseriesBundle, setSeriesState);
-      void settle(AnalyticsService.funnel(days), setFunnelState);
-      void settle(AnalyticsService.rankings(days), setRankingsState);
+      void settle(AnalyticsService.funnel(days, freshOption), setFunnelState);
+      void settle(AnalyticsService.rankings(days, freshOption), setRankingsState);
       void settle(odds, setRewardState);
-      void settle(AnalyticsService.overview().then((overview) => overview.totals), setTotalsState);
+      void settle(
+        AnalyticsService.overview(freshOption).then((overview) => overview.totals),
+        setTotalsState,
+      );
     },
     [t],
   );
@@ -404,6 +411,8 @@ export default function AnalyticsPage() {
   };
 
   const retry = () => load(range);
+  // Manual freshness: bypasses the server's 1h/3h KV cache and re-arms it.
+  const refresh = () => load(range, true);
   const analyticsSections = [totalsState, seriesState, funnelState, rankingsState];
   const allFailed = analyticsSections.every((section) => section.error !== null);
 
@@ -414,10 +423,22 @@ export default function AnalyticsPage() {
         title={t.analytics.title}
         description={t.analytics.description}
         actions={
-          <Button variant="outline" size="sm" onClick={handleExport} disabled={seriesState.loading || series.length === 0}>
-            <Download className="h-3.5 w-3.5" aria-hidden />
-            {t.analytics.exportCsv}
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refresh}
+              disabled={seriesState.loading || funnelState.loading || rankingsState.loading}
+              aria-label={t.analytics.refresh}
+            >
+              <RefreshCw className={seriesState.loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} aria-hidden />
+              {t.analytics.refresh}
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={seriesState.loading || series.length === 0}>
+              <Download className="h-3.5 w-3.5" aria-hidden />
+              {t.analytics.exportCsv}
+            </Button>
+          </>
         }
         toolbar={
           <>

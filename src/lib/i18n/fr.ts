@@ -695,6 +695,7 @@ export const analytics = {
   title: 'Analytique',
   description: 'Suivez et analysez la performance de vos campagnes et l’engagement des clients.',
   exportCsv: 'Exporter en CSV',
+  refresh: 'Actualiser',
   period: 'Période',
   dateRange: 'Plage de dates',
   daysShort: 'j',

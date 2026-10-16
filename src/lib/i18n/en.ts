@@ -694,6 +694,7 @@ export const analytics: D<typeof frDict.analytics> = {
   title: 'Analytics',
   description: 'Monitor and analyze campaign performance and customer engagement',
   exportCsv: 'Export CSV',
+  refresh: 'Refresh',
   period: 'Period',
   dateRange: 'Date range',
   daysShort: 'd',
