@@ -33,9 +33,17 @@ const OAUTH_STATE_MAX_AGE = 60 * 15;
 const PASSWORD_RESET_TTL_MS = 15 * 60_000;
 const RESET_LINK_MESSAGE = 'If that email is registered, a password reset link has been sent.';
 
-/** Error response for the OAuth handoff that also expires the state cookie. */
-function oauthError(request: Request, message: string, status: number, details?: unknown): Response {
-  const response = errorResponse(message, status, details);
+/**
+ * The OAuth callback is a top-level browser navigation (Google redirects the
+ * user here), so a JSON body would be shown raw in the tab. Send the user
+ * back to the login page with the message instead, and expire the state
+ * cookie on every failure path.
+ */
+function oauthError(request: Request, message: string): Response {
+  const response = new Response(null, {
+    status: 302,
+    headers: { location: `/auth/login?error=${encodeURIComponent(message)}` },
+  });
   response.headers.append('set-cookie', buildCookie(request, OAUTH_STATE_COOKIE, '', 0));
   return response;
 }
@@ -296,7 +304,7 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
     // cannot complete the handoff with a state value it minted itself.
     const stateCookie = readCookie(request, OAUTH_STATE_COOKIE);
     if (!stateCookie || stateCookie !== payload.state) {
-      return oauthError(request, 'Invalid or expired OAuth state.', 400);
+      return oauthError(request, 'Invalid or expired OAuth state.');
     }
 
     // Single use: only one callback can consume the row (D1 serialises the
@@ -306,7 +314,7 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
       .run();
 
     if (Number(consumed.meta.changes ?? 0) !== 1) {
-      return oauthError(request, 'Invalid or expired OAuth state.', 400);
+      return oauthError(request, 'Invalid or expired OAuth state.');
     }
 
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -325,13 +333,13 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
     });
 
     if (!tokenResponse.ok) {
-      return oauthError(request, 'Unable to exchange Google authorization code.', 400);
+      return oauthError(request, 'Unable to exchange Google authorization code.');
     }
 
     const tokenData = (await tokenResponse.json()) as { access_token?: string };
 
     if (!tokenData.access_token) {
-      return oauthError(request, 'Google token exchange returned no access token.', 400);
+      return oauthError(request, 'Google token exchange returned no access token.');
     }
 
     const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
@@ -342,7 +350,7 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
     });
 
     if (!profileResponse.ok) {
-      return oauthError(request, 'Google profile lookup failed.', 400);
+      return oauthError(request, 'Google profile lookup failed.');
     }
 
     const googleUser = (await profileResponse.json()) as {
@@ -355,7 +363,7 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
     const email = normalizeEmail(googleUser.email ?? '');
 
     if (!email) {
-      return oauthError(request, 'Google email is required.', 400);
+      return oauthError(request, 'Google email is required.');
     }
 
     const existingUser = await env.DB.prepare('SELECT id, status, email_verified FROM users WHERE email = ? LIMIT 1')
@@ -363,7 +371,7 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
       .first<{ id: string; status: string; email_verified: number }>();
 
     if (existingUser && existingUser.status !== 'ACTIVE') {
-      return oauthError(request, 'This account has been suspended.', 403);
+      return oauthError(request, 'This account has been suspended.');
     }
 
     // Account-takeover guard: password registration never verifies the email
@@ -382,7 +390,6 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
         return oauthError(
           request,
           'This email is already registered with a password. Sign in with your password instead.',
-          409,
         );
       }
     }
@@ -435,11 +442,11 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
     return response;
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return oauthError(request, 'Invalid OAuth payload.', 400, error.flatten());
+      return oauthError(request, 'Invalid OAuth payload.');
     }
 
     console.error('Google OAuth failed.', error);
-    return oauthError(request, 'Google OAuth failed.', 500);
+    return oauthError(request, 'Google OAuth failed.');
   }
 }
 

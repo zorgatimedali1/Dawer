@@ -18,7 +18,12 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // The OAuth callback redirects here with `?error=...` on any handoff
+  // failure (Google denial, state mismatch, account guard) — a browser
+  // navigation, so the message must ride the URL, not a JSON body.
+  const [error, setError] = useState<string | null>(
+    () => new URLSearchParams(location.search).get('error'),
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

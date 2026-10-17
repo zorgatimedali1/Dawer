@@ -6,15 +6,16 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
-	// Custom domain (once a DNS zone is added to this Cloudflare account):
-	//   1. Uncomment and set the pattern below, then `npm run deploy`.
-	//   2. Update vars.GOOGLE_REDIRECT_URI to the new origin.
+	// Custom domains (attached in the Cloudflare dashboard: Workers >
+	// campaignflow-backend > Settings > Domains & Routes):
+	//   dawer.tn               → this worker (SPA + /api, merchant app)
+	//   admin.dawer.tn         → campaignflow-platform (wrangler.platform.jsonc)
+	// They are dashboard-managed, so no `routes` entry here — declaring the
+	// same hostname in wrangler would fight the dashboard attachment. Keep
+	// vars.GOOGLE_REDIRECT_URI below in sync with the serving origin.
 	// The SPA and /api are served by THIS worker on the same origin, so no
 	// CORS configuration is ever needed; __Host- cookies require HTTPS, which
 	// both workers.dev and custom domains provide.
-	// "routes": [
-	// 	{ "pattern": "app.example.tn", "custom_domain": true }
-	// ],
 	"assets": {
 		"binding": "STATIC_ASSETS",
 		// Required for direct `wrangler dev/deploy --config wrangler.jsonc`
@@ -68,12 +69,13 @@
 		//   npx wrangler secret put TURNSTILE_SECRET_KEY
 		// and set vars.TURNSTILE_SITE_KEY (+ optional vars.TURNSTILE_HOSTNAMES).
 		// Local dev reads them from .dev.vars instead.
-		// Google OAuth redirect — must match the final serving origin
-		// (update it alongside any custom_domain route change above).
-		"GOOGLE_REDIRECT_URI": "https://campaignflow-backend.mhoudou098.workers.dev/api/auth/google/callback",
+		// Google OAuth redirect — must match the serving origin AND be listed
+		// in the Google Cloud Console OAuth client's authorized redirect URIs.
+		// Live: dawer.tn (custom domain attached in the Cloudflare dashboard).
+		"GOOGLE_REDIRECT_URI": "https://dawer.tn/api/auth/google/callback",
 		// Absolute origin used for links inside outbound emails (unsubscribe
 		// URLs, inline campaign images) — relative links break in inboxes.
-		"APP_ORIGIN": "https://campaignflow-backend.mhoudou098.workers.dev",
+		"APP_ORIGIN": "https://dawer.tn",
 		// ISO country codes allowed to reach /api/public (comma separated).
 		"GEOFENCE_COUNTRIES": "TN",
 		// When "1", a missing country signal is REJECTED rather than passed

@@ -100,13 +100,22 @@ describe('GET /api/auth/google', () => {
 });
 
 describe('GET /api/auth/google/callback', () => {
+  // The callback is a browser navigation (Google redirects the user here), so
+  // failures must land on the login page with `?error=`, never as raw JSON.
+  function oauthErrorParam(response: Response): string | null {
+    const location = response.headers.get('location') ?? '';
+    return new URL(location, 'https://example.test').searchParams.get('error');
+  }
+
   it('rejects a state that did not come from our cookie', async () => {
     const response = await handleAuthRoute(
       jsonRequest('/api/auth/google/callback?code=abc&state=forged', 'GET'),
       env,
     );
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toMatch(/^\/auth\/login\?error=/);
+    expect(oauthErrorParam(response)).toMatch(/state/i);
     expect(setCookies(response).join(';')).toMatch(/cf_oauth_state=;.*Max-Age=0/);
   });
 
@@ -117,8 +126,8 @@ describe('GET /api/auth/google/callback', () => {
     });
 
     const response = await handleAuthRoute(request, env);
-    expect(response.status).toBe(400);
-    expect(response.headers.get('location')).toBeNull();
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toMatch(/^\/auth\/login\?error=/);
   });
 
   it('issues the session as an HttpOnly cookie and never puts the token in the URL', async () => {
@@ -210,8 +219,8 @@ describe('GET /api/auth/google/callback', () => {
       env,
     );
 
-    expect(response.status).toBe(409);
-    expect(((await response.json()) as { error: string }).error).toMatch(/password/i);
+    expect(response.status).toBe(302);
+    expect(oauthErrorParam(response)).toMatch(/password/i);
     expect(raw.DB.query(`SELECT id FROM accounts`)).toHaveLength(0);
   });
 
@@ -229,7 +238,8 @@ describe('GET /api/auth/google/callback', () => {
       new Request(`https://example.test${callbackUrl(state)}`, { headers: { cookie: cookieHeader(cookies) } }),
       env,
     );
-    expect(replay.status).toBe(400);
+    expect(replay.status).toBe(302);
+    expect(oauthErrorParam(replay)).toMatch(/state/i);
   });
 });
 
