@@ -354,7 +354,8 @@ export default function BillingPage() {
 }
 
 function UsageRow({ label, value, limit }: { label: string; value: number; limit: number }) {
-  const percent = limit < 0 ? 0 : (value / limit) * 100;
+  // limit < 0 = unlimited; limit 0 must not divide by zero (NaN/Infinity bar).
+  const percent = limit <= 0 ? 0 : Math.min(100, Math.max(0, (value / limit) * 100));
 
   return (
     <div className="rounded-xl border border-line bg-surface-2/60 p-4">

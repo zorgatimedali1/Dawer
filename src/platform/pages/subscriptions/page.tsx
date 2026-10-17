@@ -24,6 +24,19 @@ import {
   type SubscriptionRequestStatus,
 } from '@/platform/services/subscriptions.service';
 
+// Product currency is TND (DT) everywhere else in the console; the legal
+// intervals are 3_months/year/2_years/3_years — never "month".
+const INTERVAL_LABELS: Record<string, string> = {
+  '3_months': '3 months',
+  year: '1 year',
+  '2_years': '2 years',
+  '3_years': '3 years',
+};
+
+function formatRequestPrice(cents: number, interval: string): string {
+  return `${(cents / 100).toFixed(2)} DT/${INTERVAL_LABELS[interval] ?? interval}`;
+}
+
 export default function SubscriptionsPage() {
   const [requests, setRequests] = useState<SubscriptionRequest[]>([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
@@ -201,7 +214,7 @@ export default function SubscriptionsPage() {
                       <TableCell>
                         <p className="font-medium text-ink">{request.plan.name}</p>
                         <p className="text-xs text-ink-muted">
-                          €{(request.priceCents / 100).toFixed(0)}/{request.interval === 'year' ? 'an' : 'mois'}
+                          {formatRequestPrice(request.priceCents, request.interval)}
                         </p>
                       </TableCell>
                       <TableCell>{new Date(request.requestedAt).toLocaleDateString()}</TableCell>

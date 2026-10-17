@@ -8,7 +8,13 @@ export function readCookie(request: Request, name: string): string | null {
     const separator = part.indexOf('=');
     if (separator < 0) continue;
     if (part.slice(0, separator).trim() === name) {
-      return decodeURIComponent(part.slice(separator + 1).trim());
+      // A malformed percent-escape (stray '%') must not crash the route with
+      // an uncaught URIError — treat it exactly like a missing cookie.
+      try {
+        return decodeURIComponent(part.slice(separator + 1).trim());
+      } catch {
+        return null;
+      }
     }
   }
 

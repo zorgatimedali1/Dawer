@@ -114,6 +114,43 @@ function markPlayed(publicCode: string): void {
   }
 }
 
+function resultStorageKey(publicCode: string): string {
+  return `cf_prize_${publicCode}`;
+}
+
+/**
+ * Persist the participation so a reload (QR scanners, phones that kill the
+ * tab on app-switch) still shows the prize card instead of dropping the
+ * visitor back on the gate with no way to recover the result.
+ */
+function saveResult(publicCode: string, participation: ParticipationResult): void {
+  try {
+    window.localStorage.setItem(resultStorageKey(publicCode), JSON.stringify(participation));
+  } catch {
+    // Storage unavailable — the reward itself is still recorded server-side.
+  }
+}
+
+function loadStoredResult(publicCode: string): ParticipationResult | null {
+  try {
+    const raw = window.localStorage.getItem(resultStorageKey(publicCode));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ParticipationResult;
+    if (!parsed?.participationId || !parsed?.reward?.id) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearStoredResult(publicCode: string): void {
+  try {
+    window.localStorage.removeItem(resultStorageKey(publicCode));
+  } catch {
+    // Ignore — storage may be unavailable.
+  }
+}
+
 /**
  * Windowed campaigns allow repeat plays, so the local "already played" flag
  * must not lock the visitor out — the server decides when they may spin again.
@@ -239,8 +276,21 @@ export default function CampaignCustomerPage() {
         }
         setCampaign(loaded.campaign);
         setRewards(loaded.rewards);
-        setAlreadyPlayed(!isWindowedCampaign(loaded.campaign) && hasPlayed(loaded.campaign.public_code));
         setTurnstileSiteKey(loaded.turnstileSiteKey ?? null);
+
+        const windowed = isWindowedCampaign(loaded.campaign);
+        setAlreadyPlayed(!windowed && hasPlayed(loaded.campaign.public_code));
+
+        // Restore a prize earned before a reload; windowed campaigns clear
+        // the stale card instead so the visitor can spin again.
+        const stored = loadStoredResult(loaded.campaign.public_code);
+        if (stored && !windowed) {
+          setResult(stored);
+          setCouponCode(stored.couponCode);
+          setStep('result');
+        } else if (stored && windowed) {
+          clearStoredResult(loaded.campaign.public_code);
+        }
       })
       .catch((error: unknown) => {
         if (!cancelled) setLoadError(msg(t, error instanceof Error ? error.message : 'Unable to load this campaign.'));
@@ -497,6 +547,7 @@ export default function CampaignCustomerPage() {
           : {}),
       });
       markPlayed(campaign.public_code);
+      saveResult(campaign.public_code, participation);
 
       const winningIndex = Math.max(0, segments.findIndex((segment) => segment.id === participation.reward.id));
       const segmentAngle = 360 / Math.max(segments.length, 1);
@@ -897,7 +948,7 @@ export default function CampaignCustomerPage() {
 
                 {!isPrize && (
                   <p className="mt-4 rounded-xl border border-line bg-surface-2 p-4 text-center text-sm leading-relaxed text-ink-muted">
-                    Come back another day for a fresh spin and a new chance to win!
+                    {t.customer.noWinBody}
                   </p>
                 )}
 
@@ -955,7 +1006,7 @@ export default function CampaignCustomerPage() {
                             to="/privacy"
                             className="font-medium text-brand-700 underline underline-offset-2 dark:text-accent-bright"
                           >
-                            Politique de confidentialité
+                            {t.customer.privacyLink}
                           </Link>
                         </span>
                       </label>

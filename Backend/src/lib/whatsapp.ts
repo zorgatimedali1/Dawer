@@ -23,7 +23,7 @@ const PERIOD_LABELS: Record<string, string> = {
   '3_months': '3 mois',
 };
 
-export function buildSubscriptionWhatsAppUrl(details: SubscriptionWhatsAppDetails): Response {
+export function buildSubscriptionWhatsAppUrl(details: SubscriptionWhatsAppDetails): string {
   const amount = (details.priceCents / 100).toFixed(details.priceCents % 100 === 0 ? 0 : 2);
   const period = PERIOD_LABELS[details.interval] ?? '3 mois';
   const message = [

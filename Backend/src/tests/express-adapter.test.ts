@@ -141,4 +141,49 @@ describe('express adapter response marshalling', () => {
     expect(hit.get('x-cache')).toEqual(['HIT']);
     expect(sentBody(hit)).toEqual(Buffer.from(payload));
   });
+
+  it('does not cache a route response that sets Cache-Control: no-store', async () => {
+    const handler = createWorkerRoute(
+      async () =>
+        new Response(JSON.stringify({ success: true }), {
+          headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+        }),
+      {} as Env,
+      { cacheTtlSeconds: 30 },
+    );
+
+    const store = new Map<string, Response>();
+    vi.stubGlobal('caches', {
+      default: {
+        match: async (request: Request) => store.get(request.url)?.clone(),
+        put: async (request: Request, response: Response) => {
+          store.set(request.url, response.clone());
+        },
+      },
+    });
+
+    const miss = new FakeResponse();
+    await handler(
+      fakeRequest({ originalUrl: '/api/public/campaigns/ABC123' }),
+      asExpressResponse(miss),
+      (error) => {
+        throw error;
+      },
+    );
+    expect(miss.get('cache-control')).toEqual(['no-store']);
+    // The no-store response must never reach the Cache API.
+    expect(store.size).toBe(0);
+
+    const second = new FakeResponse();
+    await handler(
+      fakeRequest({ originalUrl: '/api/public/campaigns/ABC123' }),
+      asExpressResponse(second),
+      (error) => {
+        throw error;
+      },
+    );
+    // Still a MISS — nothing was stored on the first pass.
+    expect(second.get('x-cache')).toEqual(['MISS']);
+    expect(second.get('cache-control')).toEqual(['no-store']);
+  });
 });

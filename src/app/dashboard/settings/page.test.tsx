@@ -155,11 +155,13 @@ describe('settings page', () => {
       googlePlaceId: 'place-456',
       facebookUrl: 'https://facebook.com/new-shop',
       instagramUrl: 'https://instagram.com/new-shop',
-      twitterUrl: '',
-      linkedinUrl: '',
-      tiktokUrl: '',
-      youtubeUrl: '',
     });
+    // Social fields without a UI control must be omitted so the backend
+    // keeps whatever the merchant stored earlier.
+    expect(integrationBody).not.toHaveProperty('twitterUrl');
+    expect(integrationBody).not.toHaveProperty('linkedinUrl');
+    expect(integrationBody).not.toHaveProperty('tiktokUrl');
+    expect(integrationBody).not.toHaveProperty('youtubeUrl');
     expect(String(integrationBody.googleMapsUrl)).toContain('query_place_id=place-456');
     },
     20_000,
@@ -270,7 +272,7 @@ describe('settings page', () => {
     await waitFor(() => expect(screen.queryByTestId('business-logo-preview')).toBeNull());
   });
 
-  it('saves integrations with a single button and clears the removed social fields', async () => {
+  it('saves integrations with a single button and leaves untouched social fields alone', async () => {
     let currentSettings = {
       ...initialSettings,
       twitterUrl: 'https://x.com/shop',
@@ -310,15 +312,20 @@ describe('settings page', () => {
 
     await screen.findByText('Configuration enregistrée.');
     const saved = fetchMock.mock.calls.find(([url, init]) => (
-      String(url) === '/api/settings' && init?.method === 'PUT' && 'twitterUrl' in JSON.parse(String(init.body))
+      String(url) === '/api/settings' && init?.method === 'PUT' && 'facebookUrl' in JSON.parse(String(init.body))
     ));
-    expect(JSON.parse(String(saved?.[1]?.body))).toMatchObject({
+    const body = JSON.parse(String(saved?.[1]?.body));
+    expect(body).toMatchObject({
       facebookUrl: 'https://facebook.com/shop',
       instagramUrl: 'https://instagram.com/shop',
-      twitterUrl: '',
-      linkedinUrl: '',
-      tiktokUrl: '',
-      youtubeUrl: '',
     });
+    // The social networks without a UI field must be omitted, not wiped.
+    expect(body).not.toHaveProperty('twitterUrl');
+    expect(body).not.toHaveProperty('linkedinUrl');
+    expect(body).not.toHaveProperty('tiktokUrl');
+    expect(body).not.toHaveProperty('youtubeUrl');
+    // And the server keeps their stored values.
+    expect(currentSettings.twitterUrl).toBe('https://x.com/shop');
+    expect(currentSettings.youtubeUrl).toBe('https://youtube.com/@shop');
   }, 15000);
 });

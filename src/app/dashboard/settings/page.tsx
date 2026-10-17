@@ -415,7 +415,8 @@ export default function SettingsPage() {
                     phone: settings.phone,
                     email: settings.email,
                     address: settings.address,
-                    description: '',
+                    // This tab has no description field — sending '' would wipe
+                    // the stored description on every save, so omit it instead.
                   },
                   t.settings.businessSaved,
                 )
@@ -768,15 +769,14 @@ export default function SettingsPage() {
 
 function integrationPatch(settings: BusinessSettings, googleSearch: string, googlePlaceId: string) {
   const name = googleSearch.trim();
+  // Only send fields this tab actually edits. The four social networks the
+  // UI dropped are omitted (undefined), so the backend leaves their stored
+  // values untouched instead of nulling them on every save.
   return {
     googleMapsName: name,
     googleMapsUrl: name ? getGoogleMapsUrl(googleSearch, googlePlaceId || undefined) : '',
     googlePlaceId,
     facebookUrl: settings.facebookUrl,
     instagramUrl: settings.instagramUrl,
-    twitterUrl: '',
-    linkedinUrl: '',
-    tiktokUrl: '',
-    youtubeUrl: '',
   };
 }

@@ -137,13 +137,21 @@ export default function CustomersPage() {
     if (!coupon) return;
 
     const selectedDeadline = couponDeadline[couponId] ?? coupon.expires_at?.slice(0, 10) ?? '';
+    const previousDeadline = coupon.expires_at?.slice(0, 10) ?? '';
     setSavingCouponId(couponId);
     setDetailError(null);
 
     try {
+      // A changed deadline is either a new date or an explicit clear (`null`);
+      // an untouched field sends nothing so the backend keeps the old value.
+      const deadlineChanged = selectedDeadline !== previousDeadline;
       await CouponService.update(couponId, {
-        ...(selectedDeadline && selectedDeadline !== coupon.expires_at?.slice(0, 10)
-          ? { expiresAt: new Date(`${selectedDeadline}T23:59:59.999Z`).toISOString() }
+        ...(deadlineChanged
+          ? {
+              expiresAt: selectedDeadline
+                ? new Date(`${selectedDeadline}T23:59:59.999Z`).toISOString()
+                : null,
+            }
           : {}),
       });
       const refreshed = await CustomerService.get(customerDetail.customer.id);
@@ -213,7 +221,7 @@ export default function CustomersPage() {
         .then((result) => setCustomers(result.customers))
         .catch(() => undefined);
     } catch (cause: unknown) {
-      setDetailError(cause instanceof Error ? cause.message : t.customers.deletePrizeAria.replace('{name}', ''));
+      setDetailError(cause instanceof Error ? cause.message : t.customers.deletePrizeError);
     } finally {
       setDeletingCouponId(null);
     }

@@ -73,7 +73,10 @@ async function listAccounts(request: Request, env: Env): Promise<Response> {
     limit: url.searchParams.get('limit') ?? undefined,
   });
 
-  const conditions: string[] = ['EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id)'];
+  // No session-existence filter here: sessions are transient (suspend,
+  // revoke and logout all DELETE them), so requiring one made accounts
+  // vanish from the list exactly when operators needed to manage them.
+  const conditions: string[] = ['1 = 1'];
   const binds: string[] = [];
 
   if (query.search) {

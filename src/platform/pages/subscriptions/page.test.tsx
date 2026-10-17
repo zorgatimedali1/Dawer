@@ -17,7 +17,7 @@ const request = {
   businessName: 'Merchant Shop',
   plan: { name: 'Premium', slug: 'premium' },
   priceCents: 19900,
-  interval: 'month',
+  interval: 'year',
 };
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -63,7 +63,7 @@ describe('platform subscriptions page', () => {
     expect(await screen.findByText('merchant@example.test')).toBeInTheDocument();
     expect(screen.getByText('Merchant Shop')).toBeInTheDocument();
     expect(screen.getByText('Premium')).toBeInTheDocument();
-    expect(screen.getByText('€199/mois')).toBeInTheDocument();
+    expect(screen.getByText('199.00 DT/1 year')).toBeInTheDocument();
     expect(screen.getByText('1 request')).toBeInTheDocument();
   });
 

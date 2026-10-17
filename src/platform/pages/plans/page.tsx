@@ -172,11 +172,13 @@ export default function AdminPlansManager() {
 
   const closeDelete = useCallback(() => setDeleteTarget(null), []);
 
-  const validate = (payload: PlanPayload): string | null => {
+  const validate = (payload: PlanPayload, priceInput: string): string | null => {
     if (!payload.name) return 'Plan name is required.';
     if (!SLUG_PATTERN.test(payload.slug)) {
       return 'Slug must be 2-30 lowercase letters, digits or dashes.';
     }
+    // An empty price field parses to 0 and silently creates a free plan.
+    if (!priceInput.trim()) return 'Enter a price (0 makes the plan free).';
     if (payload.priceCents < 0 || !Number.isFinite(payload.priceCents)) return 'Enter a valid price.';
     return null;
   };
@@ -186,7 +188,7 @@ export default function AdminPlansManager() {
     if (!editor || busy) return;
 
     const payload = buildPayload(form);
-    const problem = validate(payload);
+    const problem = validate(payload, form.price);
     if (problem) {
       setError(problem);
       return;

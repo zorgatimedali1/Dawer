@@ -259,6 +259,9 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
   }
 
   const now = new Date().toISOString();
+  // COALESCE: the wheel config save does not carry the schedule, so an omitted
+  // window must keep the stored values instead of nulling them (which would
+  // turn a scheduled campaign into an always-open one).
   const startAt = config.startAt ? config.startAt : null;
   const endAt = config.endAt ? config.endAt : null;
 
@@ -281,7 +284,7 @@ async function handleConfigPut(request: Request, env: Env, user: AuthenticatedUs
            latitude = ?, longitude = ?, radius_meters = ?,
            facebook_url = ?, instagram_url = ?, play_rules = ?,
            status = COALESCE(?, status),
-           start_at = ?, end_at = ?, updated_at = ?
+           start_at = COALESCE(?, start_at), end_at = COALESCE(?, end_at), updated_at = ?
        WHERE id = ? AND business_id = ?`,
     )
       .bind(
@@ -763,6 +766,8 @@ async function handleCampaignDetail(
  * P2-4 escape hatch: delete spin-claim rows older than `before` (default now)
  * so blocked contact addresses become usable again. Only the D1 claims are
  * cleared — the per-browser Durable Object claims live with that browser.
+ * Action claims (the "complete the required action first" gate) age out
+ * under the same cutoff so they never grow without bound.
  */
 async function handleCampaignClaimsExpire(
   request: Request,
@@ -784,7 +789,13 @@ async function handleCampaignClaimsExpire(
     .bind(campaign.id, before)
     .run();
 
-  const expired = Number(result.meta.changes ?? 0);
+  const actionResult = await env.DB.prepare(
+    `DELETE FROM action_claims WHERE campaign_id = ? AND created_at < ?`,
+  )
+    .bind(campaign.id, before)
+    .run();
+
+  const expired = Number(result.meta.changes ?? 0) + Number(actionResult.meta.changes ?? 0);
 
   await writeAuditLog(env, {
     businessId: campaign.business_id,

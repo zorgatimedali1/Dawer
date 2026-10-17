@@ -9,19 +9,23 @@ import { Modal } from '@/components/ui/modal';
 import { PageHeader } from '@/components/ui/page-header';
 import { PartnersService, type PlatformPartner } from '@/platform/services/partners.service';
 
-/** Kept in sync with LOGO_MIME_TYPES / MAX_LOGO_BYTES on the server. */
-const ACCEPTED_TYPES = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml';
+/** Kept in sync with LOGO_MIME_TYPES / MAX_LOGO_BYTES on the server.
+ *  SVG is deliberately excluded — the server rejects it as a stored-XSS
+ *  vector, so accepting it here only produced a doomed upload. */
+const ACCEPTED_TYPES = 'image/png,image/jpeg,image/webp,image/gif';
 const MAX_LOGO_BYTES = 512 * 1024;
+const MAX_PARTNER_NAME = 80;
 
 /**
  * The operator only picks a logo file, so the partner's display name is
  * derived from the filename (extension dropped, separators spaced). The
- * backend still requires a name on the create payload.
+ * backend still requires a name on the create payload (max 80 chars).
  */
 function deriveName(fileName: string): string {
   const base = fileName.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
   if (!base) return 'Partner';
-  return base.charAt(0).toUpperCase() + base.slice(1);
+  const capitalized = base.charAt(0).toUpperCase() + base.slice(1);
+  return capitalized.slice(0, MAX_PARTNER_NAME);
 }
 
 /**
@@ -80,7 +84,7 @@ export default function AdminPartnersManager() {
     setError(null);
     if (!picked) return;
     if (!ACCEPTED_TYPES.split(',').includes(picked.type)) {
-      setError('Use a PNG, JPEG, WebP, GIF or SVG image.');
+      setError('Use a PNG, JPEG, WebP or GIF image.');
       return;
     }
     if (picked.size > MAX_LOGO_BYTES) {
@@ -157,7 +161,7 @@ export default function AdminPartnersManager() {
       <Card className="p-6">
         <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">Add a partner</h2>
         <p className="mt-1 text-[13px] text-ink-muted">
-          Upload a logo (PNG, JPEG, WebP, GIF or SVG, up to 512 KB). Transparent backgrounds look best
+          Upload a logo (PNG, JPEG, WebP or GIF, up to 512 KB). Transparent backgrounds look best
           on the dark landing page.
         </p>
 

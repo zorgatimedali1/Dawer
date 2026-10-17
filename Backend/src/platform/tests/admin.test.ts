@@ -115,7 +115,9 @@ describe('GET /api/admin/accounts', () => {
     expect(emails).not.toContain('operator@example.test');
   });
 
-  it('only lists accounts that have logged in at least once', async () => {
+  it('lists accounts even when they have no active session', async () => {
+    // Regression: suspend/revoke/logout DELETE sessions, and the old
+    // EXISTS(sessions) filter made those accounts vanish from the list.
     const now = new Date().toISOString();
     db.prepare(
       `INSERT INTO users (id, email, password_hash, salt, first_name, last_name, email_verified, created_at, updated_at)
@@ -132,8 +134,8 @@ describe('GET /api/admin/accounts', () => {
     );
 
     const emails = payload.accounts.map((row: { email: string }) => row.email);
-    expect(emails).not.toContain('never-signed-in@example.test');
-    expect(payload.pagination.total).toBe(2);
+    expect(emails).toContain('never-signed-in@example.test');
+    expect(payload.pagination.total).toBe(3);
   });
 
   it('searches by email and filters by status', async () => {

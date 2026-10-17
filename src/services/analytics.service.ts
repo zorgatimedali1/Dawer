@@ -36,8 +36,12 @@ export interface AnalyticsFetchOptions {
   fresh?: boolean | undefined;
 }
 
-function freshParam(options?: AnalyticsFetchOptions): string {
-  return options?.fresh ? '&fresh=1' : '';
+function withFresh(path: string, options?: AnalyticsFetchOptions): string {
+  if (!options?.fresh) return path;
+  // The overview endpoint has no query string of its own, so blindly prefixing
+  // '&fresh=1' produced the path '/overview&fresh=1' → 404. Pick the right
+  // separator for whatever the caller's path already contains.
+  return `${path}${path.includes('?') ? '&' : '?'}fresh=1`;
 }
 
 export interface TimeseriesPoint {
@@ -97,7 +101,7 @@ export class AnalyticsService {
   static async overview(options?: AnalyticsFetchOptions): Promise<OverviewAnalytics> {
     const result = await apiRequest<{ success: boolean; totals: AnalyticsTotals[]; summary: AnalyticsSummary }>(
       'GET',
-      `/api/analytics/overview${freshParam(options)}`,
+      withFresh('/api/analytics/overview', options),
       undefined,
       'Unable to load analytics.',
     );
@@ -119,7 +123,7 @@ export class AnalyticsService {
   static async timeSeries(days: number = 30, options?: AnalyticsFetchOptions): Promise<TimeseriesPoint[]> {
     const result = await apiRequest<{ success: boolean; series: TimeseriesPoint[] }>(
       'GET',
-      `/api/analytics/timeseries?days=${days}${freshParam(options)}`,
+      withFresh(`/api/analytics/timeseries?days=${days}`, options),
       undefined,
       'Unable to load the activity timeline.',
     );
@@ -129,7 +133,7 @@ export class AnalyticsService {
   static async funnel(days: number = 30, options?: AnalyticsFetchOptions): Promise<FunnelResult> {
     const result = await apiRequest<{ success: boolean; stages: FunnelStage[]; conversion: FunnelConversion }>(
       'GET',
-      `/api/analytics/funnel?days=${days}${freshParam(options)}`,
+      withFresh(`/api/analytics/funnel?days=${days}`, options),
       undefined,
       'Unable to load the conversion funnel.',
     );
@@ -151,7 +155,7 @@ export class AnalyticsService {
   static async rankings(days: number = 30, options?: AnalyticsFetchOptions): Promise<Rankings> {
     const result = await apiRequest<{ success: boolean; campaigns: RankedCampaign[]; rewards: RankedReward[] }>(
       'GET',
-      `/api/analytics/rankings?days=${days}${freshParam(options)}`,
+      withFresh(`/api/analytics/rankings?days=${days}`, options),
       undefined,
       'Unable to load rankings.',
     );

@@ -70,6 +70,9 @@ export default function OverviewPage() {
   const locale = useLocale();
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Per-section failures: one flaky endpoint no longer blanks the whole page.
+  const [sectionErrors, setSectionErrors] = useState<string[]>([]);
+  const [reloadKey, setReloadKey] = useState(0);
   // The shell already read /api/billing for its plan-gated navigation; reuse
   // it here instead of issuing the same request (and its D1 queries) twice.
   const { access: planAccess, loading: billingLoading } = useDashboardBilling();
@@ -84,39 +87,65 @@ export default function OverviewPage() {
     const access = planAccess;
     const hasAnalytics = access.plan.features.features.some((feature) => /analytics/i.test(feature));
 
-    Promise.all([
-      CampaignService.getCampaigns({ limit: 20 }),
-      RewardService.list(),
-      hasAnalytics ? AnalyticsService.overview() : Promise.resolve(null),
-      hasAnalytics
-        ? AnalyticsService.timeSeries(30).catch(() => null)
-        : Promise.resolve(null),
-    ])
-      .then(([campaigns, rewards, overview, timeseries]) => {
-        setData({
-          summary: overview?.summary ?? null,
-          campaigns,
-          rewards,
-          access,
-          hasAnalytics,
-          daysLeft: access.endsAt
-            ? Math.max(0, Math.ceil((new Date(access.endsAt).getTime() - Date.now()) / 86_400_000))
-            : null,
-          timeseries,
-        });
-      })
-      .catch((cause: unknown) =>
-        setError(msg(t, cause instanceof Error ? cause.message : 'Unable to load the overview.')),
-      );
+    void (async () => {
+      const [campaignsResult, rewardsResult, overviewResult, timeseriesResult] = await Promise.allSettled([
+        CampaignService.getCampaigns({ limit: 20 }),
+        RewardService.list(),
+        hasAnalytics ? AnalyticsService.overview() : Promise.resolve(null),
+        hasAnalytics ? AnalyticsService.timeSeries(30) : Promise.resolve(null),
+      ]);
 
-    return undefined;
-  }, [t, billingLoading, planAccess]);
+      // Campaigns + rewards are the backbone of the page; without them there
+      // is nothing worth rendering. Analytics degrades to an empty state.
+      if (campaignsResult.status === 'rejected') {
+        setError(msg(t, campaignsResult.reason instanceof Error ? campaignsResult.reason.message : 'Unable to load the overview.'));
+        return;
+      }
+      if (rewardsResult.status === 'rejected') {
+        setError(msg(t, rewardsResult.reason instanceof Error ? rewardsResult.reason.message : 'Unable to load the overview.'));
+        return;
+      }
+
+      const failed: string[] = [];
+      if (overviewResult.status === 'rejected') {
+        failed.push(msg(t, overviewResult.reason instanceof Error ? overviewResult.reason.message : 'Unable to load analytics.'));
+      }
+      if (timeseriesResult.status === 'rejected') {
+        failed.push(msg(t, 'Unable to load the activity timeline.'));
+      }
+      setSectionErrors(failed);
+
+      setData({
+        summary: overviewResult.status === 'fulfilled' ? (overviewResult.value?.summary ?? null) : null,
+        campaigns: campaignsResult.value,
+        rewards: rewardsResult.value,
+        access,
+        hasAnalytics,
+        daysLeft: access.endsAt
+          ? Math.max(0, Math.ceil((new Date(access.endsAt).getTime() - Date.now()) / 86_400_000))
+          : null,
+        timeseries: timeseriesResult.status === 'fulfilled' ? timeseriesResult.value : null,
+      });
+    })();
+  }, [t, billingLoading, planAccess, reloadKey]);
 
   if (error) {
     return (
-      <div role="alert" className="flex items-start gap-3 rounded-xl border border-danger-300/60 bg-danger-50 p-5 text-sm text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200">
-        <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-danger-500" aria-hidden />
-        {error}
+      <div className="flex flex-col items-start gap-4">
+        <div role="alert" className="flex items-start gap-3 rounded-xl border border-danger-300/60 bg-danger-50 p-5 text-sm text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200">
+          <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-danger-500" aria-hidden />
+          {error}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setError(null);
+            setReloadKey((key) => key + 1);
+          }}
+        >
+          {t.common.retry}
+        </Button>
       </div>
     );
   }
@@ -207,6 +236,23 @@ export default function OverviewPage() {
           ) : null
         }
       />
+
+      {sectionErrors.length > 0 ? (
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-warning-300/60 bg-warning-50 p-4 text-sm text-warning-800 dark:border-warning-900/60 dark:bg-warning-900/30 dark:text-warning-200">
+          <span className="flex-1">{sectionErrors.join(' ')}</span>
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => {
+              setSectionErrors([]);
+              setData(null);
+              setReloadKey((key) => key + 1);
+            }}
+          >
+            {t.common.retry}
+          </Button>
+        </div>
+      ) : null}
 
       {cards.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

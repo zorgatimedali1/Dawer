@@ -89,7 +89,7 @@ export class CouponService {
 
   static async update(
     couponId: string,
-    input: { status?: 'ISSUED' | 'REDEEMED'; expiresAt?: string },
+    input: { status?: 'ISSUED' | 'REDEEMED'; expiresAt?: string | null },
   ): Promise<void> {
     await apiRequest<{ success: boolean }>(
       'PATCH',

@@ -116,7 +116,8 @@ export const customerDetailsSchema = z.object({
 export const couponUpdateSchema = z
   .object({
     status: z.enum(['ISSUED', 'REDEEMED']).optional(),
-    expiresAt: z.string().datetime().optional(),
+    // `null` explicitly clears the deadline; omitted leaves it untouched.
+    expiresAt: z.union([z.string().datetime(), z.null()]).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, 'Provide a status or expiry date.');
 

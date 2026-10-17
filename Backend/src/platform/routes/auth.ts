@@ -3,6 +3,7 @@ import { hashPassword, sha256Hex, verifyPassword } from '../../lib/crypto';
 import { errorResponse, jsonResponse } from '../../lib/http';
 import { isCrossSitePost } from '../../lib/security';
 import { loginSchema, passwordChangeSchema } from '../../lib/validation';
+import { buildCookie } from '../../lib/cookie';
 import {
   clearedOperatorSessionCookie,
   currentOperatorToken,
@@ -10,6 +11,7 @@ import {
   getOperatorProfile,
   mintOperatorToken,
   operatorSessionCookie,
+  OPERATOR_SESSION_COOKIE,
 } from '../lib/auth';
 import type { Env } from '../../types';
 
@@ -53,6 +55,18 @@ async function loginOperator(request: Request, env: Env): Promise<Response> {
     const attemptAt = new Date();
     if (operator.locked_until && operator.locked_until > attemptAt.toISOString()) {
       return errorResponse('Too many failed attempts. Try again later.', 429);
+    }
+
+    // The lock expired: clear the stale counter first, otherwise the very next
+    // wrong password would compute attempts = MAX + 1 and instantly re-lock
+    // the operator for another full window.
+    if (operator.locked_until) {
+      await env.DB.prepare(
+        `UPDATE platform_operators SET failed_login_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?`,
+      )
+        .bind(attemptAt.toISOString(), operator.id)
+        .run();
+      operator.failed_login_attempts = 0;
     }
 
     const isValidPassword = await verifyPassword(body.password, operator.salt, operator.password_hash);
@@ -137,11 +151,21 @@ async function logoutOperator(request: Request, env: Env): Promise<Response> {
 
   if (token) {
     const tokenHash = await sha256Hex(token);
-    await env.DB.prepare('DELETE FROM platform_sessions WHERE token_hash = ?').bind(tokenHash).run();
+    // Resolve the operator first so a logout revokes every live session for
+    // that account (other devices), not just the one that clicked the button.
+    const operator = await getOperator(request, env);
+    if (operator) {
+      await env.DB.prepare('DELETE FROM platform_sessions WHERE operator_id = ?').bind(operator.id).run();
+    } else {
+      await env.DB.prepare('DELETE FROM platform_sessions WHERE token_hash = ?').bind(tokenHash).run();
+    }
   }
 
   const response = jsonResponse({ success: true, message: 'Logged out.' });
+  // Expire both cookie names (current `__Host-` and the bare pre-rename one),
+  // mirroring the merchant-side logout.
   response.headers.append('set-cookie', clearedOperatorSessionCookie(request));
+  response.headers.append('set-cookie', buildCookie(request, OPERATOR_SESSION_COOKIE, '', 0));
   return response;
 }
 

@@ -1,5 +1,20 @@
 import { buildQuery } from '@/services/http';
 
+type ErrorBody = {
+  message?: string;
+  error?: string;
+  details?: { fieldErrors?: Record<string, string[] | undefined> };
+};
+
+function firstFieldError(details: ErrorBody['details']): string | undefined {
+  const entries = Object.values(details?.fieldErrors ?? {});
+  for (const list of entries) {
+    const first = list?.[0];
+    if (first) return first;
+  }
+  return undefined;
+}
+
 /**
  * Same-origin `/api` fetch for the platform Worker. The operator session lives
  * in an HttpOnly cookie, so there is no bearer header and nothing to persist.
@@ -19,10 +34,28 @@ export async function apiRequest<T>(
   });
 
   const text = await response.text();
-  const result = (text ? JSON.parse(text) : {}) as T & { message?: string; error?: string };
+  let result: T & ErrorBody;
+  if (text) {
+    try {
+      result = JSON.parse(text) as T & ErrorBody;
+    } catch {
+      // Non-JSON body (edge HTML, plain-text proxy error) — fall back to the
+      // status-appropriate message instead of surfacing a raw parse error.
+      if (!response.ok) {
+        if (response.status === 401) window.dispatchEvent(new Event('platform-session-expired'));
+        throw new Error(fallbackError);
+      }
+      result = {} as T & ErrorBody;
+    }
+  } else {
+    result = {} as T & ErrorBody;
+  }
 
   if (!response.ok) {
-    throw new Error(result.message ?? result.error ?? fallbackError);
+    // Session gone: flip the operator context to anonymous so RequireOperator
+    // redirects to login instead of leaving a stuck "authenticated" console.
+    if (response.status === 401) window.dispatchEvent(new Event('platform-session-expired'));
+    throw new Error(firstFieldError(result.details) ?? result.message ?? result.error ?? fallbackError);
   }
 
   return result;

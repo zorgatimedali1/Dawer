@@ -282,11 +282,91 @@ describe('GET /api/business/coupons and redeem', () => {
     );
     expect((await body(given)).coupon.status).toBe('REDEEMED');
 
+    // M5: a redeemed coupon can never go back to ISSUED — that would let a
+    // PATCH un-redeem it and re-count the redemption in analytics.
     const stillOwed = await handleBusinessRoute(
       jsonRequest(`/api/business/coupons/${couponId}`, 'PATCH', { status: 'ISSUED' }, alice.token),
       env,
     );
-    expect((await body(stillOwed)).coupon).toMatchObject({ status: 'ISSUED', redeemed_at: null });
+    expect(stillOwed.status).toBe(409);
+    expect(db.query(`SELECT status FROM coupons WHERE id = ?`, couponId)).toEqual([{ status: 'REDEEMED' }]);
+
+    // Its deadline may still be adjusted after redemption.
+    const later = new Date(Date.now() + 60 * 86400_000).toISOString();
+    const adjusted = await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${couponId}`, 'PATCH', { expiresAt: later }, alice.token),
+      env,
+    );
+    expect(adjusted.status).toBe(200);
+    expect((await body(adjusted)).coupon.expires_at).toBe(later);
+  });
+
+  it('clears the deadline when expiresAt is explicitly null (L3)', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const customerId = seedCustomer(alice.businessId, 'clear-deadline@example.test');
+    const couponId = seedCoupon(alice.businessId, aliceCampaign, customerId, rewardId);
+    const expiresAt = new Date(Date.now() + 30 * 86400_000).toISOString();
+
+    await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${couponId}`, 'PATCH', { expiresAt }, alice.token),
+      env,
+    );
+
+    const cleared = await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${couponId}`, 'PATCH', { expiresAt: null }, alice.token),
+      env,
+    );
+    expect(cleared.status).toBe(200);
+    expect((await body(cleared)).coupon.expires_at).toBeNull();
+    expect(db.query(`SELECT expires_at FROM coupons WHERE id = ?`, couponId)).toEqual([{ expires_at: null }]);
+  });
+
+  it('enforces the expiry rule on a PATCH that marks a coupon redeemed (M5)', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const customerId = seedCustomer(alice.businessId, 'expired-patch@example.test');
+    const couponId = seedCoupon(alice.businessId, aliceCampaign, customerId, rewardId);
+
+    // An already-expired coupon: the status change must be refused with 410,
+    // exactly like the dedicated redeem endpoint.
+    db.prepare('UPDATE coupons SET expires_at = ? WHERE id = ?')
+      .bind(new Date(Date.now() - 86_400_000).toISOString(), couponId)
+      .run();
+
+    const response = await handleBusinessRoute(
+      jsonRequest(`/api/business/coupons/${couponId}`, 'PATCH', { status: 'REDEEMED' }, alice.token),
+      env,
+    );
+    expect(response.status).toBe(410);
+    expect(db.query(`SELECT status FROM coupons WHERE id = ?`, couponId)).toEqual([{ status: 'ISSUED' }]);
+    expect(
+      db.query(`SELECT id FROM analytics_events WHERE event_type = 'COUPON_REDEEMED'`),
+    ).toHaveLength(0);
+  });
+
+  it('records the redemption analytics event exactly once even when PATCHed twice (M5)', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const customerId = seedCustomer(alice.businessId, 'race@example.test');
+    const couponId = seedCoupon(alice.businessId, aliceCampaign, customerId, rewardId);
+
+    const [first, second] = await Promise.all([
+      handleBusinessRoute(
+        jsonRequest(`/api/business/coupons/${couponId}`, 'PATCH', { status: 'REDEEMED' }, alice.token),
+        env,
+      ),
+      handleBusinessRoute(
+        jsonRequest(`/api/business/coupons/${couponId}`, 'PATCH', { status: 'REDEEMED' }, alice.token),
+        env,
+      ),
+    ]);
+
+    // The second PATCH is idempotent (the coupon is already redeemed) but
+    // must never re-count the redemption in analytics.
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(db.query(`SELECT status FROM coupons WHERE id = ?`, couponId)).toEqual([{ status: 'REDEEMED' }]);
+    expect(
+      db.query(`SELECT id FROM analytics_events WHERE event_type = 'COUPON_REDEEMED'`),
+    ).toHaveLength(1);
   });
 
   it('rejects a deadline in the past and prevents updates to another business coupon', async () => {

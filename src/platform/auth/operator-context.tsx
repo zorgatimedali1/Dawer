@@ -33,8 +33,18 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
         setStatus('anonymous');
       });
 
+    // A 401 from any platform API call (expired/revoked operator session)
+    // flips the console back to the login screen instead of leaving every
+    // page stuck on its error banner while the sidebar still looks signed in.
+    const onExpired = () => {
+      setOperator(null);
+      setStatus('anonymous');
+    };
+    window.addEventListener('platform-session-expired', onExpired);
+
     return () => {
       cancelled = true;
+      window.removeEventListener('platform-session-expired', onExpired);
     };
   }, []);
 

@@ -2097,6 +2097,105 @@ describe('proximity signal (P2-7, soft)', () => {
   });
 });
 
+describe('hard geofence (H1)', () => {
+  const SHOP = { latitude: 36.8065, longitude: 10.1815 };
+
+  async function createRadiusCampaign(radiusMeters: number): Promise<string> {
+    const code = await createCampaign();
+    db.prepare('UPDATE campaigns SET latitude = ?, longitude = ?, radius_meters = ? WHERE public_code = ?')
+      .bind(SHOP.latitude, SHOP.longitude, radiusMeters, code)
+      .run();
+    return code;
+  }
+
+  it('rejects a spin with no coordinates when the campaign has a radius', async () => {
+    const code = await createRadiusCampaign(500);
+
+    const response = await handlePublicCampaignRoute(
+      participateRequest(publicPath(code, '/participate'), {}),
+      env,
+    );
+
+    // The gate fails closed: omitting lat/lng cannot bypass the venue check.
+    expect(response.status).toBe(403);
+    expect((await body(response)).message).toBe('You must be at the venue to play.');
+    expect(db.query(`SELECT id FROM participations`)).toHaveLength(0);
+  });
+
+  it('rejects an out-of-radius position', async () => {
+    const code = await createRadiusCampaign(500);
+
+    const response = await handlePublicCampaignRoute(
+      participateRequest(publicPath(code, '/participate'), {
+        latitude: 36.8165, // ~1.11 km away — beyond the 500 m radius
+        longitude: SHOP.longitude,
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect(db.query(`SELECT id FROM participations`)).toHaveLength(0);
+  });
+
+  it('accepts an in-radius position', async () => {
+    const code = await createRadiusCampaign(2_000);
+
+    const response = await handlePublicCampaignRoute(
+      participateRequest(publicPath(code, '/participate'), {
+        latitude: 36.8165,
+        longitude: SHOP.longitude,
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(db.query(`SELECT id FROM participations`)).toHaveLength(1);
+  });
+});
+
+describe('identity-less spins (L14)', () => {
+  it('refuses a spin that carries no cookie, device hash, anonymous id or contact', async () => {
+    const code = await createCampaign();
+
+    const response = await handlePublicCampaignRoute(
+      participateRequest(publicPath(code, '/participate'), {}, { cookie: null }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect(db.query(`SELECT id FROM participations`)).toHaveLength(0);
+    // The shared guest claim key must never be written.
+    expect(
+      db.query<{ visitor_key: string }>(`SELECT visitor_key FROM spin_claims`).every(
+        (row) => row.visitor_key !== 'guest_visitor',
+      ),
+    ).toBe(true);
+  });
+
+  it('still accepts a cookie-less spin that carries an anonymous id', async () => {
+    // A `none` slice lets the unverified visitor complete the spin (the
+    // pre-existing policy demotes them to it); the L14 gate must not fire.
+    const code = await createCampaign({
+      rewards: [
+        { name: 'Free coffee', weight: 100, quantity: 5 },
+        { name: 'Try again', weight: 1, type: 'none', quantity: 0 },
+      ],
+    });
+
+    const response = await handlePublicCampaignRoute(
+      participateRequest(
+        publicPath(code, '/participate'),
+        { anonymousId: '11111111-1111-4111-8111-111111111111' },
+        { cookie: null },
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect((await body(response)).participation.reward).toMatchObject({ type: 'none' });
+  });
+});
+
 describe('P2-4 contact-key claims', () => {
   it('never scopes a Durable Object claim on the submitted email', async () => {
     const code = await createCampaign({ rewards: [{ name: 'Free coffee', weight: 100, quantity: 3 }] });

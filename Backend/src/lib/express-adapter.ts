@@ -71,9 +71,13 @@ export function createWorkerRoute(
         // A response that hands out a cookie (the signed visitor identity)
         // must never be stored: replaying one Set-Cookie would pin every
         // visitor onto the same identity. The edge cache already refuses such
-        // entries — this keeps the Cache API equally strict.
-        if (response.headers.getSetCookie().length === 0) {
-          response.headers.set('Cache-Control', `public, max-age=0, s-maxage=${options.cacheTtlSeconds}`);
+        // entries — this keeps the Cache API equally strict. A route that set
+        // its own Cache-Control (e.g. `no-store` on the public campaign GET,
+        // whose QR-scan side effect must run per visitor) is honoured too.
+        const routeControl = response.headers.get('Cache-Control');
+        const routeNoStore = routeControl !== null && /no-store|private/i.test(routeControl);
+        if (response.headers.getSetCookie().length === 0 && !routeNoStore) {
+          response.headers.set('Cache-Control', routeControl ?? `public, max-age=0, s-maxage=${options.cacheTtlSeconds}`);
           await caches.default.put(cacheKey, response.clone());
         }
       }

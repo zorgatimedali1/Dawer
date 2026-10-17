@@ -160,6 +160,37 @@ describe('PUT /api/business/campaign-config', () => {
     expect(rows[0]?.name).toBe('Renamed');
   });
 
+  it('keeps the stored schedule when the wheel config save omits it (H2)', async () => {
+    const startAt = '2026-11-01T00:00:00.000Z';
+    const endAt = '2026-11-30T23:59:59.999Z';
+
+    // The schedule is set through the campaigns API (which carries startAt /
+    // endAt), not the wheel config form.
+    const created = await body(
+      await handleBusinessRoute(
+        jsonRequest(LIST, 'POST', { name: 'Scheduled', startAt, endAt }, owner.token),
+        env,
+      ),
+    );
+
+    // Point the wheel config save at that campaign (its "latest" lookup keys
+    // on the newest non-archived campaign), then save without any schedule.
+    db.prepare(`UPDATE campaigns SET updated_at = ? WHERE id = ?`)
+      .bind('2099-01-02T00:00:00.000Z', created.campaign.id)
+      .run();
+    await handleBusinessRoute(jsonRequest(CONFIG, 'PUT', baseConfig({ title: 'Scheduled Renamed' }), owner.token), env);
+
+    const row = db.query<{ name: string; start_at: string | null; end_at: string | null }>(
+      `SELECT name, start_at, end_at FROM campaigns WHERE id = ?`,
+      created.campaign.id,
+    )[0]!;
+    expect(row.name).toBe('Scheduled Renamed');
+    // The wheel save must not null out the schedule (which would turn a
+    // scheduled campaign into an always-open one).
+    expect(row.start_at).toBe(startAt);
+    expect(row.end_at).toBe(endAt);
+  });
+
   it('never writes into an archived campaign when no id is given', async () => {
     const live = await body(
       await handleBusinessRoute(jsonRequest(CONFIG, 'PUT', baseConfig({ title: 'Live One' }), owner.token), env),

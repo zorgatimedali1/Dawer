@@ -324,19 +324,68 @@ async function handleCouponUpdate(request: Request, env: Env, user: Authenticate
     return errorResponse('The new deadline must be in the future.', 400);
   }
 
+  // `expiresAt: null` clears the deadline; omitted (`undefined`) leaves it.
+  const nextExpiresAt =
+    input.expiresAt !== undefined ? input.expiresAt : coupon.expires_at;
+
+  // A redeemed coupon can never go back to ISSUED (that would let a PATCH
+  // un-redeem it and re-count the redemption in analytics); only its deadline
+  // may still be adjusted.
+  if (coupon.status === 'REDEEMED') {
+    if (input.status === 'ISSUED') {
+      return errorResponse('This coupon has already been redeemed.', 409);
+    }
+    await env.DB.prepare(
+      `UPDATE coupons SET expires_at = ? WHERE id = ? AND business_id = ? AND status = 'REDEEMED'`,
+    )
+      .bind(nextExpiresAt, couponId, coupon.business_id)
+      .run();
+    await writeAuditLog(env, {
+      businessId: String(coupon.business_id),
+      userId: user.id,
+      action: 'coupon.updated',
+      entityType: 'coupon',
+      entityId: couponId,
+      metadata: input,
+    });
+    return jsonResponse({
+      success: true,
+      coupon: { ...coupon, expires_at: nextExpiresAt },
+    });
+  }
+
   const nextStatus = input.status ?? coupon.status;
-  const redeemedAt = nextStatus === 'REDEEMED'
-    ? coupon.status === 'REDEEMED' ? coupon.redeemed_at : now
-    : null;
-  const expiresAt = input.expiresAt ?? coupon.expires_at;
 
-  await env.DB.prepare(
-    `UPDATE coupons SET status = ?, redeemed_at = ?, expires_at = ? WHERE id = ? AND business_id = ?`,
-  )
-    .bind(nextStatus, redeemedAt, expiresAt, couponId, coupon.business_id)
-    .run();
+  // Marking redeemed through PATCH must honour the same expiry rule as the
+  // dedicated redeem endpoint.
+  if (nextStatus === 'REDEEMED' && nextExpiresAt && String(nextExpiresAt) < now) {
+    return errorResponse('This coupon has expired.', 410);
+  }
 
-  if (coupon.status !== 'REDEEMED' && nextStatus === 'REDEEMED') {
+  const redeemedAt = nextStatus === 'REDEEMED' ? now : null;
+  const expiresAt = nextExpiresAt;
+
+  // Compare-and-swap on ISSUED → REDEEMED so concurrent PATCHes record the
+  // transition (and its analytics event) exactly once, like handleCouponRedeem.
+  const updated =
+    nextStatus === 'REDEEMED'
+      ? await env.DB.prepare(
+          `UPDATE coupons SET status = 'REDEEMED', redeemed_at = ?, expires_at = ?
+           WHERE id = ? AND business_id = ? AND status = 'ISSUED' AND (expires_at IS NULL OR expires_at >= ?)`,
+        )
+          .bind(redeemedAt, expiresAt, couponId, coupon.business_id, now)
+          .run()
+      : await env.DB.prepare(
+          `UPDATE coupons SET status = ?, redeemed_at = ?, expires_at = ? WHERE id = ? AND business_id = ? AND status = 'ISSUED'`,
+        )
+          .bind(nextStatus, redeemedAt, expiresAt, couponId, coupon.business_id)
+          .run();
+
+  if (Number(updated.meta.changes ?? 0) === 0) {
+    return errorResponse('This coupon has already been redeemed.', 409);
+  }
+
+  if (nextStatus === 'REDEEMED') {
     await env.DB.prepare(
       `INSERT INTO analytics_events (id, business_id, campaign_id, event_type, event_data, created_at)
        VALUES (?, ?, ?, 'COUPON_REDEEMED', ?, ?)`,
@@ -588,6 +637,7 @@ async function handleQrCreate(request: Request, env: Env, user: AuthenticatedUse
 
   const created = await env.DB.prepare(
     `SELECT q.id, q.campaign_id, ca.name AS campaign_name, ca.public_code AS campaign_public_code,
+            (SELECT COUNT(*) FROM participations p WHERE p.campaign_id = q.campaign_id) AS campaign_participations,
             q.public_code, q.name, q.location, q.active, q.created_at
      FROM qr_codes q
      LEFT JOIN campaigns ca ON ca.id = q.campaign_id
@@ -629,6 +679,7 @@ async function handleQrPatch(request: Request, env: Env, user: AuthenticatedUser
 
   const updated = await env.DB.prepare(
     `SELECT q.id, q.campaign_id, ca.name AS campaign_name, ca.public_code AS campaign_public_code,
+            (SELECT COUNT(*) FROM participations p WHERE p.campaign_id = q.campaign_id) AS campaign_participations,
             q.public_code, q.name, q.location, q.active, q.created_at
      FROM qr_codes q
      LEFT JOIN campaigns ca ON ca.id = q.campaign_id

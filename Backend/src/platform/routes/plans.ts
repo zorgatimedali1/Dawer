@@ -220,12 +220,15 @@ async function deletePlan(request: Request, env: Env, planId: string): Promise<R
   )
     .bind(planId)
     .first<{ id: string }>();
-  const pending = await env.DB.prepare(
-    "SELECT id FROM subscription_requests WHERE plan_id = ? AND status = 'PENDING' LIMIT 1",
+  // Any request row (PENDING, APPROVED or REJECTED) joins the plan for the
+  // console list and the revenue KPIs; deleting the plan would silently hide
+  // those historical rows. Block the delete unless nothing references it.
+  const referenced = await env.DB.prepare(
+    'SELECT id FROM subscription_requests WHERE plan_id = ? LIMIT 1',
   )
     .bind(planId)
     .first<{ id: string }>();
-  if (subscription || pending) {
+  if (subscription || referenced) {
     return errorResponse('This plan is referenced by a subscription; deactivate it instead.', 409);
   }
 

@@ -181,7 +181,10 @@ async function insertCustomerWithinQuota(
 ): Promise<{ stored: boolean; evicted: boolean }> {
   const insertOnce = () =>
     env.DB.prepare(
-      `INSERT INTO customers (id, business_id, first_name, last_name, email, phone, marketing_consent, created_at, updated_at)
+      // OR IGNORE: a concurrent submit for the same identity used to make the
+      // unique email index throw (surfacing as a 500); ignore it and detect
+      // the duplicate below instead.
+      `INSERT OR IGNORE INTO customers (id, business_id, first_name, last_name, email, phone, marketing_consent, created_at, updated_at)
        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
        WHERE ? < 0 OR (SELECT COUNT(*) FROM customers WHERE business_id = ?) < ?`,
     ).bind(
@@ -202,6 +205,17 @@ async function insertCustomerWithinQuota(
   const first = await insertOnce().run();
   if (first.meta.changes > 0) return { stored: true, evicted: false };
   if (limit < 0) return { stored: false, evicted: false };
+
+  // changes === 0 with no throw: either a concurrent insert of the same
+  // identity won the race (already stored — report success, never evict over
+  // it) or the store is genuinely at its cap.
+  const identityKey = (values.email ?? values.phone ?? values.id).toLowerCase();
+  const duplicate = await env.DB.prepare(
+    `SELECT id FROM customers WHERE business_id = ? AND LOWER(COALESCE(email, phone, id)) = ? LIMIT 1`,
+  )
+    .bind(businessId, identityKey)
+    .first<{ id: string }>();
+  if (duplicate) return { stored: true, evicted: false };
 
   const oldest = await env.DB.prepare(
     `SELECT id FROM customers WHERE business_id = ? ORDER BY created_at ASC, rowid ASC LIMIT 1`,
@@ -420,6 +434,12 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
         'set-cookie',
         buildCookie(request, spinVisitorCookieName(request), freshCookieValue, 31_536_000),
       );
+    } else {
+      // No per-visitor cookie on this response (COOKIE_SIGNING_KEY unset, or
+      // an already-verified visitor): if it were cached, the QR-scan side
+      // effect above would only fire once per TTL window instead of once per
+      // visitor, undercounting scans. Keep it uncached.
+      response.headers.set('Cache-Control', 'no-store');
     }
 
     return response;
@@ -521,15 +541,20 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     // from the venue is rejected. Coordinates remain client-reported (and thus
     // spoofable), but this closes the "spin from anywhere on earth" hole for
     // merchants who want it, while campaigns without a radius keep the
-    // historic advisory-only behaviour.
+    // historic advisory-only behaviour. The gate FAILS CLOSED: a radius-set
+    // campaign rejects requests that report no coordinates at all, so simply
+    // omitting lat/lng cannot bypass the venue check.
     if (
       campaign.radius_meters != null &&
       campaign.latitude != null &&
-      campaign.longitude != null &&
-      distanceMeters != null &&
-      distanceMeters > campaign.radius_meters
+      campaign.longitude != null
     ) {
-      return errorResponse('You must be at the venue to play.', 403);
+      if (distanceMeters == null) {
+        return errorResponse('You must be at the venue to play.', 403);
+      }
+      if (distanceMeters > campaign.radius_meters) {
+        return errorResponse('You must be at the venue to play.', 403);
+      }
     }
 
     const withinWindow =
@@ -660,6 +685,14 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     // The sticky browser id was already resolved above (before the action
     // gate); the durable claim keys on it now.
     const visitorKey = (cookieIdentity ?? gateIdentity ?? customerKey).trim().toLowerCase();
+
+    // No usable identity at all: the fallback customerKey collapses every
+    // anonymous visitor onto one shared claim key (the literal `guest_*`
+    // name), so one farm visitor would block every other guest. Refuse
+    // before any claim is taken — nothing is held yet at this point.
+    if (!cookieIdentity && !gateIdentity && !hasContact) {
+      return errorResponse('Open this page through your campaign link to participate.', 403);
+    }
 
     // P2-4: durability keys on the verified cookie first — email and phone are
     // unverified, client-supplied values, so an attacker who POSTs a victim's
@@ -1016,13 +1049,22 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
 
     // The spin landed: count it toward the campaign's win budget on each
     // identity's own claim — the sticky non-contact id (or the browser key
-    // when they coincide) plus the verified cookie.
+    // when they coincide) plus the verified cookie. Best-effort: the DO may
+    // be briefly unreachable, and a failure here must not 500 a spin that
+    // already committed (the visitor would spin again on reload).
     if (windowed && !isNoWin) {
-      if (stickyKey) {
-        const stickyTarget = stickyLock ?? (stickyKey === claimKey ? lock : null);
-        await stickyTarget?.recordWin(campaign.id, stickyKey);
+      try {
+        if (stickyKey) {
+          const stickyTarget = stickyLock ?? (stickyKey === claimKey ? lock : null);
+          await stickyTarget?.recordWin(campaign.id, stickyKey);
+        }
+        if (cookieIdentity) await lock?.recordWin(campaign.id, cookieIdentity);
+      } catch (winCountError) {
+        console.error(
+          'record_win_failed',
+          winCountError instanceof Error ? winCountError.message : String(winCountError),
+        );
       }
-      if (cookieIdentity) await lock?.recordWin(campaign.id, cookieIdentity);
     }
 
     return jsonResponse({
