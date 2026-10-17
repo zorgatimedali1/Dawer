@@ -1164,6 +1164,14 @@ async function handleActionClaim(env: Env, campaign: { id: string; require_actio
       return errorResponse('Reload the campaign page and try again.', 403);
     }
 
+    // #3: the signed ticket's 3s dwell only proves the page stayed open — a
+    // farm can sleep that out. A Turnstile token proves a human cleared a
+    // challenge on this page load, so the claim can't be scripted. Same
+    // fail-open-on-config contract as the /participate check (public.ts:535).
+    if (!(await verifyTurnstile(request, env, body.turnstileToken, 'action'))) {
+      return errorResponse('Bot check failed. Please try again.', 403);
+    }
+
     const now = new Date().toISOString();
     // The signed cookie identity keys the claim: one browser, one claim —
     // rotating anonymous ids from the same browser collides on this key.

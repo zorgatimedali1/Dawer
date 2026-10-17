@@ -228,6 +228,12 @@ export default function CampaignCustomerPage() {
   const [turnstileReset, setTurnstileReset] = useState(0);
   const [turnstilePending, setTurnstilePending] = useState(false);
   const turnstileTokenRef = useRef<string | null>(null);
+  // The action gate needs its own token: the spin widget is minted with
+  // `action: "participate"` and siteverify rejects it for the `/action` claim
+  // (which expects `action: "action"`). Kept separate so consuming one never
+  // breaks the other.
+  const [gateTurnstileReset, setGateTurnstileReset] = useState(0);
+  const gateTurnstileTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -401,14 +407,46 @@ export default function CampaignCustomerPage() {
     setGateError(null);
 
     try {
+      // The action claim now needs a human-challenge token too (#3): the 3s
+      // dwell on the signed ticket is sleepable, a Turnstile token is not.
+      // Wait (bounded) for the gate widget the same way the spin does.
+      let gateTurnstileToken: string | null = null;
+      if (turnstileSiteKey) {
+        gateTurnstileToken = await new Promise<string | null>((resolve) => {
+          const startedAt = Date.now();
+          const poll = window.setInterval(() => {
+            if (gateTurnstileTokenRef.current) {
+              window.clearInterval(poll);
+              resolve(gateTurnstileTokenRef.current);
+            } else if (Date.now() - startedAt >= gateTimings.turnstileWaitMs) {
+              window.clearInterval(poll);
+              resolve(null);
+            }
+          }, 100);
+        });
+
+        if (!gateTurnstileToken) {
+          unlockingRef.current = false;
+          setGateStage('failed');
+          setGateError(msg(t, 'Please complete the security check.'));
+          setGateTurnstileReset((n) => n + 1);
+          return;
+        }
+      }
+
       await PublicCampaignService.recordAction(campaign.public_code, {
         anonymousId: anonymousIdFor(campaign.public_code),
         deviceHash: deviceHashFor(),
         action: campaign.require_action ?? 'NONE',
+        ...(gateTurnstileToken ? { turnstileToken: gateTurnstileToken } : {}),
       });
       setStep('game');
     } catch (error: unknown) {
       unlockingRef.current = false;
+      // The token was consumed by this attempt (single-use); mint a fresh one
+      // so a retry after a recoverable failure works.
+      gateTurnstileTokenRef.current = null;
+      setGateTurnstileReset((n) => n + 1);
       setGateStage('failed');
       setGateError(msg(t, error instanceof Error ? error.message : 'Unable to unlock the wheel.'));
     }
@@ -757,6 +795,19 @@ export default function CampaignCustomerPage() {
                           {actionCopy.cta} ›
                         </a>
                       </Button>
+                    )}
+
+                    {!isNoAction && actionUrl && turnstileSiteKey && (
+                      <div className="mt-5 flex justify-center">
+                        <TurnstileWidget
+                          siteKey={turnstileSiteKey}
+                          action="action"
+                          resetSignal={gateTurnstileReset}
+                          onToken={(token) => {
+                            gateTurnstileTokenRef.current = token;
+                          }}
+                        />
+                      </div>
                     )}
 
                     {actionUrl && gateStage === 'opened' && (

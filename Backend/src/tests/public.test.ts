@@ -923,8 +923,14 @@ describe('action claim gate', () => {
     action: string,
     session?: { cookie: string; actionTicket: string },
     anonymousId = visitor,
+    turnstileToken?: string,
   ): Promise<Response> {
-    const request = jsonRequest(actionPath(code), 'POST', { anonymousId, action, ...(session ? { actionTicket: session.actionTicket } : {}) });
+    const request = jsonRequest(actionPath(code), 'POST', {
+      anonymousId,
+      action,
+      ...(session ? { actionTicket: session.actionTicket } : {}),
+      ...(turnstileToken ? { turnstileToken } : {}),
+    });
     return handlePublicCampaignRoute(session ? withCookie(request, session.cookie) : request, env);
   }
 
@@ -1106,6 +1112,75 @@ describe('action claim gate', () => {
 
     expect(response.status).toBe(403);
     expect(db.query(`SELECT id FROM action_claims`)).toHaveLength(0);
+  });
+
+  describe('Turnstile token on the action claim (#3)', () => {
+    // Siteverify is a network call; stub it and turn enforcement on.
+    function stubSiteverify(overrides: Record<string, unknown> = {}) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          new Response(JSON.stringify({ success: true, action: 'action', ...overrides }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+      );
+      env.TURNSTILE_SECRET_KEY = 'turnstile-secret.test';
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      delete env.TURNSTILE_SECRET_KEY;
+    });
+
+    it('claims when Siteverify accepts the token', async () => {
+      stubSiteverify();
+      const code = await createCampaign({ requireAction: 'GOOGLE_REVIEW' });
+      const session = await loadSession(code);
+
+      expect((await claim(code, 'GOOGLE_REVIEW', session, visitor, 'valid-token')).status).toBe(200);
+      expect(db.query(`SELECT id FROM action_claims`)).toHaveLength(1);
+    });
+
+    it('refuses a claim carrying no token once enforcement is on', async () => {
+      stubSiteverify();
+      const code = await createCampaign({ requireAction: 'GOOGLE_REVIEW' });
+      const session = await loadSession(code);
+
+      expect((await claim(code, 'GOOGLE_REVIEW', session)).status).toBe(403);
+      expect(db.query(`SELECT id FROM action_claims`)).toHaveLength(0);
+    });
+
+    it('refuses a claim whose token failed the challenge', async () => {
+      stubSiteverify({ success: false });
+      const code = await createCampaign({ requireAction: 'GOOGLE_REVIEW' });
+      const session = await loadSession(code);
+
+      expect((await claim(code, 'GOOGLE_REVIEW', session, visitor, 'bad-token')).status).toBe(403);
+      expect(db.query(`SELECT id FROM action_claims`)).toHaveLength(0);
+    });
+
+    it('refuses a token minted for a different action', async () => {
+      // A farm reuses the spin widget's token (action: "participate") on the
+      // action claim — siteverify rejects the action mismatch.
+      stubSiteverify({ action: 'participate' });
+      const code = await createCampaign({ requireAction: 'GOOGLE_REVIEW' });
+      const session = await loadSession(code);
+
+      expect((await claim(code, 'GOOGLE_REVIEW', session, visitor, 'spin-token')).status).toBe(403);
+      expect(db.query(`SELECT id FROM action_claims`)).toHaveLength(0);
+    });
+
+    it('stays open when no secret is configured (fail-open on config)', async () => {
+      // No stub, no TURNSTILE_SECRET_KEY — the check is inert, so the claim
+      // succeeds without any token at all.
+      const code = await createCampaign({ requireAction: 'GOOGLE_REVIEW' });
+      const session = await loadSession(code);
+
+      expect((await claim(code, 'GOOGLE_REVIEW', session)).status).toBe(200);
+      expect(db.query(`SELECT id FROM action_claims`)).toHaveLength(1);
+    });
   });
 
   it('keys the claim on the browser identity so rotating ids add nothing', async () => {

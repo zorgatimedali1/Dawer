@@ -134,13 +134,23 @@ export class PublicCampaignService {
 
   static async recordAction(
     publicCode: string,
-    input: { anonymousId: string; action: string; deviceHash?: string | undefined },
+    input: {
+      anonymousId: string;
+      action: string;
+      deviceHash?: string | undefined;
+      /** Turnstile token minted by the gate widget (`action: "action"`). */
+      turnstileToken?: string | undefined;
+    },
   ): Promise<void> {
     const actionTicket = actionTickets.get(publicCode);
     const response = await fetch(`/api/public/campaigns/${encodeURIComponent(publicCode)}/action`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...input, ...(actionTicket ? { actionTicket } : {}) }),
+      body: JSON.stringify({
+        ...input,
+        ...(actionTicket ? { actionTicket } : {}),
+        ...(input.turnstileToken ? { turnstileToken: input.turnstileToken } : {}),
+      }),
     });
 
     if (!response.ok) await parseError(response);
