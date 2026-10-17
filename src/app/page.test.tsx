@@ -49,7 +49,7 @@ describe('home pricing section', () => {
     expect(screen.getByRole('heading', { name: 'Pro' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Business' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Enterprise' })).toBeInTheDocument();
-    expect(screen.getByText('Jusqu’à 100 clients collectés')).toBeInTheDocument();
+    expect(screen.getByText('Jusqu’à 200 clients collectés')).toBeInTheDocument();
     expect(screen.getByText('Jusqu’à 1 000 clients collectés')).toBeInTheDocument();
     expect(screen.getByText('Jusqu’à 10 000 clients collectés')).toBeInTheDocument();
     expect(screen.getByText('349 DT')).toBeInTheDocument();
@@ -84,7 +84,7 @@ describe('home pricing section', () => {
     expect(screen.getByText('/ 1 an')).toBeInTheDocument();
     expect(screen.getByText('Nouvelle bullet opérateur')).toBeInTheDocument();
     // Catalog bullets are gone once the live list takes over.
-    expect(screen.queryByText('Jusqu’à 100 clients collectés')).toBeNull();
+    expect(screen.queryByText('Jusqu’à 200 clients collectés')).toBeNull();
   });
 
   it('keeps the bundled catalog when the feed fails or returns nothing', async () => {
@@ -129,7 +129,7 @@ describe('home pricing section', () => {
       expect(screen.getByRole('heading', { name: 'Starter' })).toBeInTheDocument();
     });
     // Empty live bullets must not blank the card: the catalog list fills in.
-    expect(screen.getByText('Jusqu’à 100 clients collectés')).toBeInTheDocument();
+    expect(screen.getByText('Jusqu’à 200 clients collectés')).toBeInTheDocument();
   });
 });
 

@@ -39,7 +39,7 @@ describe('overview plan features', () => {
               slug: 'starter',
               priceCents: 14900,
               interval: '3_months',
-              features: { limits: { campaigns: -1, customers: 100 }, features: ['Accès complet à la roue'] },
+              features: { limits: { campaigns: -1, customers: 200 }, features: ['Accès complet à la roue'] },
             },
           },
         }), { status: 200 });
@@ -58,7 +58,7 @@ describe('overview plan features', () => {
 
     expect(await screen.findByRole('heading', { name: 'Starter · Actif' })).toBeInTheDocument();
     expect(screen.getByText('• Accès complet à la roue')).toBeInTheDocument();
-    expect(screen.getByText('• 100 clients')).toBeInTheDocument();
+    expect(screen.getByText('• 200 clients')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: "Ouvrir l'analytique" })).toBeNull();
     expect(screen.queryByText('Total customers')).toBeNull();
     expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith('/api/analytics'))).toBe(false);

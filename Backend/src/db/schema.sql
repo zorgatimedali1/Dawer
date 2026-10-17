@@ -470,7 +470,7 @@ CREATE TABLE IF NOT EXISTS subscription_requests (
 
 INSERT OR IGNORE INTO plans (id, name, slug, price_cents, interval, features, active, created_at) VALUES
   ('plan_starter', 'Starter', 'starter', 14900, '3_months',
-    '{"limits":{"campaigns":-1,"customers":100},"features":["200 e-mails marketing inclus (bientôt disponible)","100 SMS inclus (bientôt disponible)","100 WhatsApp marketing inclus (bientôt disponible)","Accès complet à la roue","Support par e-mail","Sans engagement"]}',
+    '{"limits":{"campaigns":-1,"customers":200},"features":["200 e-mails marketing inclus (bientôt disponible)","100 SMS inclus (bientôt disponible)","100 WhatsApp marketing inclus (bientôt disponible)","Accès complet à la roue","Support par e-mail","Sans engagement"]}',
    1, '2026-01-01T00:00:00.000Z'),
   ('plan_growth', 'Pro', 'growth', 34900, 'year',
     '{"limits":{"campaigns":-1,"customers":1000,"wheelStepsColor":1},"features":["1 000 e-mails marketing inclus (bientôt disponible)","200 SMS inclus (bientôt disponible)","200 WhatsApp marketing inclus (bientôt disponible)","Accès complet à la roue","Support e-mail prioritaire","Vue d’ensemble et analytics de base","Plaque QR code incluse","Gestion des récompenses","Logo central de la roue","Couleur des étapes et du bouton"]}',

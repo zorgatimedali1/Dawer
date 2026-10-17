@@ -79,16 +79,19 @@ export class TestDatabase {
     return this.sqlite.prepare(sql).all(...(params as never[])) as T[];
   }
 
-  async batch(statements: TestStatement[]): Promise<{ results: unknown[] }> {
+  async batch(
+    statements: TestStatement[],
+  ): Promise<{ success: boolean; meta: { changes: number } }[]> {
     this.sqlite.exec('BEGIN');
+    const results: { success: boolean; meta: { changes: number } }[] = [];
     try {
-      for (const statement of statements) await statement.run();
+      for (const statement of statements) results.push(await statement.run());
       this.sqlite.exec('COMMIT');
     } catch (error) {
       this.sqlite.exec('ROLLBACK');
       throw error;
     }
-    return { results: [] };
+    return results;
   }
 
   close(): void {

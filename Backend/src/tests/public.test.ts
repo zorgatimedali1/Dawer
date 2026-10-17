@@ -383,31 +383,45 @@ describe('wheel theme in the public payload', () => {
 });
 
 describe('POST /api/public/campaigns/:code/participate', () => {
-  it('does not store a new customer beyond the Starter plan limit', async () => {
-    const code = await createCampaign({ rewards: [{ name: 'Free coffee', weight: 100 }] });
-    const now = new Date().toISOString();
-
-    for (let index = 0; index < 100; index += 1) {
+  /**
+   * Fills the merchant's customer window with staggered `created_at` values
+   * (index 0 oldest) so eviction order is deterministic: customer-0 is always
+   * the next to leave. `specialEmail`/`specialIndex` plants a known existing
+   * contact at a chosen position for the dedupe tests.
+   */
+  function seedCustomers(count: number, specialEmail?: string, specialIndex?: number): void {
+    const base = Date.now() - count * 1000;
+    for (let index = 0; index < count; index += 1) {
+      const stamp = new Date(base + index * 1000).toISOString();
+      const email = index === specialIndex && specialEmail ? specialEmail : `customer-${index}@example.test`;
       db.prepare(
         `INSERT INTO customers (id, business_id, email, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?)`,
       )
-        .bind(crypto.randomUUID(), businessId, `customer-${index}@example.test`, now, now)
+        .bind(crypto.randomUUID(), businessId, email, stamp, stamp)
         .run();
     }
+  }
+
+  it('stores a new Starter customer at the cap by evicting the oldest one', async () => {
+    const code = await createCampaign({ rewards: [{ name: 'Free coffee', weight: 100 }] });
+    seedCustomers(200);
 
     const response = await handlePublicCampaignRoute(
-      participateRequest(publicPath(code, '/participate'), { email: 'customer-101@example.test' }),
+      participateRequest(publicPath(code, '/participate'), { email: 'newest-winner@example.test' }),
       env,
     );
 
-    expect(response.status).toBe(409);
-    expect((await body(response)).message).toContain('customer storage limit (100 customers)');
-    expect(db.query(`SELECT id FROM customers`)).toHaveLength(100);
-    expect(db.query(`SELECT id FROM participations`)).toHaveLength(0);
+    expect(response.status).toBe(200);
+    // Rolling window: the count stays at the plan cap (200), the oldest row
+    // is gone, and the new winner took its slot.
+    expect(db.query(`SELECT id FROM customers`)).toHaveLength(200);
+    expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'customer-0@example.test')).toHaveLength(0);
+    expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'newest-winner@example.test')).toHaveLength(1);
+    expect(db.query(`SELECT id FROM participations`)).toHaveLength(1);
   });
 
-  it('allows 1,000 customers on Pro and rejects the next one', async () => {
+  it('rolls the window on Pro at 1,000 customers', async () => {
     const code = await createCampaign({ rewards: [{ name: 'Free coffee', weight: 100 }] });
     const now = new Date().toISOString();
     db.prepare(`DELETE FROM subscriptions WHERE business_id = ?`).bind(businessId).run();
@@ -418,34 +432,30 @@ describe('POST /api/public/campaigns/:code/participate', () => {
       .bind(crypto.randomUUID(), businessId, new Date(Date.now() + 86400_000).toISOString(), now, now)
       .run();
 
-    for (let index = 0; index < 999; index += 1) {
-      db.prepare(
-        `INSERT INTO customers (id, business_id, email, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-        .bind(crypto.randomUUID(), businessId, `customer-${index}@example.test`, now, now)
-        .run();
-    }
+    seedCustomers(1000);
 
-    const response = await handlePublicCampaignRoute(
-      participateRequest(publicPath(code, '/participate'), { email: 'pro-customer-101@example.test' }),
+    const first = await handlePublicCampaignRoute(
+      participateRequest(publicPath(code, '/participate'), { email: 'pro-winner-1@example.test' }),
       env,
     );
 
-    expect(response.status).toBe(200);
+    expect(first.status).toBe(200);
     expect(db.query(`SELECT id FROM customers`)).toHaveLength(1000);
+    expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'customer-0@example.test')).toHaveLength(0);
+    expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'pro-winner-1@example.test')).toHaveLength(1);
 
-    const overLimit = await handlePublicCampaignRoute(
-      participateRequest(publicPath(code, '/participate'), { email: 'pro-customer-1001@example.test' }),
+    const second = await handlePublicCampaignRoute(
+      participateRequest(publicPath(code, '/participate'), { email: 'pro-winner-2@example.test' }),
       env,
     );
 
-    expect(overLimit.status).toBe(409);
-    expect((await body(overLimit)).message).toContain('customer storage limit (1000 customers)');
+    expect(second.status).toBe(200);
     expect(db.query(`SELECT id FROM customers`)).toHaveLength(1000);
+    expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'customer-1@example.test')).toHaveLength(0);
+    expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'pro-winner-2@example.test')).toHaveLength(1);
   });
 
-  it('allows up to 10,000 customers on Business', async () => {
+  it('rolls the window on Business at 10,000 customers', async () => {
     const code = await createCampaign({ rewards: [{ name: 'Free coffee', weight: 100 }] });
     const now = new Date().toISOString();
     db.prepare(`DELETE FROM subscriptions WHERE business_id = ?`).bind(businessId).run();
@@ -456,23 +466,71 @@ describe('POST /api/public/campaigns/:code/participate', () => {
       .bind(crypto.randomUUID(), businessId, new Date(Date.now() + 86400_000).toISOString(), now, now)
       .run();
 
-    for (let index = 0; index < 10000; index += 1) {
-      db.prepare(
-        `INSERT INTO customers (id, business_id, email, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-        .bind(crypto.randomUUID(), businessId, `customer-${index}@example.test`, now, now)
-        .run();
-    }
+    seedCustomers(10000);
 
     const response = await handlePublicCampaignRoute(
-      participateRequest(publicPath(code, '/participate'), { email: 'business-customer-10001@example.test' }),
+      participateRequest(publicPath(code, '/participate'), { email: 'business-winner@example.test' }),
       env,
     );
 
-    expect(response.status).toBe(409);
-    expect((await body(response)).message).toContain('customer storage limit (10000 customers)');
+    expect(response.status).toBe(200);
     expect(db.query(`SELECT id FROM customers`)).toHaveLength(10000);
+    expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'customer-0@example.test')).toHaveLength(0);
+    expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'business-winner@example.test')).toHaveLength(1);
+  });
+
+  it('keeps an evicted customer\'s participations and coupons, just unlinked', async () => {
+    const code = await createCampaign({ rewards: [{ name: 'Free coffee', weight: 100 }] });
+    const campaignId = db.query<{ id: string }>(`SELECT id FROM campaigns WHERE public_code = ?`, code)[0]!.id;
+    seedCustomers(200);
+    const oldestId = db.query<{ id: string }>(`SELECT id FROM customers WHERE email = ?`, 'customer-0@example.test')[0]!.id;
+    const historyParticipationId = crypto.randomUUID();
+
+    db.prepare(
+      `INSERT INTO participations (id, campaign_id, customer_id, result, created_at)
+       VALUES (?, ?, ?, 'WIN', ?)`,
+    )
+      .bind(historyParticipationId, campaignId, oldestId, new Date().toISOString())
+      .run();
+    db.prepare(
+      `INSERT INTO coupons (id, business_id, campaign_id, customer_id, code, status, issued_at)
+       VALUES (?, ?, ?, ?, 'HIST-0001', 'ISSUED', ?)`,
+    )
+      .bind(crypto.randomUUID(), businessId, campaignId, oldestId, new Date().toISOString())
+      .run();
+
+    const response = await handlePublicCampaignRoute(
+      participateRequest(publicPath(code, '/participate'), { email: 'newest-winner@example.test' }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(db.query(`SELECT id FROM customers`)).toHaveLength(200);
+    expect(db.query(`SELECT id FROM customers WHERE id = ?`, oldestId)).toHaveLength(0);
+    // History survives the eviction: rows stay, only the customer link is cut.
+    expect(
+      db.query(`SELECT customer_id FROM participations WHERE id = ?`, historyParticipationId),
+    ).toEqual([{ customer_id: null }]);
+    expect(db.query(`SELECT customer_id FROM coupons WHERE code = ?`, 'HIST-0001')).toEqual([
+      { customer_id: null },
+    ]);
+  });
+
+  it('never evicts a customer when the winner already exists', async () => {
+    const code = await createCampaign({ rewards: [{ name: 'Free coffee', weight: 100 }] });
+    seedCustomers(200, 'ada@example.test', 100);
+
+    const response = await handlePublicCampaignRoute(
+      participateRequest(publicPath(code, '/participate'), { email: 'ada@example.test' }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    // Dedupe wins before the cap check: the stored customer is reused, the
+    // window is untouched, and nobody gets evicted.
+    expect(db.query(`SELECT id FROM customers`)).toHaveLength(200);
+    expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'customer-0@example.test')).toHaveLength(1);
+    expect(db.query(`SELECT id FROM customers WHERE email = ?`, 'ada@example.test')).toHaveLength(1);
   });
 
   it('records the participation but issues no coupon before the details form', async () => {
@@ -788,7 +846,7 @@ describe('anonymous spins', () => {
     const code = await createCampaign({ rewards: [{ name: 'Free coffee', weight: 100 }] });
     const now = new Date().toISOString();
 
-    for (let index = 0; index < 100; index += 1) {
+    for (let index = 0; index < 200; index += 1) {
       db.prepare(
         `INSERT INTO customers (id, business_id, email, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?)`,
@@ -800,7 +858,7 @@ describe('anonymous spins', () => {
     const response = await anonymousSpin(code, '55555555-5555-4555-8555-555555555555');
 
     expect(response.status).toBe(200);
-    expect(db.query(`SELECT id FROM customers`)).toHaveLength(100);
+    expect(db.query(`SELECT id FROM customers`)).toHaveLength(200);
     expect(db.query(`SELECT customer_id FROM participations`)).toEqual([{ customer_id: null }]);
   });
 
@@ -1500,31 +1558,36 @@ describe('POST /api/public/campaigns/:code/participations/:id/customer', () => {
     expect(db.query(`SELECT id FROM coupons`)).toHaveLength(0);
   });
 
-  it('refuses the attach when the storage quota is already full', async () => {
+  it('stores the details attach at the cap by evicting the oldest customer', async () => {
     const code = await createCampaign();
     const participation = await anonymousSpin(code);
-    const now = new Date().toISOString();
+    const base = Date.now() - 200 * 1000;
 
-    for (let index = 0; index < 100; index += 1) {
+    for (let index = 0; index < 200; index += 1) {
+      const stamp = new Date(base + index * 1000).toISOString();
       db.prepare(
         `INSERT INTO customers (id, business_id, email, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?)`,
       )
-        .bind(crypto.randomUUID(), businessId, `quota-${index}@example.test`, now, now)
+        .bind(crypto.randomUUID(), businessId, `quota-${index}@example.test`, stamp, stamp)
         .run();
     }
+
+    const oldestId = db.query<{ id: string }>(`SELECT id FROM customers WHERE email = ?`, 'quota-0@example.test')[0]!.id;
 
     const response = await handlePublicCampaignRoute(
       withCookie(jsonRequest(detailsPath(code, participation.participationId), 'POST', details), participation.cookie),
       env,
     );
 
-    expect(response.status).toBe(409);
-    expect((await body(response)).message).toContain('customer storage limit');
-    expect(db.query(`SELECT id FROM customers WHERE email = ?`, details.email)).toHaveLength(0);
-    expect(db.query(`SELECT customer_id FROM participations`)).toEqual([{ customer_id: null }]);
-    // The rejected attach must not leave an unnamed coupon behind either.
-    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(0);
+    expect(response.status).toBe(200);
+    expect(db.query(`SELECT id FROM customers`)).toHaveLength(200);
+    expect(db.query(`SELECT id FROM customers WHERE id = ?`, oldestId)).toHaveLength(0);
+    expect(db.query(`SELECT id FROM customers WHERE email = ?`, details.email)).toHaveLength(1);
+    expect(db.query(`SELECT customer_id FROM participations`)).toEqual([
+      { customer_id: db.query<{ id: string }>(`SELECT id FROM customers WHERE email = ?`, details.email)[0]!.id },
+    ]);
+    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(1);
   });
 
   it('accepts winner details without an email address', async () => {

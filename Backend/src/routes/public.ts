@@ -150,6 +150,78 @@ async function selectWheelRewards(env: Env, campaignId: string): Promise<WheelRe
   return applySoldOutOdds(toWheelRewards(((await load()).results) ?? []));
 }
 
+/**
+ * Stores a new customer under the plan's storage quota.
+ *
+ * The quota is a rolling window of the N most recent stored contacts: when
+ * the business is already at its limit, the oldest stored customer (first
+ * added) is evicted — their participations and coupons are unlinked
+ * (`customer_id = NULL`) so spin/reward history and issued codes survive —
+ * and the new contact takes the freed slot. Returning contacts never reach
+ * this helper (the dedupe runs first). Unlimited plans (`limit < 0`) never
+ * evict.
+ *
+ * The eviction + retry insert run as one atomic batch, and the insert keeps
+ * its own `COUNT < limit` guard, so a lost race stores nothing instead of
+ * exceeding the cap.
+ */
+async function insertCustomerWithinQuota(
+  env: Env,
+  businessId: string,
+  values: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+    phone: string | null;
+    marketingConsent: boolean;
+    timestamp: string;
+  },
+  limit: number,
+): Promise<{ stored: boolean; evicted: boolean }> {
+  const insertOnce = () =>
+    env.DB.prepare(
+      `INSERT INTO customers (id, business_id, first_name, last_name, email, phone, marketing_consent, created_at, updated_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE ? < 0 OR (SELECT COUNT(*) FROM customers WHERE business_id = ?) < ?`,
+    ).bind(
+      values.id,
+      businessId,
+      values.firstName,
+      values.lastName,
+      values.email,
+      values.phone,
+      values.marketingConsent ? 1 : 0,
+      values.timestamp,
+      values.timestamp,
+      limit,
+      businessId,
+      limit,
+    );
+
+  const first = await insertOnce().run();
+  if (first.meta.changes > 0) return { stored: true, evicted: false };
+  if (limit < 0) return { stored: false, evicted: false };
+
+  const oldest = await env.DB.prepare(
+    `SELECT id FROM customers WHERE business_id = ? ORDER BY created_at ASC, rowid ASC LIMIT 1`,
+  )
+    .bind(businessId)
+    .first<{ id: string }>();
+
+  if (!oldest) return { stored: false, evicted: false };
+
+  const batch = await env.DB.batch([
+    env.DB.prepare(`UPDATE participations SET customer_id = NULL WHERE customer_id = ?`).bind(oldest.id),
+    env.DB.prepare(`UPDATE coupons SET customer_id = NULL WHERE customer_id = ?`).bind(oldest.id),
+    env.DB.prepare(`DELETE FROM customers WHERE id = ?`).bind(oldest.id),
+    insertOnce(),
+  ]);
+
+  const retried = batch[3];
+  return { stored: (retried?.meta.changes ?? 0) > 0, evicted: true };
+}
+
 export async function handlePublicCampaignRoute(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
 
@@ -398,6 +470,10 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
   // path deletes it so a failed spin never leaves an orphan that counts
   // against the merchant's storage quota.
   let createdCustomerId: string | null = null;
+  // True when createdCustomerId's row took an evicted customer's slot. A
+  // recycled slot is kept even on rollback: the old customer is already gone,
+  // so deleting this one too would shrink the roster for nothing.
+  let slotRecycled = false;
   // Every durable `spin_claims` row this attempt wrote (browser key first,
   // then the advisory contact key) — all of them go back on any failure.
   const claimRowIds: string[] = [];
@@ -629,9 +705,14 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       // A contact row this attempt created goes with the failed spin: keeping
       // it would let scripted failures (random emails at a sold-out wheel)
       // fill the merchant's customer-storage quota with unreachable rows.
+      // A recycled slot is the exception — the evicted customer is already
+      // gone, and the rolling window reclaims stray rows on the next winner.
       if (createdCustomerId) {
-        await env.DB.prepare('DELETE FROM customers WHERE id = ?').bind(createdCustomerId).run();
+        if (!slotRecycled) {
+          await env.DB.prepare('DELETE FROM customers WHERE id = ?').bind(createdCustomerId).run();
+        }
         createdCustomerId = null;
+        slotRecycled = false;
       }
     };
     undoRelease = releaseClaims;
@@ -707,28 +788,17 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
 
       if (!customerResult) {
         const limit = customerLimitFromAccess(campaignAccess);
-        const inserted = await env.DB.prepare(
-          `INSERT OR IGNORE INTO customers (id, business_id, first_name, last_name, email, phone, marketing_consent, created_at, updated_at)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
-           WHERE ? < 0 OR (SELECT COUNT(*) FROM customers WHERE business_id = ?) < ?`,
-        )
-          .bind(
-            customerId,
-            campaign.business_id,
-            body.firstName ?? null,
-            body.lastName ?? null,
-            body.email ?? null,
-            body.phone ?? null,
-            body.marketingConsent ? 1 : 0,
-            nowIso,
-            nowIso,
-            limit,
-            campaign.business_id,
-            limit,
-          )
-          .run();
+        const stored = await insertCustomerWithinQuota(env, campaign.business_id, {
+          id: customerId,
+          firstName: body.firstName ?? null,
+          lastName: body.lastName ?? null,
+          email: body.email ?? null,
+          phone: body.phone ?? null,
+          marketingConsent: Boolean(body.marketingConsent),
+          timestamp: nowIso,
+        }, limit);
 
-        if (inserted.meta.changes === 0) {
+        if (!stored.stored) {
           await releaseClaims();
           return errorResponse(
             `This merchant has reached its customer storage limit (${limit} customers). Upgrade the plan to store more customers.`,
@@ -737,6 +807,7 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
         }
 
         createdCustomerId = customerId;
+        slotRecycled = stored.evicted;
       }
     }
 
@@ -941,6 +1012,7 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     lockClaimed = false;
     stickyLockClaimed = false;
     createdCustomerId = null;
+    slotRecycled = false;
 
     // The spin landed: count it toward the campaign's win budget on each
     // identity's own claim — the sticky non-contact id (or the browser key
@@ -1127,28 +1199,17 @@ async function handleCustomerDetails(
       } else {
         const candidateId = crypto.randomUUID();
         const limit = await getCustomerLimit(env, participation.business_id);
-        const inserted = await env.DB.prepare(
-          `INSERT INTO customers (id, business_id, first_name, last_name, email, phone, marketing_consent, created_at, updated_at)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
-           WHERE ? < 0 OR (SELECT COUNT(*) FROM customers WHERE business_id = ?) < ?`,
-        )
-          .bind(
-            candidateId,
-            participation.business_id,
-            body.firstName,
-            body.lastName,
-            emailKey || null,
-            phoneKey,
-            body.marketingConsent ? 1 : 0,
-            now,
-            now,
-            limit,
-            participation.business_id,
-            limit,
-          )
-          .run();
+        const stored = await insertCustomerWithinQuota(env, participation.business_id, {
+          id: candidateId,
+          firstName: body.firstName,
+          lastName: body.lastName,
+          email: emailKey || null,
+          phone: phoneKey,
+          marketingConsent: Boolean(body.marketingConsent),
+          timestamp: now,
+        }, limit);
 
-        if (inserted.meta.changes === 0) {
+        if (!stored.stored) {
           return errorResponse(
             `This merchant has reached its customer storage limit (${limit} customers). Upgrade the plan to store more customers.`,
             409,

@@ -268,7 +268,7 @@ describe('billing', () => {
     expect(payload.plans.map((plan: any) => plan.name)).toEqual(['Starter', 'Pro', 'Business', 'Enterprise']);
     expect(payload.plans[0].priceCents).toBe(14900);
     expect(payload.plans[0].interval).toBe('3_months');
-    expect(payload.plans[0].features.limits.customers).toBe(100);
+    expect(payload.plans[0].features.limits.customers).toBe(200);
     expect(payload.plans[1].features.limits.customers).toBe(1000);
     expect(payload.plans[1].features.features).toContain('Vue d’ensemble et analytics de base');
     expect(payload.plans[1].interval).toBe('year');

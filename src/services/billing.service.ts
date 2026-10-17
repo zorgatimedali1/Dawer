@@ -104,7 +104,7 @@ export class BillingService {
       slug: 'starter',
       priceCents: 0,
       interval: '3_months',
-      features: { limits: { campaigns: -1, customers: 100 }, features: [] },
+      features: { limits: { campaigns: -1, customers: 200 }, features: [] },
     };
 
     return {

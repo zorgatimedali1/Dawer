@@ -43,7 +43,7 @@ const homepagePlans: Record<Locale, readonly HomepagePlan[]> = {
   fr: [
     {
       name: 'Starter', slug: 'starter', priceCents: 14900, interval: '3_months',
-      features: ['Jusqu’à 100 clients collectés', '200 e-mails marketing inclus (bientôt disponible)', '100 SMS inclus (bientôt disponible)', '100 WhatsApp marketing inclus (bientôt disponible)', 'Accès complet à la roue', 'Support par e-mail', 'Sans engagement'],
+      features: ['Jusqu’à 200 clients collectés', '200 e-mails marketing inclus (bientôt disponible)', '100 SMS inclus (bientôt disponible)', '100 WhatsApp marketing inclus (bientôt disponible)', 'Accès complet à la roue', 'Support par e-mail', 'Sans engagement'],
     },
     {
       name: 'Pro', slug: 'growth', priceCents: 34900, interval: 'year', badge: 'Le plus populaire', featured: true,
@@ -61,7 +61,7 @@ const homepagePlans: Record<Locale, readonly HomepagePlan[]> = {
   en: [
     {
       name: 'Starter', slug: 'starter', priceCents: 14900, interval: '3_months',
-      features: ['Up to 100 collected customers', '200 marketing emails included (coming soon)', '100 SMS included (coming soon)', '100 WhatsApp marketing included (coming soon)', 'Full wheel access', 'Email support', 'No commitment'],
+      features: ['Up to 200 collected customers', '200 marketing emails included (coming soon)', '100 SMS included (coming soon)', '100 WhatsApp marketing included (coming soon)', 'Full wheel access', 'Email support', 'No commitment'],
     },
     {
       name: 'Pro', slug: 'growth', priceCents: 34900, interval: 'year', badge: 'Most popular', featured: true,
