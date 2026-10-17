@@ -527,7 +527,8 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
 
     // P2-7 proximity: recorded as a soft signal for fraud review. Missing
     // coordinates on either side (or a client that sends none) just yields no
-    // signal — it never blocks the spin.
+    // signal — it never blocks the spin. The SPA no longer asks for browser
+    // location at all, so this only ever fires for API clients that opt in.
     const distanceMeters = (() => {
       if (campaign.latitude == null || campaign.longitude == null) return null;
       if (body.latitude === undefined || body.longitude === undefined) return null;
@@ -535,27 +536,6 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
         distanceMetersBetween(Number(campaign.latitude), Number(campaign.longitude), body.latitude, body.longitude),
       );
     })();
-
-    // Hard geofence (H2): when the merchant opted into a radius and the
-    // campaign has resolved coordinates, a spin farther than `radius_meters`
-    // from the venue is rejected. Coordinates remain client-reported (and thus
-    // spoofable), but this closes the "spin from anywhere on earth" hole for
-    // merchants who want it, while campaigns without a radius keep the
-    // historic advisory-only behaviour. The gate FAILS CLOSED: a radius-set
-    // campaign rejects requests that report no coordinates at all, so simply
-    // omitting lat/lng cannot bypass the venue check.
-    if (
-      campaign.radius_meters != null &&
-      campaign.latitude != null &&
-      campaign.longitude != null
-    ) {
-      if (distanceMeters == null) {
-        return errorResponse('You must be at the venue to play.', 403);
-      }
-      if (distanceMeters > campaign.radius_meters) {
-        return errorResponse('You must be at the venue to play.', 403);
-      }
-    }
 
     const withinWindow =
       (!campaign.start_at || campaign.start_at <= nowIso) &&

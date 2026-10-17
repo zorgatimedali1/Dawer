@@ -52,6 +52,8 @@ type GateStage = 'idle' | 'opened' | 'returned' | 'unlocking' | 'failed';
 export const gateTimings = {
   /** Seconds counted down after the visitor returns, before the wheel opens. */
   unlockDelaySeconds: 3,
+  /** Max ms to wait for a Turnstile token before showing the retry hint. */
+  turnstileWaitMs: 5000,
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -165,36 +167,6 @@ function isWindowedCampaign(campaign: PublicCampaign): boolean {
   }
 }
 
-type GeoCoords = { latitude: number; longitude: number };
-
-/**
- * Best-effort browser position for the P2-7 proximity signal. Resolves to
- * null on denial, timeout or unsupported devices — the spin proceeds either
- * way, the signal is soft.
- */
-function requestCoords(timeoutMs: number): Promise<GeoCoords | null> {
-  return new Promise((resolve) => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      resolve(null);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: false, timeout: timeoutMs, maximumAge: 300_000 },
-    );
-  });
-}
-
-/** Never let the permission prompt stall the spin past a short deadline. */
-function withDeadline<T>(promise: Promise<T | null>, ms: number): Promise<T | null> {
-  return Promise.race([
-    promise,
-    new Promise<null>((resolve) => window.setTimeout(() => resolve(null), ms)),
-  ]);
-}
-
 function GoogleWordmark() {
   const t = useT();
   const letters: Array<[string, string]> = [
@@ -254,15 +226,8 @@ export default function CampaignCustomerPage() {
   // never triggers re-renders, and reset after each attempt (single-use).
   const [turnstileSiteKey, setTurnstileSiteKey] = useState<string | null>(null);
   const [turnstileReset, setTurnstileReset] = useState(0);
+  const [turnstilePending, setTurnstilePending] = useState(false);
   const turnstileTokenRef = useRef<string | null>(null);
-  // One in-flight geolocation request for the campaign, started non-blocking
-  // as soon as the page knows the campaign has a location (P2-7).
-  const locationRequestRef = useRef<Promise<GeoCoords | null> | null>(null);
-
-  useEffect(() => {
-    if (!campaign || campaign.latitude == null || campaign.longitude == null) return;
-    locationRequestRef.current ??= requestCoords(8_000);
-  }, [campaign]);
 
   useEffect(() => {
     let cancelled = false;
@@ -520,28 +485,40 @@ export default function CampaignCustomerPage() {
   const handleSpin = async () => {
     if (spinning || !campaign || result) return;
 
-    // M7: when the server requires a Turnstile token, wait for one. A missing
-    // token (widget still solving / failed to load) blocks the request so the
-    // server doesn't reject it, and the widget is reset for a fresh attempt.
-    if (turnstileSiteKey && !turnstileTokenRef.current) {
-      setSpinError(msg(t, 'Please complete the security check.'));
-      setTurnstileReset((n) => n + 1);
-      return;
-    }
-
     setSpinning(true);
     setSpinError(null);
 
-    try {
-      const wantsLocation = campaign.latitude != null && campaign.longitude != null;
-      const coords = wantsLocation
-        ? await withDeadline(locationRequestRef.current ?? requestCoords(2_000), 1_500)
-        : null;
+    // M7: when the server requires a Turnstile token, wait (bounded) for the
+    // widget to finish solving instead of failing instantly — the invisible
+    // challenge can trail a few seconds behind page load.
+    if (turnstileSiteKey && !turnstileTokenRef.current) {
+      setTurnstilePending(true);
+      const token = await new Promise<string | null>((resolve) => {
+        const startedAt = Date.now();
+        const poll = window.setInterval(() => {
+          if (turnstileTokenRef.current) {
+            window.clearInterval(poll);
+            resolve(turnstileTokenRef.current);
+          } else if (Date.now() - startedAt >= gateTimings.turnstileWaitMs) {
+            window.clearInterval(poll);
+            resolve(null);
+          }
+        }, 100);
+      });
+      setTurnstilePending(false);
 
+      if (!token) {
+        setSpinning(false);
+        setSpinError(msg(t, 'Please complete the security check.'));
+        setTurnstileReset((n) => n + 1);
+        return;
+      }
+    }
+
+    try {
       const participation = await PublicCampaignService.participate(campaign.public_code, {
         anonymousId: anonymousIdFor(campaign.public_code),
         deviceHash: deviceHashFor(),
-        ...(coords ? { latitude: coords.latitude, longitude: coords.longitude } : {}),
         ...(turnstileSiteKey && turnstileTokenRef.current
           ? { turnstileToken: turnstileTokenRef.current }
           : {}),
@@ -911,7 +888,11 @@ export default function CampaignCustomerPage() {
                 loading={spinning}
               >
                 <Dices className="h-4 w-4" aria-hidden />
-                {spinning ? t.customer.spinning : t.customer.spinButton}
+                {turnstilePending
+                  ? t.customer.securityVerifying
+                  : spinning
+                    ? t.customer.spinning
+                    : t.customer.spinButton}
               </Button>
             </div>
           )}

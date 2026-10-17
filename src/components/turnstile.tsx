@@ -24,7 +24,13 @@ function loadTurnstileScript(): Promise<void> {
     const existing = document.querySelector<HTMLScriptElement>(`script[src="${SCRIPT_SRC}"]`);
     if (existing) {
       existing.addEventListener('load', () => resolve());
-      existing.addEventListener('error', () => reject(new Error('Turnstile failed to load.')));
+      existing.addEventListener('error', () => {
+        // A dead tag can never fire again — drop it and the cached promise so
+        // the next attempt re-injects a fresh script.
+        existing.remove();
+        scriptPromise = null;
+        reject(new Error('Turnstile failed to load.'));
+      });
       return;
     }
     const script = document.createElement('script');
@@ -32,7 +38,11 @@ function loadTurnstileScript(): Promise<void> {
     script.async = true;
     script.defer = true;
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Turnstile failed to load.'));
+    script.onerror = () => {
+      script.remove();
+      scriptPromise = null;
+      reject(new Error('Turnstile failed to load.'));
+    };
     document.head.appendChild(script);
   });
 

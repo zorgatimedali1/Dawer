@@ -823,6 +823,7 @@ export const customer: D<typeof frDict.customer> = {
   titleSuffix: 'Spin the wheel',
   spinButton: 'Spin the wheel',
   spinning: 'Spinning\u2026',
+  securityVerifying: 'Security check in progress\u2026',
   winTitle: '\ud83c\udf89 Congratulations!',
   winBody: 'You won:',
   noWinTitle: 'Better luck next time',

@@ -4,6 +4,17 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CampaignCustomerPage, { gateTimings } from '@/app/customer/[campaignId]/page';
 
+const turnstileHandlers = vi.hoisted(() => ({
+  onTokens: [] as Array<(token: string | null) => void>,
+}));
+
+vi.mock('@/components/turnstile', () => ({
+  TurnstileWidget: ({ onToken }: { onToken: (token: string | null) => void }) => {
+    turnstileHandlers.onTokens.push(onToken);
+    return <div data-testid="turnstile-widget" />;
+  },
+}));
+
 const DEFAULT_GATE_TIMINGS = { ...gateTimings };
 
 const campaign = {
@@ -120,6 +131,7 @@ describe('public campaign page', () => {
     if (stopLinkNavigation) document.removeEventListener('click', stopLinkNavigation);
     stopLinkNavigation = null;
     gateTimings.unlockDelaySeconds = DEFAULT_GATE_TIMINGS.unlockDelaySeconds;
+    gateTimings.turnstileWaitMs = DEFAULT_GATE_TIMINGS.turnstileWaitMs;
     Reflect.deleteProperty(navigator, 'geolocation');
   });
 
@@ -557,19 +569,11 @@ describe('public campaign page', () => {
     expect(screen.getByText(/introuvable ou n’est pas disponible/i)).toBeTruthy();
   });
 
-  describe('P2-7 proximity signal', () => {
+  describe('no location prompt + Turnstile wait', () => {
     const SHOP = { latitude: 36.8065, longitude: 10.1815 };
 
-    function stubGeolocation(outcome: 'granted' | 'denied') {
-      const getCurrentPosition = vi.fn(
-        (success?: (position: unknown) => void, error?: (reason: unknown) => void) => {
-          if (outcome === 'granted') {
-            success?.({ coords: { latitude: 36.8165, longitude: 10.1815 } });
-          } else {
-            error?.({ code: 1, message: 'User denied Geolocation' });
-          }
-        },
-      );
+    function stubGeolocationSpy() {
+      const getCurrentPosition = vi.fn();
       Object.defineProperty(navigator, 'geolocation', {
         configurable: true,
         value: { getCurrentPosition },
@@ -577,7 +581,11 @@ describe('public campaign page', () => {
       return getCurrentPosition;
     }
 
-    function stubSpinFetch(overrides: Record<string, unknown>, bodies: Array<Record<string, unknown>>) {
+    function stubSpinFetch(
+      overrides: Record<string, unknown>,
+      bodies: Array<Record<string, unknown>>,
+      rootExtras: Record<string, unknown> = {},
+    ) {
       vi.stubGlobal(
         'fetch',
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -594,6 +602,7 @@ describe('public campaign page', () => {
                 ...overrides,
               },
               rewards,
+              ...rootExtras,
             });
           }
 
@@ -621,22 +630,14 @@ describe('public campaign page', () => {
       await waitFor(() => expect(bodies).toHaveLength(1));
     }
 
-    it('sends the position with the spin when the campaign has a location', async () => {
-      const getCurrentPosition = stubGeolocation('granted');
-      const bodies: Array<Record<string, unknown>> = [];
-      stubSpinFetch({ latitude: SHOP.latitude, longitude: SHOP.longitude }, bodies);
-
-      renderPage();
-      await spinOnce(bodies);
-
-      expect(getCurrentPosition).toHaveBeenCalled();
-      expect(bodies[0]).toMatchObject({ latitude: 36.8165, longitude: 10.1815 });
+    beforeEach(() => {
+      turnstileHandlers.onTokens.length = 0;
     });
 
-    it('never asks for a position when the campaign has no location', async () => {
-      const getCurrentPosition = stubGeolocation('granted');
+    it('never asks for a position and never sends coordinates, even when the campaign has a location', async () => {
+      const getCurrentPosition = stubGeolocationSpy();
       const bodies: Array<Record<string, unknown>> = [];
-      stubSpinFetch({ latitude: null, longitude: null }, bodies);
+      stubSpinFetch({ latitude: SHOP.latitude, longitude: SHOP.longitude }, bodies);
 
       renderPage();
       await spinOnce(bodies);
@@ -646,16 +647,39 @@ describe('public campaign page', () => {
       expect(bodies[0]).not.toHaveProperty('longitude');
     });
 
-    it('spins without a position when the visitor denies geolocation', async () => {
-      stubGeolocation('denied');
+    it('waits for the Turnstile token instead of erroring, then spins with it', async () => {
+      stubGeolocationSpy();
       const bodies: Array<Record<string, unknown>> = [];
-      stubSpinFetch({ latitude: SHOP.latitude, longitude: SHOP.longitude }, bodies);
+      stubSpinFetch({}, bodies, { turnstileSiteKey: 'site-key-test' });
 
       renderPage();
-      await spinOnce(bodies);
+      await userEvent.click(await screen.findByRole('button', { name: /Tourner la roue/i }));
+      // No token yet (widget still solving): the spin is held, not rejected.
+      await userEvent.click(await screen.findByRole('button', { name: /Tourner la roue/i }));
+      expect(bodies).toHaveLength(0);
+      expect(screen.getByRole('button', { name: /vérification de sécurité/i })).toBeTruthy();
 
-      expect(bodies[0]).not.toHaveProperty('latitude');
-      expect(bodies[0]).not.toHaveProperty('longitude');
+      // The widget finishes solving; the held spin proceeds with the token.
+      act(() => {
+        turnstileHandlers.onTokens.at(-1)?.('token-abc');
+      });
+
+      await waitFor(() => expect(bodies).toHaveLength(1));
+      expect(bodies[0]).toMatchObject({ turnstileToken: 'token-abc' });
+    });
+
+    it('shows the security error and resets the widget when the token never arrives', async () => {
+      gateTimings.turnstileWaitMs = 150;
+      stubGeolocationSpy();
+      const bodies: Array<Record<string, unknown>> = [];
+      stubSpinFetch({}, bodies, { turnstileSiteKey: 'site-key-test' });
+
+      renderPage();
+      await userEvent.click(await screen.findByRole('button', { name: /Tourner la roue/i }));
+      await userEvent.click(await screen.findByRole('button', { name: /Tourner la roue/i }));
+
+      expect(await screen.findByText(/compléter la vérification de sécurité/i)).toBeTruthy();
+      expect(bodies).toHaveLength(0);
     });
   });
 });

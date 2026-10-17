@@ -2097,54 +2097,15 @@ describe('proximity signal (P2-7, soft)', () => {
   });
 });
 
-describe('hard geofence (H1)', () => {
-  const SHOP = { latitude: 36.8065, longitude: 10.1815 };
-
-  async function createRadiusCampaign(radiusMeters: number): Promise<string> {
+describe('radius campaigns no longer geofence (location prompt removed)', () => {
+  it('accepts a spin without coordinates even when the campaign has a radius', async () => {
     const code = await createCampaign();
     db.prepare('UPDATE campaigns SET latitude = ?, longitude = ?, radius_meters = ? WHERE public_code = ?')
-      .bind(SHOP.latitude, SHOP.longitude, radiusMeters, code)
+      .bind(36.8065, 10.1815, 500, code)
       .run();
-    return code;
-  }
-
-  it('rejects a spin with no coordinates when the campaign has a radius', async () => {
-    const code = await createRadiusCampaign(500);
 
     const response = await handlePublicCampaignRoute(
       participateRequest(publicPath(code, '/participate'), {}),
-      env,
-    );
-
-    // The gate fails closed: omitting lat/lng cannot bypass the venue check.
-    expect(response.status).toBe(403);
-    expect((await body(response)).message).toBe('You must be at the venue to play.');
-    expect(db.query(`SELECT id FROM participations`)).toHaveLength(0);
-  });
-
-  it('rejects an out-of-radius position', async () => {
-    const code = await createRadiusCampaign(500);
-
-    const response = await handlePublicCampaignRoute(
-      participateRequest(publicPath(code, '/participate'), {
-        latitude: 36.8165, // ~1.11 km away — beyond the 500 m radius
-        longitude: SHOP.longitude,
-      }),
-      env,
-    );
-
-    expect(response.status).toBe(403);
-    expect(db.query(`SELECT id FROM participations`)).toHaveLength(0);
-  });
-
-  it('accepts an in-radius position', async () => {
-    const code = await createRadiusCampaign(2_000);
-
-    const response = await handlePublicCampaignRoute(
-      participateRequest(publicPath(code, '/participate'), {
-        latitude: 36.8165,
-        longitude: SHOP.longitude,
-      }),
       env,
     );
 

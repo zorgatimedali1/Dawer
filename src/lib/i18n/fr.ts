@@ -826,6 +826,7 @@ export const customer = {
   titleSuffix: 'Roue de la chance',
   spinButton: 'Tourner la roue',
   spinning: 'La roue tourne\u2026',
+  securityVerifying: 'V\u00e9rification de s\u00e9curit\u00e9 en cours\u2026',
   winTitle: '\ud83c\udf89 F\u00e9licitations\u00a0!',
   winBody: 'Vous avez gagn\u00e9\u00a0:',
   noWinTitle: 'Pas de chance cette fois',
