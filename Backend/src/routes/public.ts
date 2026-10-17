@@ -247,6 +247,17 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     return await handlePublicWheelLogoRoute(request, env);
   }
 
+  // Alert-only Turnstile config check (M7 follow-up): a site key with no
+  // secret means the SPA renders the widget but the server never verifies it,
+  // so bot protection is silently OFF. Fires once per route entry (not per
+  // spin) so the log stays readable.
+  if (env.TURNSTILE_SITE_KEY && !env.TURNSTILE_SECRET_KEY) {
+    console.error(
+      'turnstile_misconfigured',
+      'TURNSTILE_SITE_KEY is set but TURNSTILE_SECRET_KEY is missing — bot protection is OFF. Run: npx wrangler secret put TURNSTILE_SECRET_KEY',
+    );
+  }
+
   const publicCampaign = /^\/api\/public\/campaigns\/([^/]+)(?:\/|$)/.exec(url.pathname);
   let sharedCampaign: SharedCampaignRow | null = null;
   let campaignAccess: BusinessAccess | null = null;
@@ -601,14 +612,29 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       }
     }
 
-    // Per-network cap: applies in every mode. A configured cap is an explicit
-    // merchant request, and gating it on `windowed` let a farm rotate
-    // identities straight past it on "once" campaigns. Counted before the
-    // durable claim so a rejected attempt never burns the spin allowance.
-    if (playRules && playRules.maxPlaysPerIpDay > 0) {
-      if (!ipHash) {
-        return errorResponse('Spins from this network are not available right now.', 409);
-      }
+    // Per-network cap: applies in every mode (once + windowed). A merchant who
+    // explicitly configured `maxPlaysPerIpDay` keeps their cap as-is (it is a
+    // deliberate setting, stricter or looser). A campaign that configured
+    // nothing is lifted to the platform safety floor (`IP_SPINS_PER_DAY`) so a
+    // farm rotating cookies/ids from one address cannot replay it indefinitely.
+    // Counted before the durable claim so a rejected attempt never burns the
+    // spin allowance. A merchant who *explicitly* configured a cap is asking
+    // for a per-network gate, so a request with no IP signal is refused (there
+    // is nothing to count it against). The platform floor alone never rejects
+    // for a missing IP — an address-less request is simply not counted (the
+    // durable identity claim and Turnstile still gate it).
+    const ipSpinFloor = Number(env.IP_SPINS_PER_DAY ?? 10);
+    const merchantIpCap = playRules?.maxPlaysPerIpDay ?? 0;
+    const effectiveIpSpinCap =
+      merchantIpCap > 0
+        ? merchantIpCap
+        : Number.isFinite(ipSpinFloor) && ipSpinFloor > 0
+          ? ipSpinFloor
+          : 0;
+    if (merchantIpCap > 0 && !ipHash) {
+      return errorResponse('Spins from this network are not available right now.', 409);
+    }
+    if (effectiveIpSpinCap > 0 && ipHash) {
       const windowStart = new Date(Date.now() - 86_400_000).toISOString();
       const ipCount = await env.DB.prepare(
         `SELECT COUNT(*) AS total FROM spin_events
@@ -617,7 +643,7 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
         .bind(campaign.id, ipHash, windowStart)
         .first<{ total: number }>();
 
-      if ((ipCount?.total ?? 0) >= playRules.maxPlaysPerIpDay) {
+      if ((ipCount?.total ?? 0) >= effectiveIpSpinCap) {
         return errorResponse('Too many spins from this network. Please try again later.', 409);
       }
     }
@@ -832,37 +858,56 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       // Win budget: once the identity holds its daily wins, force the "no win"
       // slice so a farm can never drain the campaign's value — or refuse the
       // spin outright when the campaign has no such slice configured.
+      //
+      // Two independent ceilings, the stricter one wins:
+      //   * merchant winBudget — per sticky/cookie identity (windowed only) and
+      //     per IP, all modes. Only enforced when the merchant set one (> 0).
+      //   * platform per-IP floor (IP_WINS_PER_DAY) — always enforced in every
+      //     mode, so a farm rotating identities from one address is capped even
+      //     on a once campaign that configured no budget at all.
       let exhausted = false;
-      if (playRules && playRules.winBudget > 0) {
-        // Per-identity budgets key on the sticky non-contact id and the verified
-        // cookie — never on email/phone (P2-4: pre-spending a victim's budget
-        // would only ever hand them the "no win" slice). Each identity's wins
-        // are read from the Durable Object that holds its claim, so a rotating
-        // cookie cannot reset the device budget.
-        if (windowed) {
-          const stickyWins = stickyLock
-            ? ((await stickyLock.getWinCount(campaign.id, stickyKey ?? '')) ?? 0)
-            : stickyKey && stickyKey === claimKey
-              ? ((await lock?.getWinCount(campaign.id, claimKey)) ?? 0)
-              : 0;
-          const cookieWins = cookieIdentity ? ((await lock?.getWinCount(campaign.id, cookieIdentity)) ?? 0) : 0;
-          exhausted = stickyWins >= playRules.winBudget || cookieWins >= playRules.winBudget;
-        }
+      const merchantWinBudget = playRules?.winBudget ?? 0;
 
-        // Per-network budget in every mode: however many identities one address
-        // rotates through, it can only spend the configured wins per rolling
-        // day. `spin_events.is_win` backs it, so the count survives DO loss.
-        if (!exhausted && ipHash) {
-          const windowStart = new Date(Date.now() - 86_400_000).toISOString();
-          const ipWins = await env.DB.prepare(
-            `SELECT COUNT(*) AS total FROM spin_events
-              WHERE campaign_id = ? AND ip_hash = ? AND created_at >= ? AND is_win = 1`,
-          )
-            .bind(campaign.id, ipHash, windowStart)
-            .first<{ total: number }>();
+      // Per-identity budgets key on the sticky non-contact id and the verified
+      // cookie — never on email/phone (P2-4: pre-spending a victim's budget
+      // would only ever hand them the "no win" slice). Each identity's wins
+      // are read from the Durable Object that holds its claim, so a rotating
+      // cookie cannot reset the device budget.
+      if (windowed && merchantWinBudget > 0) {
+        const stickyWins = stickyLock
+          ? ((await stickyLock.getWinCount(campaign.id, stickyKey ?? '')) ?? 0)
+          : stickyKey && stickyKey === claimKey
+            ? ((await lock?.getWinCount(campaign.id, claimKey)) ?? 0)
+            : 0;
+        const cookieWins = cookieIdentity ? ((await lock?.getWinCount(campaign.id, cookieIdentity)) ?? 0) : 0;
+        exhausted = stickyWins >= merchantWinBudget || cookieWins >= merchantWinBudget;
+      }
 
-          exhausted = (ipWins?.total ?? 0) >= playRules.winBudget;
-        }
+      // Per-network budget in every mode: however many identities one address
+      // rotates through, it can only spend the effective wins per rolling day.
+      // `spin_events.is_win` backs it, so the count survives DO loss. A merchant
+      // who configured a winBudget keeps it as-is (stricter or looser); a
+      // campaign that configured none is lifted to the platform per-IP win
+      // floor (IP_WINS_PER_DAY) so a farm draining one address is capped even
+      // on a once campaign with no budget.
+      const ipWinFloor = Number(env.IP_WINS_PER_DAY ?? 3);
+      const effectiveIpWinCap =
+        merchantWinBudget > 0
+          ? merchantWinBudget
+          : Number.isFinite(ipWinFloor) && ipWinFloor > 0
+            ? ipWinFloor
+            : 0;
+
+      if (!exhausted && effectiveIpWinCap > 0 && ipHash) {
+        const windowStart = new Date(Date.now() - 86_400_000).toISOString();
+        const ipWins = await env.DB.prepare(
+          `SELECT COUNT(*) AS total FROM spin_events
+            WHERE campaign_id = ? AND ip_hash = ? AND created_at >= ? AND is_win = 1`,
+        )
+          .bind(campaign.id, ipHash, windowStart)
+          .first<{ total: number }>();
+
+        exhausted = (ipWins?.total ?? 0) >= effectiveIpWinCap;
       }
       return exhausted;
     })();

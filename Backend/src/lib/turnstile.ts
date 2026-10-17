@@ -21,6 +21,9 @@ export async function verifyTurnstile(
 ): Promise<boolean> {
   const secret = env.TURNSTILE_SECRET_KEY;
   // Opt-in: no secret configured -> no enforcement (fail-open on config).
+  // A site key with no secret means the SPA renders the widget but the server
+  // never verifies it; that misconfiguration is alerted once per public route
+  // entry (see handlePublicCampaignRoute) rather than on every spin.
   if (!secret) return true;
 
   // Tokens are single-use and short; bound the size before sending.

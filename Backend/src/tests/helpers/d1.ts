@@ -416,6 +416,8 @@ export type TestEnv = {
   TURNSTILE_SECRET_KEY?: string;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_HOSTNAMES?: string;
+  IP_SPINS_PER_DAY?: string;
+  IP_WINS_PER_DAY?: string;
 };
 
 export function createTestEnv(): TestEnv {
@@ -447,5 +449,10 @@ export function createTestEnv(): TestEnv {
     // links fail closed without these, so the test env must provide them.
     GATEWAY_SECRET: 'gateway-secret.test',
     APP_ORIGIN: 'https://app.example.test',
+    // Anti-farm floors: high enough that routine tests (few spins from one
+    // stubbed IP) are never blocked, but present so the code path is exercised.
+    // Targeted tests override these to a small number to assert the cap.
+    IP_SPINS_PER_DAY: '1000',
+    IP_WINS_PER_DAY: '1000',
   };
 }

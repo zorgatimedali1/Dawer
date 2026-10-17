@@ -43,6 +43,17 @@ export type Env = Cloudflare.Env & {
    *  single viral wheel can consume, so one hot campaign cannot make every
    *  other merchant's spins start failing. 0/empty disables the cap. */
   CAMPAIGN_DAILY_SPIN_CAP?: string;
+  /** Anti-farm safety floor: max spins accepted per IP per rolling 24 h on a
+   *  campaign, applied in every mode (once + windowed). The merchant's own
+   *  `maxPlaysPerIpDay` wins when it is higher; the floor only lifts campaigns
+   *  that configured nothing (or something smaller), so one address rotating
+   *  cookies/ids cannot replay a wheel. 0/empty disables the floor. */
+  IP_SPINS_PER_DAY?: string;
+  /** Anti-farm safety floor: max *wins* accepted per IP per rolling 24 h, in
+   *  every mode. The merchant's `winBudget` wins when higher. Backstops a farm
+   *  from draining a campaign's stock or win budget from a single address.
+   *  0/empty disables the floor. */
+  IP_WINS_PER_DAY?: string;
   /** Base URL of the standalone WhatsApp Web gateway container. */
   GATEWAY_URL?: string;
   /** HMAC key for per-tenant gateway tokens; never sent to the gateway as-is. */

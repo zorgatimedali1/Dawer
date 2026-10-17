@@ -1370,6 +1370,101 @@ describe('windowed play rules', () => {
   });
 });
 
+describe('anti-farm per-IP safety floors', () => {
+  // Distinct anonymous ids so only the IP (not the identity) can be what blocks.
+  const ids = Array.from({ length: 12 }, (_, i) =>
+    `${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`,
+  );
+
+  async function spin(code: string, anonymousId: string, ip: string): Promise<Response> {
+    return handlePublicCampaignRoute(
+      participateRequest(publicPath(code, '/participate'), { anonymousId }, { ip }),
+      env,
+    );
+  }
+
+  it('blocks a once campaign past the IP spin floor even with rotating identities', async () => {
+    // Merchant set no IP cap (maxPlaysPerIpDay defaults to 0); the floor kicks in.
+    env.IP_SPINS_PER_DAY = '3';
+    // winBudget: 0 isolates the spin floor — the win cap stays out of the way
+    // (winBudget defaults to 1, which would exhaust on the second win).
+    const code = await createCampaign({
+      playRules: { mode: 'once', winBudget: 0 },
+      rewards: [{ name: 'Free coffee', weight: 100, quantity: 100 }],
+    });
+
+    const statuses: number[] = [];
+    for (const id of ids.slice(0, 4)) {
+      statuses.push((await spin(code, id, '203.0.113.50')).status);
+    }
+
+    // First three identities pass; the fourth is refused by the IP floor even
+    // though no single identity has participated twice.
+    expect(statuses).toEqual([200, 200, 200, 409]);
+
+    // A different network is unaffected by the first network's spend.
+    expect((await spin(code, ids[4], '198.51.100.9')).status).toBe(200);
+  });
+
+  it('lifts a windowed campaign with no merchant IP cap up to the floor', async () => {
+    env.IP_SPINS_PER_DAY = '2';
+    const code = await createCampaign({
+      playRules: { mode: 'windowed', perDay: 5, cooldownMinutes: 0, maxPlaysPerIpDay: 0, winBudget: 0 },
+      rewards: [{ name: 'Free coffee', weight: 100, quantity: 100 }],
+    });
+
+    expect((await spin(code, ids[0], '203.0.113.60')).status).toBe(200);
+    expect((await spin(code, ids[1], '203.0.113.60')).status).toBe(200);
+
+    const blocked = await spin(code, ids[2], '203.0.113.60');
+    expect(blocked.status).toBe(409);
+    expect(await body(blocked)).toMatchObject({ message: expect.stringContaining('network') });
+  });
+
+  it('keeps a merchant cap that is higher than the floor', async () => {
+    env.IP_SPINS_PER_DAY = '1';
+    const code = await createCampaign({
+      playRules: { mode: 'windowed', perDay: 5, cooldownMinutes: 0, maxPlaysPerIpDay: 3, winBudget: 0 },
+      rewards: [{ name: 'Free coffee', weight: 100, quantity: 100 }],
+    });
+
+    // Merchant allows 3/network/day, which beats the floor of 1.
+    expect((await spin(code, ids[0], '203.0.113.70')).status).toBe(200);
+    expect((await spin(code, ids[1], '203.0.113.70')).status).toBe(200);
+    expect((await spin(code, ids[2], '203.0.113.70')).status).toBe(200);
+
+    const blocked = await spin(code, ids[3], '203.0.113.70');
+    expect(blocked.status).toBe(409);
+    expect(await body(blocked)).toMatchObject({ message: expect.stringContaining('network') });
+  });
+
+  it('forces the no-win slice past the per-IP win floor on a once campaign', async () => {
+    // No merchant win budget at all; the IP win floor still caps a farm.
+    env.IP_WINS_PER_DAY = '1';
+    const code = await createCampaign({
+      playRules: { mode: 'once' },
+      rewards: [
+        { name: 'Free coffee', weight: 100, quantity: 100 },
+        { name: 'Try again', weight: 0, type: 'none', quantity: 0 },
+      ],
+    });
+
+    // First spin from this IP wins; the IP win budget is now spent.
+    const first = await body(await spin(code, ids[0], '203.0.113.80'));
+    expect(first.participation.reward.name).toBe('Free coffee');
+
+    // Every later spin from the same IP, however many identities rotate, is
+    // forced onto the no-win slice instead of winning more stock.
+    for (const id of ids.slice(1, 4)) {
+      const next = await body(await spin(code, id, '203.0.113.80'));
+      expect(next.participation.reward.name).toBe('Try again');
+    }
+
+    // Only the single winner burned stock; the forced no-win spins did not.
+    expect(db.query(`SELECT quantity FROM rewards WHERE name = 'Free coffee'`)).toEqual([{ quantity: 99 }]);
+  });
+});
+
 describe('operator play policy override', () => {
   const visitorA = '33333333-3333-4333-8333-333333333333';
   const visitorB = '44444444-4444-4444-8444-444444444444';

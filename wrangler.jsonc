@@ -89,7 +89,17 @@
 		// Per-campaign spin ceiling per UTC day. Bounds one campaign's share of
 		// the account-wide D1 write quota on the free plan (no card on file).
 		// Set to "0" to disable the cap.
-		"CAMPAIGN_DAILY_SPIN_CAP": "5000"
+		"CAMPAIGN_DAILY_SPIN_CAP": "5000",
+		// Anti-farm safety floor: max spins per IP per rolling 24 h, enforced on
+		// every campaign in every mode (once + windowed). A merchant's own
+		// `maxPlaysPerIpDay` wins when higher; the floor only lifts campaigns
+		// that configured nothing, so one address rotating cookies/ids cannot
+		// replay a wheel. Set to "0" to disable the floor.
+		"IP_SPINS_PER_DAY": "10",
+		// Anti-farm safety floor: max wins per IP per rolling 24 h, in every
+		// mode. A merchant's `winBudget` wins when higher. Backstops a farm from
+		// draining a campaign's stock from one address. Set to "0" to disable.
+		"IP_WINS_PER_DAY": "3"
 	},
 	"triggers": {
 		"crons": ["*/10 * * * *"]
