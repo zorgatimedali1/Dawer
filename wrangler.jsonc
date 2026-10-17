@@ -62,13 +62,17 @@
 		// Webhook verify token (pasted into Meta App Dashboard > Webhooks):
 		//   npx wrangler secret put WHATSAPP_WEBHOOK_VERIFY_TOKEN
 		// Cloudflare Turnstile (opt-in bot protection for the public spin page,
-		// M7). Create a widget in the Cloudflare dashboard (Turnstile → Add
-		// widget), then set the site key as a var below and the secret key as a
-		// secret. When TURNSTILE_SECRET_KEY is unset the check is skipped
-		// (fail-open), so nothing breaks until you opt in:
+		// M7). Widget created in the Cloudflare dashboard (Turnstile → widgets):
+		// "dawer.tn (Spin)", domains [dawer.tn, localhost, 127.0.0.1].
+		// The SITE key is public (embedded in the spin page); the SECRET is a
+		// wrangler secret, never a var:
 		//   npx wrangler secret put TURNSTILE_SECRET_KEY
-		// and set vars.TURNSTILE_SITE_KEY (+ optional vars.TURNSTILE_HOSTNAMES).
-		// Local dev reads them from .dev.vars instead.
+		// Enforcement only starts once the secret is set (fail-open before
+		// that). Local dev reads both from .dev.vars instead.
+		"TURNSTILE_SITE_KEY": "0x4AAAAAAFZUMMR3cq_hhsp2",
+		// Server-side hostname allowlist for siteverify results — only tokens
+		// minted on these hostnames are accepted.
+		"TURNSTILE_HOSTNAMES": "dawer.tn,localhost,127.0.0.1",
 		// Google OAuth redirect — must match the serving origin AND be listed
 		// in the Google Cloud Console OAuth client's authorized redirect URIs.
 		// Live: dawer.tn (custom domain attached in the Cloudflare dashboard).
