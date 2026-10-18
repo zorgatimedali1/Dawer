@@ -138,8 +138,6 @@ export class PublicCampaignService {
       anonymousId: string;
       action: string;
       deviceHash?: string | undefined;
-      /** Turnstile token minted by the gate widget (`action: "action"`). */
-      turnstileToken?: string | undefined;
     },
   ): Promise<void> {
     const actionTicket = actionTickets.get(publicCode);
@@ -149,7 +147,6 @@ export class PublicCampaignService {
       body: JSON.stringify({
         ...input,
         ...(actionTicket ? { actionTicket } : {}),
-        ...(input.turnstileToken ? { turnstileToken: input.turnstileToken } : {}),
       }),
     });
 

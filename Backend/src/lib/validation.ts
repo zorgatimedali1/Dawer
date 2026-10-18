@@ -68,13 +68,9 @@ export const actionClaimSchema = z.object({
   deviceHash: deviceHashField,
   /** Signed ticket minted by the campaign GET; required when the gate is on. */
   actionTicket: z.string().trim().min(1).max(512).optional(),
-  /**
-   * Cloudflare Turnstile token minted by the gate widget (`action: "action"`).
-   * The signed ticket alone only proves the page was open ≥3s — a farm can
-   * sleep that out. A Turnstile token proves a human cleared a challenge on
-   * this page, so the action claim cannot be replayed by a script.
-   */
-  turnstileToken: z.string().trim().min(1).max(2048).optional(),
+  // No Turnstile token here: the visitor must leave for the review/social tab
+  // and return, which backgrounds the page and invalidates any minted token.
+  // The spin endpoint keeps its own Turnstile check.
 });
 
 /**
