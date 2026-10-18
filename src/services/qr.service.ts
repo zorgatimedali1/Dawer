@@ -23,7 +23,7 @@ interface QrRow {
   location: string | null;
   active: number;
   created_at: string;
-  campaign_participations?: number;
+  campaign_participations?: number | null;
 }
 
 function mapQr(row: QrRow): QrCode {

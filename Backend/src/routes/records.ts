@@ -15,9 +15,12 @@ import {
 import {
   findCampaignForUser,
   getBusinessIds,
+  getPrimaryBusinessId,
   writeAuditLog,
   type AuthenticatedUser,
 } from '../lib/tenant';
+import { getBusinessAccess } from '../lib/subscription-access';
+import { campaignStatsAllowed } from '../lib/subscription-limits';
 import type { Env } from '../types';
 
 const CUSTOMERS_PATH = '/api/business/customers';
@@ -36,6 +39,14 @@ const POSTER_ITEM = /^\/api\/business\/posters\/([^/]+)$/;
 
 function placeholders(count: number): string {
   return new Array(count).fill('?').join(', ');
+}
+
+/** Participation stats shared with the QR/poster payloads ride the analytics entitlement. */
+async function campaignStatsAllowedFor(env: Env, user: AuthenticatedUser): Promise<boolean> {
+  const primaryBusinessId = await getPrimaryBusinessId(user.id, env);
+  if (!primaryBusinessId) return false;
+  const access = await getBusinessAccess(env, primaryBusinessId);
+  return campaignStatsAllowed(access);
 }
 
 async function handleCustomerList(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
@@ -606,7 +617,13 @@ async function handleQrList(request: Request, env: Env, user: AuthenticatedUser)
     .bind(...params)
     .all();
 
-  return jsonResponse({ success: true, qrCodes: rows.results ?? [] });
+  const statsAllowed = await campaignStatsAllowedFor(env, user);
+  return jsonResponse({
+    success: true,
+    qrCodes: (rows.results ?? []).map((row) =>
+      statsAllowed ? row : { ...row, campaign_participations: null },
+    ),
+  });
 }
 
 async function handleQrCreate(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
@@ -646,7 +663,9 @@ async function handleQrCreate(request: Request, env: Env, user: AuthenticatedUse
     .bind(id)
     .first();
 
-  return jsonResponse({ success: true, qrCode: created ?? null }, 201);
+  const statsAllowed = await campaignStatsAllowedFor(env, user);
+  const qrCode = created && !statsAllowed ? { ...created, campaign_participations: null } : (created ?? null);
+  return jsonResponse({ success: true, qrCode }, 201);
 }
 
 async function handleQrPatch(request: Request, env: Env, user: AuthenticatedUser, qrId: string): Promise<Response> {
@@ -688,7 +707,9 @@ async function handleQrPatch(request: Request, env: Env, user: AuthenticatedUser
     .bind(qrId)
     .first();
 
-  return jsonResponse({ success: true, qrCode: updated ?? null });
+  const statsAllowed = await campaignStatsAllowedFor(env, user);
+  const masked = updated && !statsAllowed ? { ...updated, campaign_participations: null } : (updated ?? null);
+  return jsonResponse({ success: true, qrCode: masked });
 }
 
 const POSTER_COLUMNS = `p.id, p.campaign_id, ca.name AS campaign_name, ca.public_code AS campaign_public_code,

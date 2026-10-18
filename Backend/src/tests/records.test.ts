@@ -584,6 +584,45 @@ describe('QR codes', () => {
     expect(patched.status).toBe(200);
     expect((await body(patched)).qrCode).toMatchObject({ active: 0 });
   });
+
+  it('masks campaign participation stats on the Starter plan and keeps them on Pro', async () => {
+    const starter = await seedMerchant(db, {
+      email: 'starter@example.test',
+      businessName: 'Starter Shop',
+      withActiveSubscription: true,
+      planId: 'plan_starter',
+    });
+    const starterCampaign = seedCampaign(starter.businessId);
+
+    const created = await handleBusinessRoute(
+      jsonRequest('/api/business/qr-codes', 'POST', { campaignId: starterCampaign, name: 'Masked' }, starter.token),
+      env,
+    );
+    expect(created.status).toBe(201);
+    expect((await body(created)).qrCode.campaign_participations).toBeNull();
+
+    const starterList = await body(
+      await handleBusinessRoute(jsonRequest('/api/business/qr-codes', 'GET', undefined, starter.token), env),
+    );
+    expect(starterList.qrCodes[0].campaign_participations).toBeNull();
+
+    const proCreated = await handleBusinessRoute(
+      jsonRequest('/api/business/qr-codes', 'POST', { campaignId: aliceCampaign, name: 'Pro' }, alice.token),
+      env,
+    );
+    const proPayload = await body(proCreated);
+    expect(proPayload.qrCode.campaign_participations).toBe(0);
+
+    db.prepare(`INSERT INTO participations (id, campaign_id, created_at) VALUES (?, ?, ?)`)
+      .bind(crypto.randomUUID(), aliceCampaign, new Date().toISOString())
+      .run();
+
+    const proPatched = await handleBusinessRoute(
+      jsonRequest(`/api/business/qr-codes/${proPayload.qrCode.id}`, 'PATCH', { active: true }, alice.token),
+      env,
+    );
+    expect((await body(proPatched)).qrCode.campaign_participations).toBe(1);
+  });
 });
 
 describe('Posters', () => {

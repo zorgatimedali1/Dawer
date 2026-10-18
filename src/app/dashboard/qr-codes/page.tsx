@@ -24,6 +24,8 @@ import { SkeletonCard, Spinner } from '@/components/ui/skeleton';
 import { CampaignService, type Campaign } from '@/services/campaign.service';
 import { QrCodeService, type QrCode } from '@/services/qr.service';
 import { interpolate, msg } from '@/lib/i18n';
+import { campaignStatsAllowedForPlan } from '@/lib/plan-catalog';
+import { useDashboardBilling } from '@/contexts/billing-context';
 import { useT } from '@/hooks/use-t';
 
 function fileSlug(value: string): string {
@@ -110,6 +112,8 @@ function QrPreview({ qrCode }: { qrCode: QrCode }) {
 
 export default function QRCodesPage() {
   const t = useT();
+  const { access } = useDashboardBilling();
+  const showStats = campaignStatsAllowedForPlan(access?.plan.slug ?? null);
   const [search, setSearch] = useState('');
   const [qrCodes, setQrCodes] = useState<QrCode[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -326,11 +330,13 @@ export default function QRCodesPage() {
                       <Badge size="sm" tone={qrCode.active ? 'success' : 'neutral'} dot>
                         {qrCode.active ? t.common.active : t.common.inactive}
                       </Badge>
-                      <span className="inline-flex items-center gap-1.5 text-[13px] text-ink-muted">
-                        <Users className="h-3.5 w-3.5 text-ink-subtle" aria-hidden />
-                        <span className="numeric font-medium text-ink">{qrCode.campaignParticipations}</span>
-                        {t.qrcodes.participants}
-                      </span>
+                      {showStats && (
+                        <span className="inline-flex items-center gap-1.5 text-[13px] text-ink-muted">
+                          <Users className="h-3.5 w-3.5 text-ink-subtle" aria-hidden />
+                          <span className="numeric font-medium text-ink">{qrCode.campaignParticipations}</span>
+                          {t.qrcodes.participants}
+                        </span>
+                      )}
                     </div>
 
                     <p className="flex items-center gap-2 truncate rounded-md border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] text-ink-muted">
