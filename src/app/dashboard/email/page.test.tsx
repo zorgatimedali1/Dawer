@@ -224,7 +224,6 @@ describe('Email marketing page', () => {
       expect(post).toBeTruthy();
       const body = JSON.parse(String((post as unknown as [RequestInfo, RequestInit])[1]?.body));
       expect(body.senderName).toBe('Équipe Café Tej');
-      expect(body.replyTo).toBe('owner@cafe-tej.test');
       expect(body.subject).toBe('Nouveautés de la semaine');
       expect(body.content).toBe('<p>Bonjour à tous</p>');
       expect(body.asset).toBeUndefined();

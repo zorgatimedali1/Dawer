@@ -55,8 +55,6 @@ export type EmailBroadcastInput = {
   content: string;
   link?: string | undefined;
   asset?: { id: string } | undefined;
-  /** Merchant address on the Reply-To header; omitted = backend uses the account email. */
-  replyTo?: string | undefined;
   recipients: EmailRecipient[];
 };
 
