@@ -48,9 +48,9 @@ export const participationSchema = z.object({
   /** Optional reported position for the P2-7 proximity signal (soft). */
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
-  /** Cloudflare Turnstile token (M7). Only required when the operator has
-   *  enabled Turnstile; otherwise ignored. */
-  turnstileToken: z.string().trim().min(1).max(2048).optional(),
+  // No Turnstile token: a token minted while the page is visible is invalidated
+  // when the page is backgrounded or delayed, so real visitors hit a dead end.
+  // Bot pressure is bounded by the per-IP daily spin floor instead.
 });
 
 export const ACTION_CLAIM_KINDS = [

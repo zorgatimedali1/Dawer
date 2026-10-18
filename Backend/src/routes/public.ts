@@ -5,7 +5,6 @@ import { actionClaimSchema, customerDetailsSchema, participationSchema, parsePla
 import { secureRandomHex, sha256Hex } from '../lib/crypto';
 import { buildCookie, mintSpinVisitorValue, readSpinVisitor, spinVisitorCookieName, verifySpinVisitorValue } from '../lib/cookie';
 import { mintActionTicket, verifyActionTicket } from '../lib/action-ticket';
-import { verifyTurnstile } from '../lib/turnstile';
 import { distanceMetersBetween } from '../lib/geo';
 import { getCustomerLimit, customerLimitFromAccess, wheelCenterLogoAllowed, wheelDesignAllowed, wheelStepsColorAllowed } from '../lib/subscription-limits';
 import { accessFromSubscriptionRow, readStarterPlan, type BusinessAccess } from '../lib/subscription-access';
@@ -247,17 +246,6 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     return await handlePublicWheelLogoRoute(request, env);
   }
 
-  // Alert-only Turnstile config check (M7 follow-up): a site key with no
-  // secret means the SPA renders the widget but the server never verifies it,
-  // so bot protection is silently OFF. Fires once per route entry (not per
-  // spin) so the log stays readable.
-  if (env.TURNSTILE_SITE_KEY && !env.TURNSTILE_SECRET_KEY) {
-    console.error(
-      'turnstile_misconfigured',
-      'TURNSTILE_SITE_KEY is set but TURNSTILE_SECRET_KEY is missing — bot protection is OFF. Run: npx wrangler secret put TURNSTILE_SECRET_KEY',
-    );
-  }
-
   const publicCampaign = /^\/api\/public\/campaigns\/([^/]+)(?:\/|$)/.exec(url.pathname);
   let sharedCampaign: SharedCampaignRow | null = null;
   let campaignAccess: BusinessAccess | null = null;
@@ -433,11 +421,6 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       campaign,
       rewards: wheelRewards.map(({ quantityInitial: _quantityInitial, ...row }) => row),
       ...(actionTicket ? { actionTicket } : {}),
-      // M7: only surface the site key when enforcement is actually on, so the
-      // SPA renders the Turnstile widget exactly when the server will require it.
-      ...(env.TURNSTILE_SECRET_KEY && env.TURNSTILE_SITE_KEY
-        ? { turnstileSiteKey: env.TURNSTILE_SITE_KEY }
-        : {}),
     });
 
     if (freshCookieValue) {
@@ -529,12 +512,11 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       return errorResponse('Campaign not found.', 404);
     }
 
-    // M7 bot protection: opt-in Turnstile. Enforced only when the operator has
-    // set TURNSTILE_SECRET_KEY (verifyTurnstile is fail-open on config); a
-    // missing/invalid token is rejected here, before any claim or write work.
-    if (!(await verifyTurnstile(request, env, body.turnstileToken, 'participate'))) {
-      return errorResponse('Bot check failed. Please try again.', 403);
-    }
+    // Bot protection is a per-IP daily spin floor enforced further down (see
+    // the anti-farm section). Turnstile used to gate this endpoint too, but a
+    // token minted while the page is visible is invalidated when the page is
+    // backgrounded or delayed, so real visitors hit a dead end with no way to
+    // proceed. The floor bounds one address without ever blocking a human.
 
     // P2-7 proximity: recorded as a soft signal for fraud review. Missing
     // coordinates on either side (or a client that sends none) just yields no

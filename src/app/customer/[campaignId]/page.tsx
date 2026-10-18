@@ -19,7 +19,6 @@ import {
   wheelMotionDurationMs,
 } from '@/lib/wheel-theme';
 import { PrizeWheel } from '@/components/wheel/prize-wheel';
-import { TurnstileWidget } from '@/components/turnstile';
 import {
   PublicCampaignService,
   type ParticipationResult,
@@ -52,8 +51,6 @@ type GateStage = 'idle' | 'opened' | 'returned' | 'unlocking' | 'failed';
 export const gateTimings = {
   /** Seconds counted down after the visitor returns, before the wheel opens. */
   unlockDelaySeconds: 3,
-  /** Max ms to wait for a Turnstile token before showing the retry hint. */
-  turnstileWaitMs: 5000,
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -221,13 +218,6 @@ export default function CampaignCustomerPage() {
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [detailsSent, setDetailsSent] = useState(false);
   const [alreadyPlayed, setAlreadyPlayed] = useState(false);
-  // M7 bot protection: only set when the server surfaced a Turnstile site key
-  // (i.e. the operator enabled enforcement). The token is kept in a ref so it
-  // never triggers re-renders, and reset after each attempt (single-use).
-  const [turnstileSiteKey, setTurnstileSiteKey] = useState<string | null>(null);
-  const [turnstileReset, setTurnstileReset] = useState(0);
-  const [turnstilePending, setTurnstilePending] = useState(false);
-  const turnstileTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -241,7 +231,6 @@ export default function CampaignCustomerPage() {
         }
         setCampaign(loaded.campaign);
         setRewards(loaded.rewards);
-        setTurnstileSiteKey(loaded.turnstileSiteKey ?? null);
 
         const windowed = isWindowedCampaign(loaded.campaign);
         setAlreadyPlayed(!windowed && hasPlayed(loaded.campaign.public_code));
@@ -492,40 +481,10 @@ export default function CampaignCustomerPage() {
     setSpinning(true);
     setSpinError(null);
 
-    // M7: when the server requires a Turnstile token, wait (bounded) for the
-    // widget to finish solving instead of failing instantly — the invisible
-    // challenge can trail a few seconds behind page load.
-    if (turnstileSiteKey && !turnstileTokenRef.current) {
-      setTurnstilePending(true);
-      const token = await new Promise<string | null>((resolve) => {
-        const startedAt = Date.now();
-        const poll = window.setInterval(() => {
-          if (turnstileTokenRef.current) {
-            window.clearInterval(poll);
-            resolve(turnstileTokenRef.current);
-          } else if (Date.now() - startedAt >= gateTimings.turnstileWaitMs) {
-            window.clearInterval(poll);
-            resolve(null);
-          }
-        }, 100);
-      });
-      setTurnstilePending(false);
-
-      if (!token) {
-        setSpinning(false);
-        setSpinError(msg(t, 'Please complete the security check.'));
-        setTurnstileReset((n) => n + 1);
-        return;
-      }
-    }
-
     try {
       const participation = await PublicCampaignService.participate(campaign.public_code, {
         anonymousId: anonymousIdFor(campaign.public_code),
         deviceHash: deviceHashFor(),
-        ...(turnstileSiteKey && turnstileTokenRef.current
-          ? { turnstileToken: turnstileTokenRef.current }
-          : {}),
       });
       markPlayed(campaign.public_code);
       saveResult(campaign.public_code, participation);
@@ -547,11 +506,6 @@ export default function CampaignCustomerPage() {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unable to spin right now.';
       setSpinning(false);
-
-      // The token was consumed by this attempt (single-use); mint a fresh one
-      // so a retry after a recoverable failure works.
-      turnstileTokenRef.current = null;
-      setTurnstileReset((n) => n + 1);
 
       // The visitor already holds the claim for this campaign — show them the
       // same card they get on arrival instead of an error on the wheel.
@@ -870,19 +824,6 @@ export default function CampaignCustomerPage() {
                 </div>
               )}
 
-              {turnstileSiteKey && (
-                <div className="mt-4 flex justify-center">
-                  <TurnstileWidget
-                    siteKey={turnstileSiteKey}
-                    action="participate"
-                    resetSignal={turnstileReset}
-                    onToken={(token) => {
-                      turnstileTokenRef.current = token;
-                    }}
-                  />
-                </div>
-              )}
-
               <Button
                 size="lg"
                 className="mt-6 w-full hover:brightness-95"
@@ -892,11 +833,7 @@ export default function CampaignCustomerPage() {
                 loading={spinning}
               >
                 <Dices className="h-4 w-4" aria-hidden />
-                {turnstilePending
-                  ? t.customer.securityVerifying
-                  : spinning
-                    ? t.customer.spinning
-                    : t.customer.spinButton}
+                {spinning ? t.customer.spinning : t.customer.spinButton}
               </Button>
             </div>
           )}

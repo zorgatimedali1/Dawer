@@ -48,8 +48,6 @@ export interface ParticipationInput {
   deviceHash?: string | undefined;
   latitude?: number | undefined;
   longitude?: number | undefined;
-  /** Cloudflare Turnstile token (M7); only sent when the server requires it. */
-  turnstileToken?: string | undefined;
 }
 
 export interface CustomerDetailsInput {
@@ -95,7 +93,6 @@ export class PublicCampaignService {
   static async load(publicCode: string): Promise<{
     campaign: PublicCampaign;
     rewards: PublicReward[];
-    turnstileSiteKey?: string;
   } | null> {
     const response = await fetch(`/api/public/campaigns/${encodeURIComponent(publicCode)}`);
 
@@ -106,7 +103,6 @@ export class PublicCampaignService {
       campaign: PublicCampaign;
       rewards: PublicReward[];
       actionTicket?: string;
-      turnstileSiteKey?: string;
     };
 
     if (payload.actionTicket) actionTickets.set(publicCode, payload.actionTicket);
@@ -115,7 +111,6 @@ export class PublicCampaignService {
     return {
       campaign: payload.campaign,
       rewards: payload.rewards ?? [],
-      ...(payload.turnstileSiteKey ? { turnstileSiteKey: payload.turnstileSiteKey } : {}),
     };
   }
 

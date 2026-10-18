@@ -4,17 +4,6 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CampaignCustomerPage, { gateTimings } from '@/app/customer/[campaignId]/page';
 
-const turnstileHandlers = vi.hoisted(() => ({
-  onTokens: [] as Array<(token: string | null) => void>,
-}));
-
-vi.mock('@/components/turnstile', () => ({
-  TurnstileWidget: ({ onToken }: { onToken: (token: string | null) => void }) => {
-    turnstileHandlers.onTokens.push(onToken);
-    return <div data-testid="turnstile-widget" />;
-  },
-}));
-
 const DEFAULT_GATE_TIMINGS = { ...gateTimings };
 
 const campaign = {
@@ -131,7 +120,6 @@ describe('public campaign page', () => {
     if (stopLinkNavigation) document.removeEventListener('click', stopLinkNavigation);
     stopLinkNavigation = null;
     gateTimings.unlockDelaySeconds = DEFAULT_GATE_TIMINGS.unlockDelaySeconds;
-    gateTimings.turnstileWaitMs = DEFAULT_GATE_TIMINGS.turnstileWaitMs;
     Reflect.deleteProperty(navigator, 'geolocation');
   });
 
@@ -569,7 +557,7 @@ describe('public campaign page', () => {
     expect(screen.getByText(/introuvable ou n’est pas disponible/i)).toBeTruthy();
   });
 
-  describe('no location prompt + Turnstile wait', () => {
+  describe('no location prompt', () => {
     const SHOP = { latitude: 36.8065, longitude: 10.1815 };
 
     function stubGeolocationSpy() {
@@ -630,10 +618,6 @@ describe('public campaign page', () => {
       await waitFor(() => expect(bodies).toHaveLength(1));
     }
 
-    beforeEach(() => {
-      turnstileHandlers.onTokens.length = 0;
-    });
-
     it('never asks for a position and never sends coordinates, even when the campaign has a location', async () => {
       const getCurrentPosition = stubGeolocationSpy();
       const bodies: Array<Record<string, unknown>> = [];
@@ -645,41 +629,6 @@ describe('public campaign page', () => {
       expect(getCurrentPosition).not.toHaveBeenCalled();
       expect(bodies[0]).not.toHaveProperty('latitude');
       expect(bodies[0]).not.toHaveProperty('longitude');
-    });
-
-    it('waits for the Turnstile token instead of erroring, then spins with it', async () => {
-      stubGeolocationSpy();
-      const bodies: Array<Record<string, unknown>> = [];
-      stubSpinFetch({}, bodies, { turnstileSiteKey: 'site-key-test' });
-
-      renderPage();
-      await userEvent.click(await screen.findByRole('button', { name: /Tourner la roue/i }));
-      // No token yet (widget still solving): the spin is held, not rejected.
-      await userEvent.click(await screen.findByRole('button', { name: /Tourner la roue/i }));
-      expect(bodies).toHaveLength(0);
-      expect(screen.getByRole('button', { name: /vérification de sécurité/i })).toBeTruthy();
-
-      // The widget finishes solving; the held spin proceeds with the token.
-      act(() => {
-        turnstileHandlers.onTokens.at(-1)?.('token-abc');
-      });
-
-      await waitFor(() => expect(bodies).toHaveLength(1));
-      expect(bodies[0]).toMatchObject({ turnstileToken: 'token-abc' });
-    });
-
-    it('shows the security error and resets the widget when the token never arrives', async () => {
-      gateTimings.turnstileWaitMs = 150;
-      stubGeolocationSpy();
-      const bodies: Array<Record<string, unknown>> = [];
-      stubSpinFetch({}, bodies, { turnstileSiteKey: 'site-key-test' });
-
-      renderPage();
-      await userEvent.click(await screen.findByRole('button', { name: /Tourner la roue/i }));
-      await userEvent.click(await screen.findByRole('button', { name: /Tourner la roue/i }));
-
-      expect(await screen.findByText(/compléter la vérification de sécurité/i)).toBeTruthy();
-      expect(bodies).toHaveLength(0);
     });
   });
 });
