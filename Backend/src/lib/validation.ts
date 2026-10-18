@@ -814,6 +814,11 @@ export const emailBroadcastSchema = z
     content: z.string().trim().max(50_000).default(''),
     link: z.string().trim().max(2048).optional(),
     asset: emailAssetRefSchema.optional(),
+    /** Merchant address on the Reply-To header; empty falls back to the account email. */
+    replyTo: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.string().trim().email().max(254).optional(),
+    ),
     recipients: z.array(emailRecipientSchema).min(1).max(1000),
   })
   .superRefine((value, ctx) => {

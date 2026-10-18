@@ -14,6 +14,7 @@ import { TabPanel, Tabs } from '@/components/ui/tabs';
 import { interpolate, msg } from '@/lib/i18n';
 import { useT } from '@/hooks/use-t';
 import { CustomerService, type Customer } from '@/services/customer.service';
+import { AUTH_STORAGE_KEY } from '@/services/http';
 import {
   EmailService,
   type EmailAsset,
@@ -38,6 +39,17 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => entities[char] ?? char);
 }
 
+/** The signed-in merchant's email, used to prefill the broadcast Reply-To. */
+function readAccountEmail(): string {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(AUTH_STORAGE_KEY) ?? 'null') as
+      { user?: { email?: unknown } } | null;
+    return typeof stored?.user?.email === 'string' ? stored.user.email : '';
+  } catch {
+    return '';
+  }
+}
+
 function renderVariables(
   template: string,
   values: { name: string; email: string; link: string },
@@ -53,6 +65,9 @@ export default function EmailPage() {
   const [status, setStatus] = useState<EmailStatus | null>(null);
   const [history, setHistory] = useState<EmailCampaign[]>([]);
   const [senderName, setSenderName] = useState('');
+  // Defaults to the merchant's own email: replies land in their inbox, not a
+  // dead no-reply mailbox that nobody reads.
+  const [replyTo, setReplyTo] = useState(() => readAccountEmail());
   const [subject, setSubject] = useState('');
   const [content, setContent] = useState('');
   const [link, setLink] = useState('');
@@ -154,11 +169,13 @@ export default function EmailPage() {
     campaign.status === 'PENDING' || campaign.status === 'PROCESSING' || campaign.status === 'PAUSED',
   );
   const hasBody = content.trim() !== '' || asset !== null;
+  const replyToValid = replyTo.trim() === '' || EMAIL_PATTERN.test(replyTo.trim());
   const canSend =
     composerEnabled &&
     count > 0 &&
     senderName.trim() !== '' &&
     subject.trim() !== '' &&
+    replyToValid &&
     hasBody &&
     !overBatch &&
     (status?.remaining ?? 0) > 0 &&
@@ -171,6 +188,7 @@ export default function EmailPage() {
     EMAIL_PATTERN.test(testEmail.trim()) &&
     senderName.trim() !== '' &&
     subject.trim() !== '' &&
+    replyToValid &&
     hasBody &&
     (status?.remaining ?? 0) > 0 &&
     !sending &&
@@ -243,6 +261,7 @@ export default function EmailPage() {
         content,
         link: link.trim() || undefined,
         asset: asset ? { id: asset.id } : undefined,
+        replyTo: replyTo.trim() || undefined,
         recipients,
       });
       const pending = result.campaign.status === 'PENDING';
@@ -282,6 +301,7 @@ export default function EmailPage() {
         content,
         link: link.trim() || undefined,
         asset: asset ? { id: asset.id } : undefined,
+        replyTo: replyTo.trim() || undefined,
         recipients: [{ email: address }],
       });
       setSuccess({
@@ -457,6 +477,16 @@ export default function EmailPage() {
               disabled={!composerEnabled}
               onChange={(event) => setSenderName(event.target.value)}
               placeholder={t.email.senderNamePlaceholder}
+            />
+          </Field>
+          <Field label={t.email.replyToLabel} htmlFor="email-reply-to" hint={t.email.replyToHint}>
+            <Input
+              id="email-reply-to"
+              type="email"
+              value={replyTo}
+              disabled={!composerEnabled}
+              onChange={(event) => setReplyTo(event.target.value)}
+              placeholder="contact@example.com"
             />
           </Field>
           <Field label={t.email.subjectLabel} htmlFor="email-subject">

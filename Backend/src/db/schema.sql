@@ -423,6 +423,7 @@ CREATE TABLE IF NOT EXISTS email_campaigns (
   asset_id TEXT,
   asset_name TEXT,
   asset_mime TEXT,
+  reply_to TEXT,
   total_recipients INTEGER NOT NULL DEFAULT 0,
   sent_count INTEGER NOT NULL DEFAULT 0,
   failed_count INTEGER NOT NULL DEFAULT 0,

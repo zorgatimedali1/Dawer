@@ -300,6 +300,16 @@ describe('POST /api/email/broadcast', () => {
     expect((await body(response)).error).toBe('Validation failed.');
   });
 
+  it('400s on an invalid reply address', async () => {
+    const payload = { ...validBroadcast(), replyTo: 'not-an-email' };
+    const response = await handleEmailRoute(
+      jsonRequest('/api/email/broadcast', 'POST', payload, merchant.token),
+      env,
+    );
+    expect(response.status).toBe(400);
+    expect((await body(response)).error).toBe('Validation failed.');
+  });
+
   it('400s when there is neither content nor an attachment', async () => {
     const payload = validBroadcast();
     payload.content = '';
@@ -1039,7 +1049,9 @@ describe('POST /api/webhooks/mailjet (bounce/block suppression)', () => {
 });
 
 describe('dormant providers (EMAIL_PROVIDER switch)', () => {
-  async function runOneCampaign(): Promise<Array<{ url: string; init?: RequestInit }>> {
+  async function runOneCampaign(
+    payload: Record<string, unknown> = validBroadcast(1),
+  ): Promise<Array<{ url: string; init?: RequestInit }>> {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     stubSend(async (input, init) => {
       calls.push({ url: String(input), init });
@@ -1047,7 +1059,7 @@ describe('dormant providers (EMAIL_PROVIDER switch)', () => {
     });
 
     const response = await handleEmailRoute(
-      jsonRequest('/api/email/broadcast', 'POST', validBroadcast(1), merchant.token),
+      jsonRequest('/api/email/broadcast', 'POST', payload, merchant.token),
       env,
     );
     expect(response.status).toBe(202);
@@ -1091,5 +1103,34 @@ describe('dormant providers (EMAIL_PROVIDER switch)', () => {
     expect(parsed.from).toBe('Café Tej Team <no-reply@example.test>');
     expect(parsed.to).toEqual(['customer1@example.test']);
     expect(parsed.html).toContain('Bonjour Contact 1');
+  });
+
+  it('adds the merchant reply address to Resend, Mailjet and Brevo payloads', async () => {
+    const replyTo = 'shop@merchant.example.test';
+    const parseBody = (call: { init?: RequestInit }) =>
+      JSON.parse(String(call.init?.body ?? '{}')) as Record<string, unknown>;
+
+    (env as { EMAIL_PROVIDER?: string }).EMAIL_PROVIDER = 'resend';
+    (env as { RESEND_API_KEY?: string }).RESEND_API_KEY = 'resend_test_key';
+    const resendPayload = parseBody((await runOneCampaign({ ...validBroadcast(1), replyTo }))[0]!);
+    expect(resendPayload.reply_to).toBe(replyTo);
+
+    // Without an explicit address the sender's account email carries Reply-To.
+    const accountEmail = db.query<{ email: string }>(
+      `SELECT email FROM users WHERE id = ?`,
+      merchant.userId,
+    )[0]!.email;
+    const resendDefault = parseBody(
+      (await runOneCampaign({ ...validBroadcast(1), replyTo: '' }))[0]!,
+    );
+    expect(resendDefault.reply_to).toBe(accountEmail);
+
+    (env as { EMAIL_PROVIDER?: string }).EMAIL_PROVIDER = 'mailjet';
+    const mailjetPayload = parseBody((await runOneCampaign({ ...validBroadcast(1), replyTo }))[0]!);
+    expect((mailjetPayload.Messages as Array<{ ReplyTo?: string }>)[0]!.ReplyTo).toBe(replyTo);
+
+    (env as { EMAIL_PROVIDER?: string }).EMAIL_PROVIDER = 'brevo';
+    const brevoPayload = parseBody((await runOneCampaign({ ...validBroadcast(1), replyTo }))[0]!);
+    expect((brevoPayload.replyTo as { email: string }).email).toBe(replyTo);
   });
 });

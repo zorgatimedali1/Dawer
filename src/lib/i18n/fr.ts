@@ -1211,6 +1211,8 @@ export const email = {
   campaignSection: 'Campagne',
   senderNameLabel: 'Nom de l’expéditeur',
   senderNamePlaceholder: 'Équipe Café Tej',
+  replyToLabel: 'Adresse de réponse',
+  replyToHint: 'Les réponses arrivent dans votre boîte. Vide = l’email de votre compte.',
   subjectLabel: 'Objet',
   subjectPlaceholder: 'Nouveautés de la semaine',
   linkLabel: 'Lien ({{link}})',

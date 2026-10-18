@@ -375,6 +375,8 @@ type OutboundEmail = {
   html: string;
   text?: string;
   attachment?: { name: string; content: string; mime: string } | null;
+  /** Merchant address on the Reply-To header; empty state = header absent. */
+  replyTo?: string;
   /** Brevo idempotency key / Mailjet CustomID (tracing only — not deduped). */
   customId?: string;
 };
@@ -424,6 +426,7 @@ function mailjetErrorText(data: unknown): string | null {
 async function postMailjetEmail(config: EmailConfig, email: OutboundEmail): Promise<PostResult> {
   const message: Record<string, unknown> = {
     From: { Email: email.sender.email, ...(email.sender.name ? { Name: email.sender.name } : {}) },
+    ...(email.replyTo ? { ReplyTo: email.replyTo } : {}),
     To: [email.to.name ? { Email: email.to.email, Name: email.to.name } : { Email: email.to.email }],
     Subject: email.subject,
     HTMLPart: email.html,
@@ -490,6 +493,7 @@ async function postBrevoEmail(config: EmailConfig, email: OutboundEmail): Promis
       },
       body: JSON.stringify({
         sender: { email: email.sender.email, name: email.sender.name ?? '' },
+        ...(email.replyTo ? { replyTo: { email: email.replyTo } } : {}),
         to: [{ email: email.to.email, ...(email.to.name ? { name: email.to.name } : {}) }],
         subject: email.subject,
         htmlContent: email.html,
@@ -531,6 +535,7 @@ async function postResendEmail(config: EmailConfig, email: OutboundEmail): Promi
       },
       body: JSON.stringify({
         from: `${email.sender.name || 'CampaignFlow'} <${email.sender.email}>`,
+        ...(email.replyTo ? { reply_to: email.replyTo } : {}),
         to: [email.to.email],
         subject: email.subject,
         html: email.html,
@@ -575,6 +580,7 @@ type EmailCampaignRow = {
   asset_id: string | null;
   asset_name: string | null;
   asset_mime: string | null;
+  reply_to: string | null;
   total_recipients: number;
   sent_count: number;
   failed_count: number;
@@ -629,7 +635,7 @@ async function settleEmailCampaign(
 export async function settleInterruptedEmailCampaign(env: Env, campaignId: string, reason: string): Promise<void> {
   const campaign = await env.DB.prepare(
     `SELECT id, user_id, subject, sender_name, recipients, content, link,
-            asset_id, asset_name, asset_mime,
+            asset_id, asset_name, asset_mime, reply_to,
             total_recipients, sent_count, failed_count, status, created_at
      FROM email_campaigns WHERE id = ? LIMIT 1`,
   )
@@ -668,7 +674,7 @@ const DAILY_PAUSE_ERROR = 'Daily email quota reached — paused until 00:00 UTC.
 export async function processEmailBatch(env: Env, campaignId: string): Promise<EmailBatchOutcome> {
   const campaign = await env.DB.prepare(
     `SELECT id, user_id, subject, sender_name, recipients, content, link,
-            asset_id, asset_name, asset_mime,
+            asset_id, asset_name, asset_mime, reply_to,
             total_recipients, sent_count, failed_count, status, created_at
      FROM email_campaigns WHERE id = ? LIMIT 1`,
   )
@@ -793,6 +799,7 @@ export async function processEmailBatch(env: Env, campaignId: string): Promise<E
       subject: renderTemplate(campaign.subject, values),
       html,
       attachment,
+      ...(campaign.reply_to ? { replyTo: campaign.reply_to } : {}),
       customId: `${campaign.id}/${chunkIndex}/${recipient.email}`,
     };
 

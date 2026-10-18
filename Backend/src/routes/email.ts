@@ -233,12 +233,15 @@ async function handleBroadcastCreate(
   };
 
   const id = crypto.randomUUID();
+  // From stays on the platform's verified domain; the merchant's own email
+  // goes to Reply-To so answers land in their inbox.
+  const replyTo = input.replyTo?.trim() || user.email;
   const inserted = await env.DB.prepare(
     `INSERT INTO email_campaigns
-       (id, business_id, user_id, subject, sender_name, recipients, content, link,
+       (id, business_id, user_id, subject, sender_name, reply_to, recipients, content, link,
         asset_id, asset_name, asset_mime,
         total_recipients, sent_count, failed_count, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'PENDING', ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'PENDING', ?, ?)
      ON CONFLICT(business_id) WHERE status IN ('PENDING', 'PROCESSING', 'PAUSED') DO NOTHING`,
   )
     .bind(
@@ -247,6 +250,7 @@ async function handleBroadcastCreate(
       user.id,
       input.subject,
       input.senderName,
+      replyTo,
       JSON.stringify(sendable),
       input.content,
       input.link ?? null,
@@ -288,6 +292,7 @@ async function handleBroadcastCreate(
         id,
         subject: input.subject,
         senderName: input.senderName,
+        replyTo,
         totalRecipients: count,
         sent: 0,
         failed: 0,

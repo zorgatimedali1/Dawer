@@ -1207,6 +1207,8 @@ export const email: D<typeof frDict.email> = {
   campaignSection: 'Campaign',
   senderNameLabel: 'Sender name',
   senderNamePlaceholder: 'Café Tej Team',
+  replyToLabel: 'Reply-to address',
+  replyToHint: 'Replies land in your inbox. Empty = your account email.',
   subjectLabel: 'Subject',
   subjectPlaceholder: 'New arrivals this week',
   linkLabel: 'Link ({{link}})',
