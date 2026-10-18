@@ -56,52 +56,45 @@ jobs:
       - name: Build (platform SPA)
         run: npm run build:platform
 
-# Deploy is temporarily disabled: the repo is missing the CLOUDFLARE_API_TOKEN
-# and CLOUDFLARE_ACCOUNT_ID Actions secrets, so wrangler fails with
-# "In a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN".
-# Deploys are done manually from a logged-in machine for now. To re-enable:
-# add the two secrets (Settings -> Secrets -> Actions), then uncomment this job.
-#
-# jobs:
-#   deploy:
-#     needs: verify
-#     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-#     runs-on: ubuntu-latest
-#     timeout-minutes: 20
-#     steps:
-#       - uses: actions/checkout@v4
-#
-#       - uses: actions/setup-node@v4
-#         with:
-#           node-version: 22
-#           cache: npm
-#           cache-dependency-path: |
-#             package-lock.json
-#             Backend/package-lock.json
-#
-#       - name: Install (root)
-#         run: npm ci
-#
-#       - name: Install (backend)
-#         run: npm ci
-#         working-directory: Backend
-#
-#       # Pending schema changes ride along with the code that needs them;
-#       # already-applied migrations are no-ops.
-#       - name: Apply D1 migrations
-#         run: npx wrangler d1 migrations apply campaignflow --remote --config wrangler.jsonc
-#         env:
-#           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-#           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-#
-#       - name: Deploy merchant SPA + API
-#         run: npm run deploy
-#         env:
-#           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-#           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-#
-#       - name: Deploy platform SPA + API
-#         run: npm run deploy:platform
-#         env:
-#           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-#           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  deploy:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            Backend/package-lock.json
+
+      - name: Install (root)
+        run: npm ci
+
+      - name: Install (backend)
+        run: npm ci
+        working-directory: Backend
+
+      # Pending schema changes ride along with the code that needs them;
+      # already-applied migrations are no-ops.
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply campaignflow --remote --config wrangler.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy merchant SPA + API
+        run: npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy platform SPA + API
+        run: npm run deploy:platform
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
