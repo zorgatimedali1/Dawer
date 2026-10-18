@@ -440,6 +440,7 @@ export const rewards = {
   searchPlaceholder: 'Rechercher par nom ou description…',
   typeLabel: 'Type de récompense',
   allTypes: 'Tous les types',
+  allCampaigns: 'Toutes les campagnes',
   typePercentageDiscount: 'Remise en pourcentage',
   typeFixedDiscount: 'Remise à montant fixe',
   typeFreeProduct: 'Produit offert',

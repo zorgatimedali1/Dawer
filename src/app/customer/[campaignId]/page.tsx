@@ -50,7 +50,7 @@ type GateStage = 'idle' | 'opened' | 'returned' | 'unlocking' | 'failed';
  */
 export const gateTimings = {
   /** Seconds counted down after the visitor returns, before the wheel opens. */
-  unlockDelaySeconds: 3,
+  unlockDelaySeconds: 5,
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

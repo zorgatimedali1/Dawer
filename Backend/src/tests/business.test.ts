@@ -57,11 +57,32 @@ describe('POST /api/business', () => {
     );
     expect(response.status).toBe(201);
 
-    const business = db.query<{ whatsapp_enabled: number; email_enabled: number }>(
-      'SELECT whatsapp_enabled, email_enabled FROM businesses',
+    const business = db.query<{ whatsapp_enabled: number; email_enabled: number; wheel_design_enabled: number }>(
+      'SELECT whatsapp_enabled, email_enabled, wheel_design_enabled FROM businesses',
     )[0];
     // A missing platform row now defaults to off, so email stays disabled too.
-    expect(business).toMatchObject({ whatsapp_enabled: 0, email_enabled: 0 });
+    // Wheel design defaults to on (it has its own plan gate).
+    expect(business).toMatchObject({ whatsapp_enabled: 0, email_enabled: 0, wheel_design_enabled: 1 });
+  });
+
+  it('seeds wheel design off when the platform switch is off', async () => {
+    const { token } = await seedMerchant(db, { withBusiness: false });
+    db.prepare(
+      `INSERT INTO platform_settings (key, value, updated_at) VALUES ('wheel_design_enabled', '0', ?)`,
+    )
+      .bind(new Date().toISOString())
+      .run();
+
+    const response = await handleBusinessRoute(
+      jsonRequest('/api/business', 'POST', { name: 'Coffee Corner' }, token),
+      env,
+    );
+    expect(response.status).toBe(201);
+
+    const business = db.query<{ wheel_design_enabled: number }>(
+      'SELECT wheel_design_enabled FROM businesses',
+    )[0];
+    expect(business).toMatchObject({ wheel_design_enabled: 0 });
   });
 
   it('rejects an unauthenticated request', async () => {

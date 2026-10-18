@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RewardsPage from '@/app/dashboard/rewards/page';
@@ -31,6 +31,24 @@ function rewardRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function campaignRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'c1',
+    name: 'Coffee Spin',
+    description: '',
+    status: 'ACTIVE',
+    public_code: 'ABC123',
+    start_at: null,
+    end_at: null,
+    participant_count: 0,
+    reward_count: 0,
+    redemption_count: 0,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
 describe('rewards page', () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -51,6 +69,10 @@ describe('rewards page', () => {
       if (method === 'DELETE') {
         expect(String(input)).toBe('/api/business/rewards/rw1');
         return jsonResponse({ success: true, id: 'rw1' });
+      }
+
+      if (String(input).includes('/api/business/campaigns')) {
+        return jsonResponse({ success: true, campaigns: [campaignRow()] });
       }
 
       return jsonResponse({ success: true, rewards: [rewardRow()] });
@@ -77,9 +99,12 @@ describe('rewards page', () => {
   });
 
   it('keeps the reward when the confirmation is declined', async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      jsonResponse({ success: true, rewards: [rewardRow()] }),
-    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/api/business/campaigns')) {
+        return jsonResponse({ success: true, campaigns: [campaignRow()] });
+      }
+      return jsonResponse({ success: true, rewards: [rewardRow()] });
+    });
     vi.stubGlobal('fetch', fetchMock);
     vi.spyOn(window, 'confirm').mockReturnValue(false);
 
@@ -102,6 +127,10 @@ describe('rewards page', () => {
         return jsonResponse({ success: false, message: 'Unable to delete the reward.' }, 500);
       }
 
+      if (String(input).includes('/api/business/campaigns')) {
+        return jsonResponse({ success: true, campaigns: [campaignRow()] });
+      }
+
       return jsonResponse({ success: true, rewards: [rewardRow()] });
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -117,8 +146,11 @@ describe('rewards page', () => {
   });
 
   it('shows effective odds: a sold-out reward drops to 0% and its weight lands on Prochaine fois', async () => {
-    const fetchMock = vi.fn(async () =>
-      jsonResponse({
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/business/campaigns')) {
+        return jsonResponse({ success: true, campaigns: [campaignRow()] });
+      }
+      return jsonResponse({
         success: true,
         rewards: [
           rewardRow({ id: 'r1', name: 'Rare', quantity: 0, quantity_initial: 1, weight: 70 }),
@@ -133,34 +165,165 @@ describe('rewards page', () => {
             active: 1,
           }),
         ],
-      }),
-    );
+      });
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     render(<RewardsPage />);
 
     await screen.findByText('Rare');
-    // Rare (70) is sold out: 0% for it, its 70 transferred to Prochaine fois.
+    // Rare (70) is sold out: 0% for it; the 70 lands on the hidden none slice.
+    // "Always on" keeps its 30% share of the total weight (100).
     const chances = await screen.findAllByText(/%$/);
-    expect(chances.map((node) => node.textContent)).toEqual(['0%', '30%', '70%']);
+    expect(chances.map((node) => node.textContent)).toEqual(['0%', '30%']);
   });
 
   it('keeps the raw distribution when nothing is sold out', async () => {
-    const fetchMock = vi.fn(async () =>
-      jsonResponse({
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/business/campaigns')) {
+        return jsonResponse({ success: true, campaigns: [campaignRow()] });
+      }
+      return jsonResponse({
         success: true,
         rewards: [
           rewardRow({ id: 'r1', name: 'Free coffee', quantity: 5, quantity_initial: 5, weight: 70 }),
           rewardRow({ id: 'r2', name: 'Prochaine fois', type: 'none', quantity: 0, quantity_initial: 0, weight: 30 }),
         ],
-      }),
-    );
+      });
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     render(<RewardsPage />);
 
     await screen.findByText('Free coffee');
     const chances = await screen.findAllByText(/%$/);
-    expect(chances.map((node) => node.textContent)).toEqual(['70%', '30%']);
+    expect(chances.map((node) => node.textContent)).toEqual(['70%']);
+  });
+
+  it('hides the Prochaine fois (type none) reward from the list and the type filter', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/business/campaigns')) {
+        return jsonResponse({ success: true, campaigns: [campaignRow()] });
+      }
+      return jsonResponse({
+        success: true,
+        rewards: [
+          rewardRow({ id: 'r1', name: 'Free coffee' }),
+          rewardRow({ id: 'r2', name: 'Prochaine fois', type: 'none', weight: 30 }),
+        ],
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<RewardsPage />);
+
+    await screen.findByText('Free coffee');
+    expect(screen.queryByText('Prochaine fois')).toBeNull();
+
+    const typeFilter = screen.getByRole('combobox', { name: /type de récompense/i });
+    expect(within(typeFilter).queryByRole('option', { name: 'Aucune récompense' })).toBeNull();
+  });
+
+  it('groups rewards by campaign with headers when showing all campaigns', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/business/campaigns')) {
+        return jsonResponse({
+          success: true,
+          campaigns: [campaignRow(), campaignRow({ id: 'c2', name: 'Pizza Spin' })],
+        });
+      }
+      return jsonResponse({
+        success: true,
+        rewards: [
+          rewardRow({ id: 'r1', campaign_id: 'c1', campaign_name: 'Coffee Spin', name: 'Free coffee' }),
+          rewardRow({ id: 'r2', campaign_id: 'c2', campaign_name: 'Pizza Spin', name: 'Free pizza' }),
+        ],
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<RewardsPage />);
+
+    await screen.findByText('Free coffee');
+    expect(screen.getByRole('heading', { name: 'Coffee Spin' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Pizza Spin' })).toBeTruthy();
+  });
+
+  it('filters rewards by campaign through the API when one is selected', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/business/campaigns')) {
+        return jsonResponse({
+          success: true,
+          campaigns: [campaignRow(), campaignRow({ id: 'c2', name: 'Pizza Spin' })],
+        });
+      }
+      if (url.includes('campaignId=c2')) {
+        return jsonResponse({
+          success: true,
+          rewards: [rewardRow({ id: 'r2', campaign_id: 'c2', campaign_name: 'Pizza Spin', name: 'Free pizza' })],
+        });
+      }
+      return jsonResponse({
+        success: true,
+        rewards: [rewardRow({ id: 'r1', campaign_id: 'c1', campaign_name: 'Coffee Spin', name: 'Free coffee' })],
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<RewardsPage />);
+
+    await screen.findByText('Free coffee');
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /campagne/i }), 'c2');
+
+    await screen.findByText('Free pizza');
+    expect(screen.queryByText('Free coffee')).toBeNull();
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).includes('/api/business/rewards?campaignId=c2')),
+    ).toBe(true);
+  });
+
+  it('computes odds per campaign, not across the whole list', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/business/campaigns')) {
+        return jsonResponse({
+          success: true,
+          campaigns: [campaignRow(), campaignRow({ id: 'c2', name: 'Pizza Spin' })],
+        });
+      }
+      return jsonResponse({
+        success: true,
+        rewards: [
+          rewardRow({ id: 'r1', campaign_id: 'c1', campaign_name: 'Coffee Spin', name: 'Coffee prize', weight: 70 }),
+          rewardRow({
+            id: 'n1',
+            campaign_id: 'c1',
+            campaign_name: 'Coffee Spin',
+            name: 'Prochaine fois',
+            type: 'none',
+            weight: 30,
+          }),
+          rewardRow({ id: 'r2', campaign_id: 'c2', campaign_name: 'Pizza Spin', name: 'Pizza prize', weight: 10 }),
+          rewardRow({
+            id: 'n2',
+            campaign_id: 'c2',
+            campaign_name: 'Pizza Spin',
+            name: 'Prochaine fois',
+            type: 'none',
+            weight: 90,
+          }),
+        ],
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<RewardsPage />);
+
+    await screen.findByText('Coffee prize');
+    // Per campaign: Coffee prize is 70/100 = 70%, Pizza prize is 10/100 = 10%.
+    // A global mix would have shown 35% and 5%.
+    const chances = await screen.findAllByText(/%$/);
+    expect(chances.map((node) => node.textContent)).toEqual(['70%', '10%']);
   });
 });
