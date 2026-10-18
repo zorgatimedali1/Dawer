@@ -82,8 +82,6 @@ export default function EmailPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendProgress, setSendProgress] = useState(0);
-  const [testEmail, setTestEmail] = useState('');
-  const [testError, setTestError] = useState('');
   const [success, setSuccess] = useState<{
     sent: number;
     failed: number;
@@ -183,18 +181,6 @@ export default function EmailPage() {
     !broadcastInFlight &&
     !assetUploading;
 
-  const canSendTest =
-    composerEnabled &&
-    EMAIL_PATTERN.test(testEmail.trim()) &&
-    senderName.trim() !== '' &&
-    subject.trim() !== '' &&
-    replyToValid &&
-    hasBody &&
-    (status?.remaining ?? 0) > 0 &&
-    !sending &&
-    !broadcastInFlight &&
-    !assetUploading;
-
   const previewValues = {
     name: recipients[0]?.name || 'John Doe',
     email: recipients[0]?.email || 'ada@example.com',
@@ -279,41 +265,6 @@ export default function EmailPage() {
     } catch (caught) {
       setError(msg(t, caught instanceof Error ? caught.message : t.email.startError));
       setConfirmOpen(false);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const sendTest = async () => {
-    const address = testEmail.trim();
-    if (!EMAIL_PATTERN.test(address)) {
-      setTestError(t.email.testRecipientInvalid);
-      return;
-    }
-    setTestError('');
-    setSendProgress(0);
-    setSending(true);
-    setError('');
-    try {
-      const result = await EmailService.broadcast({
-        senderName: senderName.trim(),
-        subject: subject.trim(),
-        content,
-        link: link.trim() || undefined,
-        asset: asset ? { id: asset.id } : undefined,
-        replyTo: replyTo.trim() || undefined,
-        recipients: [{ email: address }],
-      });
-      setSuccess({
-        sent: result.campaign.sent,
-        failed: result.campaign.failed,
-        total: result.campaign.totalRecipients,
-        remaining: result.usage.remaining,
-        pending: result.campaign.status === 'PENDING',
-      });
-      void load();
-    } catch (caught) {
-      setError(msg(t, caught instanceof Error ? caught.message : t.email.startError));
     } finally {
       setSending(false);
     }
@@ -586,33 +537,6 @@ export default function EmailPage() {
               <Send className="h-4 w-4" aria-hidden />
               {count > 0 ? interpolate(t.email.sendTo, { count }) : t.email.send}
             </Button>
-          </div>
-
-          <div className="space-y-2 border-t border-line pt-4">
-            <Field label={t.email.testRecipientLabel} htmlFor="email-test-recipient">
-              <div className="flex gap-2">
-                <Input
-                  id="email-test-recipient"
-                  type="email"
-                  value={testEmail}
-                  disabled={!composerEnabled}
-                  placeholder={t.email.testRecipientPlaceholder}
-                  onChange={(event) => {
-                    setTestEmail(event.target.value);
-                    setTestError('');
-                  }}
-                />
-                <Button variant="outline" disabled={!canSendTest} onClick={() => void sendTest()}>
-                  <Send className="h-4 w-4" aria-hidden />
-                  {t.email.sendTest}
-                </Button>
-              </div>
-            </Field>
-            {testError ? (
-              <p role="alert" className="text-[12.5px] font-medium text-danger-600 dark:text-danger-300">
-                {testError}
-              </p>
-            ) : null}
           </div>
         </CardContent>
       </Card>

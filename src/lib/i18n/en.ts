@@ -1241,10 +1241,6 @@ export const email: D<typeof frDict.email> = {
   historySection: 'Recent campaigns',
   historyEmpty: 'No email campaigns yet.',
   historyError: 'Error: {message}',
-  sendTest: 'Send test',
-  testRecipientLabel: 'Test address',
-  testRecipientPlaceholder: 'you@example.com',
-  testRecipientInvalid: 'Enter a valid email address.',
   loadError: 'Unable to load email campaigns.',
 };
 

@@ -1245,10 +1245,6 @@ export const email = {
   historySection: 'Campagnes récentes',
   historyEmpty: 'Aucune campagne e-mail pour le moment.',
   historyError: 'Erreur : {message}',
-  sendTest: 'Envoyer un test',
-  testRecipientLabel: 'Adresse de test',
-  testRecipientPlaceholder: 'vous@exemple.com',
-  testRecipientInvalid: 'Saisissez une adresse e-mail valide.',
   loadError: 'Impossible de charger les campagnes e-mail.',
 } as const;
 

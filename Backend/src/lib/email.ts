@@ -32,15 +32,22 @@ import type { Env } from '../types';
 const MAILJET_SEND_URL = 'https://api.mailjet.com/v3.1/send';
 const BREVO_SEND_URL = 'https://api.brevo.com/v3/smtp/email';
 const RESEND_SEND_URL = 'https://api.resend.com/emails';
-const BATCH_SIZE = 100;
+const BATCH_SIZE = 5;
 const SEND_CONCURRENCY = 5;
 const RETRY_DELAY_MS = 1500;
 const REQUEST_TIMEOUT_MS = 15_000;
 
-/** Recipients handled per alarm round — one provider round-trip wave. */
+/**
+ * Recipients handled per alarm round — one provider round-trip wave.
+ *
+ * Small burst + a long pause between rounds keeps the sending pattern
+ * human-shaped: a brand-new domain hammering 100 emails in one gulp lands
+ * straight in spam, so we drip 5 emails per minute instead (a 100-recipient
+ * campaign takes ~20 minutes and streams its progress into the history).
+ */
 export const EMAIL_BATCH_SIZE = BATCH_SIZE;
 /** Alarm re-arm delay between rounds (delivery is asynchronous by design). */
-export const EMAIL_PACE_MS = 600;
+export const EMAIL_PACE_MS = 60_000;
 
 const DEFAULT_MARKETING_DAILY_CAP = 190;
 const DEFAULT_MONTHLY_SOFT_CAP = 5800;

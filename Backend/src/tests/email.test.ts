@@ -428,14 +428,23 @@ describe('POST /api/email/broadcast', () => {
 
     const first = await processEmailBatch(env, result.campaign.id);
     expect(first).toBe('continue');
-    expect(calls).toHaveLength(100);
+    expect(calls).toHaveLength(5);
     expect(payloadOf(calls[0]).CustomID).toContain('/0/');
+    expect(payloadOf(calls[4]).CustomID).toContain('/0/');
 
-    const second = await processEmailBatch(env, result.campaign.id);
-    expect(second).toBe('completed');
+    // The remaining 96 recipients drip out in 5-email rounds; each round
+    // re-checkpoints the cursor, so driving rounds until completion proves
+    // the campaign survives the new small-burst pacing.
+    let rounds = 1;
+    while (rounds < 30) {
+      rounds += 1;
+      const outcome = await processEmailBatch(env, result.campaign.id);
+      if (outcome === 'completed') break;
+      expect(outcome).toBe('continue');
+    }
     expect(calls).toHaveLength(101);
     const resumed = payloadOf(calls[100]);
-    expect(resumed.CustomID).toContain('/1/');
+    expect(resumed.CustomID).toContain('/20/');
     expect(resumed.To[0]?.Email).toBe('customer101@example.test');
 
     const rows = db.query<{ status: string; sent_count: number; failed_count: number }>(

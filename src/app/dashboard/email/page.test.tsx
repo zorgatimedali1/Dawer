@@ -362,44 +362,6 @@ describe('Email marketing page', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Erreur : Daily sending limit reached.');
   });
 
-  it('sends a single-recipient test from the composer', async () => {
-    const fetchMock = stubFetch();
-    renderPage();
-
-    await fillCampaign();
-    fireEvent.change(screen.getByLabelText('Adresse de test'), { target: { value: 'mhoudou098@gmail.com' } });
-
-    await userEvent.click(screen.getByRole('button', { name: 'Envoyer un test' }));
-
-    await waitFor(() => {
-      const post = fetchMock.mock.calls.find(
-        (call) =>
-          String((call as unknown as [RequestInfo, RequestInit])[0]).startsWith('/api/email/broadcast') &&
-          ((call as unknown as [RequestInfo, RequestInit])[1]?.method ?? 'GET') === 'POST',
-      );
-      expect(post).toBeTruthy();
-      const body = JSON.parse(String((post as unknown as [RequestInfo, RequestInit])[1]?.body));
-      expect(body.recipients).toEqual([{ email: 'mhoudou098@gmail.com' }]);
-      expect(body.subject).toBe('Nouveautés de la semaine');
-    });
-  }, 15_000);
-
-  it('keeps the test button disabled until the address is valid', async () => {
-    stubFetch();
-    renderPage();
-
-    await fillCampaign();
-
-    const testButton = await screen.findByRole('button', { name: 'Envoyer un test' });
-    expect((testButton as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.change(screen.getByLabelText('Adresse de test'), { target: { value: 'not-an-email' } });
-    expect((testButton as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.change(screen.getByLabelText('Adresse de test'), { target: { value: 'mhoudou098@gmail.com' } });
-    expect((testButton as HTMLButtonElement).disabled).toBe(false);
-  }, 15_000);
-
   it('uploads an attachment and sends its id with the broadcast', async () => {
     const fetchMock = stubFetch();
     renderPage();
