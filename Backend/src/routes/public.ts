@@ -604,7 +604,7 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     // for a per-network gate, so a request with no IP signal is refused (there
     // is nothing to count it against). The platform floor alone never rejects
     // for a missing IP — an address-less request is simply not counted (the
-    // durable identity claim and Turnstile still gate it).
+    // durable identity claim still gates it).
     const ipSpinFloor = Number(env.IP_SPINS_PER_DAY ?? 10);
     const merchantIpCap = playRules?.maxPlaysPerIpDay ?? 0;
     const effectiveIpSpinCap =
@@ -1150,7 +1150,6 @@ async function handleActionClaim(env: Env, campaign: { id: string; require_actio
     // A Turnstile token used to gate this too, but the visitor must leave for
     // the review/social tab and come back — that backgrounds the page, which
     // invalidates the token, so the step could never be satisfied reliably.
-    // The spin endpoint keeps its own Turnstile check.
 
     const now = new Date().toISOString();
     // The signed cookie identity keys the claim: one browser, one claim —

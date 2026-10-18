@@ -70,7 +70,6 @@ export const actionClaimSchema = z.object({
   actionTicket: z.string().trim().min(1).max(512).optional(),
   // No Turnstile token here: the visitor must leave for the review/social tab
   // and return, which backgrounds the page and invalidates any minted token.
-  // The spin endpoint keeps its own Turnstile check.
 });
 
 /**
