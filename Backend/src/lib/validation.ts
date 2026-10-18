@@ -478,11 +478,18 @@ export const adminFeatureAccessSchema = z
   .object({
     whatsappEnabled: z.boolean().optional(),
     emailEnabled: z.boolean().optional(),
+    wheelDesignEnabled: z.boolean().optional(),
     reason: z.string().trim().min(3).max(500).optional(),
   })
-  .refine((value) => value.whatsappEnabled !== undefined || value.emailEnabled !== undefined, {
-    message: 'Provide whatsappEnabled and/or emailEnabled.',
-  });
+  .refine(
+    (value) =>
+      value.whatsappEnabled !== undefined ||
+      value.emailEnabled !== undefined ||
+      value.wheelDesignEnabled !== undefined,
+    {
+      message: 'Provide whatsappEnabled, emailEnabled and/or wheelDesignEnabled.',
+    },
+  );
 
 export type AdminFeatureAccess = z.infer<typeof adminFeatureAccessSchema>;
 
@@ -491,10 +498,17 @@ export const platformFeatureSchema = z
   .object({
     whatsappEnabled: z.boolean().optional(),
     emailEnabled: z.boolean().optional(),
+    wheelDesignEnabled: z.boolean().optional(),
   })
-  .refine((value) => value.whatsappEnabled !== undefined || value.emailEnabled !== undefined, {
-    message: 'Provide whatsappEnabled and/or emailEnabled.',
-  });
+  .refine(
+    (value) =>
+      value.whatsappEnabled !== undefined ||
+      value.emailEnabled !== undefined ||
+      value.wheelDesignEnabled !== undefined,
+    {
+      message: 'Provide whatsappEnabled, emailEnabled and/or wheelDesignEnabled.',
+    },
+  );
 
 export type PlatformFeatureUpdate = z.infer<typeof platformFeatureSchema>;
 

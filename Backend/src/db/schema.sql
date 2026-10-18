@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS businesses (
   email_enabled INTEGER NOT NULL DEFAULT 1,
   wheel_theme TEXT,
   wheel_theme_override TEXT,
-  wheel_design_access INTEGER NOT NULL DEFAULT 0
+  wheel_design_access INTEGER NOT NULL DEFAULT 0,
+  wheel_design_enabled INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS business_members (

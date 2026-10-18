@@ -679,9 +679,15 @@ async function handleWheelThemeGet(request: Request, env: Env, user: Authenticat
 
   const theme = parseWheelTheme(row?.wheel_theme);
   const override = parseWheelTheme(row?.wheel_theme_override);
-  const designAllowed = wheelDesignAllowed(access.plan.slug, access.plan.features.limits);
-  const centerLogoAllowed = wheelCenterLogoAllowed(access.plan.slug, access.plan.features.limits);
-  const stepsColorAllowed = wheelStepsColorAllowed(access.plan.slug, access.plan.features.limits);
+  // Two independent locks: the operator kill-switch (off = nobody edits, any
+  // plan) and the plan gate (Starter never gets colours / motion / hub logo).
+  const features = await getEffectiveFeatures(env, businessId);
+  const designAllowed =
+    features.wheelDesignEnabled && wheelDesignAllowed(access.plan.slug, access.plan.features.limits);
+  const centerLogoAllowed =
+    features.wheelDesignEnabled && wheelCenterLogoAllowed(access.plan.slug, access.plan.features.limits);
+  const stepsColorAllowed =
+    features.wheelDesignEnabled && wheelStepsColorAllowed(access.plan.slug, access.plan.features.limits);
   const logoRow = await env.DB.prepare(
     'SELECT updated_at FROM business_wheel_logos WHERE business_id = ? LIMIT 1',
   )
@@ -718,12 +724,20 @@ async function handleWheelThemePut(request: Request, env: Env, user: Authenticat
   if (!businessId) return errorResponse('Create a business before configuring the wheel design.', 404);
 
   const access = await getBusinessAccess(env, businessId);
-  const designAllowed = wheelDesignAllowed(access.plan.slug, access.plan.features.limits);
-  const centerLogoAllowed = wheelCenterLogoAllowed(access.plan.slug, access.plan.features.limits);
-  const stepsColorAllowed = wheelStepsColorAllowed(access.plan.slug, access.plan.features.limits);
+  // Two independent locks: the operator kill-switch (off = nobody edits, any
+  // plan) and the plan gate (Starter never gets colours / motion / hub logo).
+  const features = await getEffectiveFeatures(env, businessId);
+  const designAllowed =
+    features.wheelDesignEnabled && wheelDesignAllowed(access.plan.slug, access.plan.features.limits);
+  const centerLogoAllowed =
+    features.wheelDesignEnabled && wheelCenterLogoAllowed(access.plan.slug, access.plan.features.limits);
+  const stepsColorAllowed =
+    features.wheelDesignEnabled && wheelStepsColorAllowed(access.plan.slug, access.plan.features.limits);
   if (!designAllowed && !centerLogoAllowed && !stepsColorAllowed) {
     return errorResponse(
-      'Custom wheel design requires the Business plan and the center logo requires the Pro plan. Upgrade from Billing.',
+      features.wheelDesignEnabled
+        ? 'Custom wheel design requires the Business plan and the center logo requires the Pro plan. Upgrade from Billing.'
+        : 'Wheel design is currently disabled by the platform administrator.',
       403,
     );
   }
@@ -761,6 +775,10 @@ async function handleWheelLogoUpload(request: Request, env: Env, user: Authentic
   if (!businessId) return errorResponse('Create a business before adding a wheel logo.', 404);
 
   const access = await getBusinessAccess(env, businessId);
+  const features = await getEffectiveFeatures(env, businessId);
+  if (!features.wheelDesignEnabled) {
+    return errorResponse('Wheel design is currently disabled by the platform administrator.', 403);
+  }
   if (!wheelCenterLogoAllowed(access.plan.slug, access.plan.features.limits)) {
     return errorResponse('The center wheel logo is available on the Pro plan and above. Upgrade from Billing.', 403);
   }

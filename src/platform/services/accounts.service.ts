@@ -68,7 +68,7 @@ export type AccountPlayPolicy = { mode: 'off' } | { mode: 'once' } | { mode: 'wi
 export interface PlatformAccountDetail {
   account: PlatformAccount;
   playPolicy: AccountPlayPolicy;
-  featureAccess: { whatsappEnabled: boolean; emailEnabled: boolean };
+  featureAccess: { whatsappEnabled: boolean; emailEnabled: boolean; wheelDesignEnabled: boolean };
   /** Merchant-authored wheel theme (first non-null across the account). */
   wheelTheme: WheelTheme | null;
   /** Operator-authored override; when set it wins over `wheelTheme`. */
@@ -149,11 +149,18 @@ export class AccountsService {
     );
   }
 
-  /** Turns WhatsApp / email marketing on or off for every business of the account. */
+  /** Turns WhatsApp / email marketing and wheel design on or off for every business of the account. */
   static async setFeatureAccess(
     accountId: string,
-    features: { whatsappEnabled?: boolean; emailEnabled?: boolean },
-  ): Promise<{ featureAccess: { whatsappEnabled?: boolean; emailEnabled?: boolean }; updatedBusinesses: number }> {
+    features: { whatsappEnabled?: boolean; emailEnabled?: boolean; wheelDesignEnabled?: boolean },
+  ): Promise<{
+    featureAccess: {
+      whatsappEnabled?: boolean;
+      emailEnabled?: boolean;
+      wheelDesignEnabled?: boolean;
+    };
+    updatedBusinesses: number;
+  }> {
     return apiRequest(
       'POST',
       `/api/admin/accounts/${encodeURIComponent(accountId)}/features`,

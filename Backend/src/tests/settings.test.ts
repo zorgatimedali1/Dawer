@@ -617,6 +617,44 @@ describe('wheel design', () => {
       .toBeNull();
   });
 
+  it('locks every plan out of editing when the operator switch is off, then restores access', async () => {
+    // The operator switch is an independent kill-switch: it must win even for
+    // a plan (Scale) that would otherwise fully allow the editor.
+    await upgradeToBusiness();
+    db.prepare('UPDATE businesses SET wheel_design_enabled = 0 WHERE id = ?').bind(alice.businessId).run();
+
+    const gated = await body(
+      await handleSettingsRoute(jsonRequest('/api/settings/wheel-theme', 'GET', undefined, alice.token), env),
+    );
+    expect(gated.designAllowed).toBe(false);
+    expect(gated.centerLogoAllowed).toBe(false);
+    expect(gated.stepsColorAllowed).toBe(false);
+
+    const saved = await handleSettingsRoute(
+      jsonRequest('/api/settings/wheel-theme', 'PUT', theme, alice.token),
+      env,
+    );
+    expect(saved.status).toBe(403);
+    expect((await body(saved)).error).toContain('disabled by the platform administrator');
+    expect(
+      db.query<{ wheel_theme: string | null }>('SELECT wheel_theme FROM businesses WHERE id = ?', alice.businessId)[0]!
+        .wheel_theme,
+    ).toBeNull();
+
+    const logo = await handleSettingsRoute(
+      jsonRequest('/api/settings/wheel-logo', 'POST', { mimeType: 'image/png', dataBase64: PNG_BASE64 }, alice.token),
+      env,
+    );
+    expect(logo.status).toBe(403);
+
+    db.prepare('UPDATE businesses SET wheel_design_enabled = 1 WHERE id = ?').bind(alice.businessId).run();
+    const restored = await handleSettingsRoute(
+      jsonRequest('/api/settings/wheel-theme', 'PUT', theme, alice.token),
+      env,
+    );
+    expect(restored.status).toBe(200);
+  });
+
   it('locks colors on Pro while the hub logo stays available', async () => {
     await upgradeToPro();
 

@@ -139,7 +139,8 @@ async function getAccount(request: Request, env: Env, accountId: string): Promis
 
   const businesses = await env.DB.prepare(
     `SELECT bm.role, bm.created_at AS joined_at, b.id, b.name, b.slug, b.play_policy, b.created_at,
-            b.whatsapp_enabled, b.email_enabled, b.wheel_theme, b.wheel_theme_override,
+            b.whatsapp_enabled, b.email_enabled, b.wheel_design_enabled,
+            b.wheel_theme, b.wheel_theme_override,
             (SELECT p.slug FROM subscriptions s
               INNER JOIN plans p ON p.id = s.plan_id
               WHERE s.business_id = b.id
@@ -165,6 +166,7 @@ async function getAccount(request: Request, env: Env, accountId: string): Promis
       created_at: string;
       whatsapp_enabled: number;
       email_enabled: number;
+      wheel_design_enabled: number;
       wheel_theme: string | null;
       wheel_theme_override: string | null;
       plan_slug: string | null;
@@ -211,6 +213,7 @@ async function getAccount(request: Request, env: Env, accountId: string): Promis
   const featureAccess: FeatureFlags = {
     whatsappEnabled: businessRows.every((business) => Number(business.whatsapp_enabled) === 1),
     emailEnabled: businessRows.every((business) => Number(business.email_enabled) === 1),
+    wheelDesignEnabled: businessRows.every((business) => Number(business.wheel_design_enabled) === 1),
   };
 
   // Wheel design: the setter writes every business, so the account view is
@@ -246,6 +249,7 @@ async function getAccount(request: Request, env: Env, accountId: string): Promis
       playPolicy: describeStoredPlayPolicy(business.play_policy),
       whatsappEnabled: Number(business.whatsapp_enabled) === 1,
       emailEnabled: Number(business.email_enabled) === 1,
+      wheelDesignEnabled: Number(business.wheel_design_enabled) === 1,
       planSlug: business.plan_slug ?? 'starter',
       createdAt: business.created_at,
     })),
@@ -434,7 +438,12 @@ async function setFeatureAccess(
   env: Env,
   operator: Operator,
   accountId: string,
-  update: { whatsappEnabled?: boolean; emailEnabled?: boolean; reason?: string },
+  update: {
+    whatsappEnabled?: boolean;
+    emailEnabled?: boolean;
+    wheelDesignEnabled?: boolean;
+    reason?: string;
+  },
 ): Promise<Response> {
   const existing = await env.DB.prepare('SELECT id, email FROM users WHERE id = ? LIMIT 1')
     .bind(accountId)
@@ -445,17 +454,20 @@ async function setFeatureAccess(
   const flags: Partial<FeatureFlags> = {};
   if (update.whatsappEnabled !== undefined) flags.whatsappEnabled = update.whatsappEnabled;
   if (update.emailEnabled !== undefined) flags.emailEnabled = update.emailEnabled;
+  if (update.wheelDesignEnabled !== undefined) flags.wheelDesignEnabled = update.wheelDesignEnabled;
 
   const result = await env.DB.prepare(
     `UPDATE businesses SET
        whatsapp_enabled = COALESCE(?, whatsapp_enabled),
        email_enabled = COALESCE(?, email_enabled),
+       wheel_design_enabled = COALESCE(?, wheel_design_enabled),
        updated_at = ?
      WHERE id IN (SELECT business_id FROM business_members WHERE user_id = ?)`,
   )
     .bind(
       flags.whatsappEnabled === undefined ? null : flags.whatsappEnabled ? 1 : 0,
       flags.emailEnabled === undefined ? null : flags.emailEnabled ? 1 : 0,
+      flags.wheelDesignEnabled === undefined ? null : flags.wheelDesignEnabled ? 1 : 0,
       new Date().toISOString(),
       accountId,
     )

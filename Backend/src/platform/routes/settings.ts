@@ -27,6 +27,9 @@ async function updateFeatures(request: Request, env: Env): Promise<Response> {
   if (input.emailEnabled !== undefined) {
     await setPlatformFeature(env, 'email', input.emailEnabled);
   }
+  if (input.wheelDesignEnabled !== undefined) {
+    await setPlatformFeature(env, 'wheel', input.wheelDesignEnabled);
+  }
 
   await writeAuditLog(env, {
     businessId: null,

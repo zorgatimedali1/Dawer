@@ -1,15 +1,17 @@
 import type { Env } from '../types';
 
-export type FeatureName = 'whatsapp' | 'email';
+export type FeatureName = 'whatsapp' | 'email' | 'wheel';
 
 export interface FeatureFlags {
   whatsappEnabled: boolean;
   emailEnabled: boolean;
+  wheelDesignEnabled: boolean;
 }
 
 const PLATFORM_KEYS: Record<FeatureName, string> = {
   whatsapp: 'whatsapp_enabled',
   email: 'email_enabled',
+  wheel: 'wheel_design_enabled',
 };
 
 function toBool(value: string | number | null | undefined): boolean {
@@ -32,22 +34,31 @@ export async function getPlatformFeatures(env: Env): Promise<FeatureFlags> {
   return {
     whatsappEnabled: settings.has(PLATFORM_KEYS.whatsapp) ? toBool(settings.get(PLATFORM_KEYS.whatsapp)) : false,
     emailEnabled: settings.has(PLATFORM_KEYS.email) ? toBool(settings.get(PLATFORM_KEYS.email)) : false,
+    // Wheel design has had a plan gate since before this switch existed, so a
+    // missing row (fresh DB / failed migration) keeps that gate intact rather
+    // than killing a feature Business+ merchants already pay for.
+    wheelDesignEnabled: settings.has(PLATFORM_KEYS.wheel)
+      ? toBool(settings.get(PLATFORM_KEYS.wheel))
+      : true,
   };
 }
 
 /** Per-business switches written by the operator console. */
 export async function getBusinessFeatures(env: Env, businessId: string): Promise<FeatureFlags> {
   const row = await env.DB.prepare(
-    'SELECT whatsapp_enabled, email_enabled FROM businesses WHERE id = ? LIMIT 1',
+    'SELECT whatsapp_enabled, email_enabled, wheel_design_enabled FROM businesses WHERE id = ? LIMIT 1',
   )
     .bind(businessId)
-    .first<{ whatsapp_enabled: number; email_enabled: number }>();
+    .first<{ whatsapp_enabled: number; email_enabled: number; wheel_design_enabled: number }>();
 
-  if (!row) return { whatsappEnabled: false, emailEnabled: false };
+  if (!row) {
+    return { whatsappEnabled: false, emailEnabled: false, wheelDesignEnabled: false };
+  }
 
   return {
     whatsappEnabled: toBool(row.whatsapp_enabled),
     emailEnabled: toBool(row.email_enabled),
+    wheelDesignEnabled: toBool(row.wheel_design_enabled),
   };
 }
 
@@ -81,6 +92,10 @@ export async function setBusinessFeatures(env: Env, businessId: string, features
     sets.push('email_enabled = ?');
     binds.push(features.emailEnabled ? 1 : 0);
   }
+  if (features.wheelDesignEnabled !== undefined) {
+    sets.push('wheel_design_enabled = ?');
+    binds.push(features.wheelDesignEnabled ? 1 : 0);
+  }
   if (sets.length === 0) return;
 
   sets.push('updated_at = ?');
@@ -98,7 +113,9 @@ export class FeatureDisabledError extends Error {
     super(
       feature === 'whatsapp'
         ? 'WhatsApp marketing is currently disabled by the platform administrator.'
-        : 'Email marketing is currently disabled by the platform administrator.',
+        : feature === 'email'
+          ? 'Email marketing is currently disabled by the platform administrator.'
+          : 'Wheel design is currently disabled by the platform administrator.',
     );
     this.name = 'FeatureDisabledError';
     this.feature = feature;
@@ -118,7 +135,12 @@ export async function getEffectiveFeatures(env: Env, businessId: string): Promis
 
 export async function assertFeatureEnabled(env: Env, businessId: string, feature: FeatureName): Promise<void> {
   const features = await getEffectiveFeatures(env, businessId);
-  const enabled = feature === 'whatsapp' ? features.whatsappEnabled : features.emailEnabled;
+  const enabled =
+    feature === 'whatsapp'
+      ? features.whatsappEnabled
+      : feature === 'email'
+        ? features.emailEnabled
+        : features.wheelDesignEnabled;
 
   if (!enabled) throw new FeatureDisabledError(feature);
 }

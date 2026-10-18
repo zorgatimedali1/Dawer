@@ -88,7 +88,10 @@ export default function DashboardPage() {
     void load();
   }, [load]);
 
-  const toggleFeature = async (key: 'whatsappEnabled' | 'emailEnabled', value: boolean) => {
+  const toggleFeature = async (
+    key: 'whatsappEnabled' | 'emailEnabled' | 'wheelDesignEnabled',
+    value: boolean,
+  ) => {
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -96,9 +99,9 @@ export default function DashboardPage() {
     try {
       const result = await StatsService.setPlatformFeatures({ [key]: value });
       setFeatures(result.features);
-      setNotice(
-        `${key === 'whatsappEnabled' ? 'WhatsApp' : 'Email marketing'} is now ${value ? 'enabled' : 'disabled'} platform-wide.`,
-      );
+      const label =
+        key === 'whatsappEnabled' ? 'WhatsApp' : key === 'emailEnabled' ? 'Email marketing' : 'Wheel design';
+      setNotice(`${label} is now ${value ? 'enabled' : 'disabled'} platform-wide.`);
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : 'Unable to update the switch.');
     } finally {
@@ -276,6 +279,13 @@ export default function DashboardPage() {
                 checked={features?.emailEnabled ?? true}
                 disabled={busy}
                 onToggle={(value) => void toggleFeature('emailEnabled', value)}
+              />
+              <FeatureSwitch
+                id="platform-wheel-design"
+                label="Wheel design"
+                checked={features?.wheelDesignEnabled ?? true}
+                disabled={busy}
+                onToggle={(value) => void toggleFeature('wheelDesignEnabled', value)}
               />
             </div>
 

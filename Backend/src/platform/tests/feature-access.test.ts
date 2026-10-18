@@ -159,14 +159,51 @@ describe('platform-wide feature switches', () => {
     ).toBe(401);
   });
 
-  it('defaults to everything disabled on a fresh database', async () => {
+  it('defaults marketing off but wheel design on, because wheel design has its own plan gate', async () => {
     const payload = await body(
       await handlePlatformFeaturesRoute(
         operatorRequest('/api/admin/platform-features', 'GET', undefined, operator.token),
         env,
       ),
     );
-    expect(payload.features).toMatchObject({ whatsappEnabled: false, emailEnabled: false });
+    expect(payload.features).toMatchObject({
+      whatsappEnabled: false,
+      emailEnabled: false,
+      // No platform_settings row means the switch is on, so Business+ keeps
+      // the design access its plan already paid for.
+      wheelDesignEnabled: true,
+    });
+  });
+
+  it('turns wheel design off and back on, propagating to businesses and auditing', async () => {
+    const off = await body(
+      await handlePlatformFeaturesRoute(
+        operatorRequest('/api/admin/platform-features', 'POST', { wheelDesignEnabled: false }, operator.token),
+        env,
+      ),
+    );
+    expect(off.features).toMatchObject({ wheelDesignEnabled: false, whatsappEnabled: false });
+
+    expect(
+      db.query<{ wheel_design_enabled: number }>(
+        'SELECT wheel_design_enabled FROM businesses WHERE id = ?',
+        merchant.businessId,
+      )[0]!.wheel_design_enabled,
+    ).toBe(0);
+
+    const on = await body(
+      await handlePlatformFeaturesRoute(
+        operatorRequest('/api/admin/platform-features', 'POST', { wheelDesignEnabled: true }, operator.token),
+        env,
+      ),
+    );
+    expect(on.features.wheelDesignEnabled).toBe(true);
+    expect(
+      db.query<{ wheel_design_enabled: number }>(
+        'SELECT wheel_design_enabled FROM businesses WHERE id = ?',
+        merchant.businessId,
+      )[0]!.wheel_design_enabled,
+    ).toBe(1);
   });
 
   it('stores partial updates and audits them', async () => {

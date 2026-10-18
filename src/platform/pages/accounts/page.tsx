@@ -128,11 +128,16 @@ export default function AccountsPage() {
     void run(() => AccountsService.suspend(suspendTarget, suspendReason.trim()), 'Account suspended.');
   };
 
-  const toggleFeature = (key: 'whatsappEnabled' | 'emailEnabled', value: boolean) => {
+  const toggleFeature = (
+    key: 'whatsappEnabled' | 'emailEnabled' | 'wheelDesignEnabled',
+    value: boolean,
+  ) => {
     if (!detail) return;
+    const label =
+      key === 'whatsappEnabled' ? 'WhatsApp' : key === 'emailEnabled' ? 'Email marketing' : 'Wheel design';
     void run(
       () => AccountsService.setFeatureAccess(detail.account.id, { [key]: value }),
-      `${key === 'whatsappEnabled' ? 'WhatsApp' : 'Email marketing'} ${value ? 'enabled' : 'disabled'}.`,
+      `${label} ${value ? 'enabled' : 'disabled'}.`,
     );
   };
 
@@ -675,6 +680,23 @@ export default function AccountsPage() {
                 checked={detail.featureAccess?.emailEnabled ?? true}
                 disabled={busy}
                 onToggle={(value) => toggleFeature('emailEnabled', value)}
+              />
+            </div>
+          </DetailSection>
+
+          <DetailSection title="Wheel design access">
+            <p className="mb-4 text-sm text-ink-muted">
+              When off, no merchant of this account can edit wheel colours, motion, hub logo or step colours,
+              regardless of plan. Existing designs keep rendering.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FeatureSwitchRow
+                id="account-wheel-design"
+                label="Wheel design editing"
+                description="Colors, motion, hub logo and step colours"
+                checked={detail.featureAccess?.wheelDesignEnabled ?? true}
+                disabled={busy}
+                onToggle={(value) => toggleFeature('wheelDesignEnabled', value)}
               />
             </div>
           </DetailSection>
