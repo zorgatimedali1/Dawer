@@ -21,6 +21,7 @@ import {
   type EmailRecipient,
   type EmailStatus,
 } from '@/services/email.service';
+import { readCachedResource, setCachedResource } from '@/hooks/useCachedResource';
 
 const STATUS_TONE = {
   PENDING: 'info',
@@ -49,8 +50,9 @@ function renderVariables(
 
 export default function EmailPage() {
   const t = useT();
-  const [status, setStatus] = useState<EmailStatus | null>(null);
-  const [history, setHistory] = useState<EmailCampaign[]>([]);
+  // Seeded from the SWR cache so revisits paint instantly.
+  const [status, setStatus] = useState<EmailStatus | null>(() => readCachedResource<EmailStatus>('email:status'));
+  const [history, setHistory] = useState<EmailCampaign[]>(() => readCachedResource<EmailCampaign[]>('email:history') ?? []);
   const [senderName, setSenderName] = useState('');
   const [subject, setSubject] = useState('');
   const [content, setContent] = useState('');
@@ -61,7 +63,9 @@ export default function EmailPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([]);
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(
+    () => readCachedResource('email:status') === null || readCachedResource('email:history') === null,
+  );
   const [error, setError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
@@ -74,10 +78,31 @@ export default function EmailPage() {
     pending: boolean;
   } | null>(null);
 
-  const load = useCallback(async () => {
+  // `force` bypasses the fresh-skip: the 4s polling loop, the post-broadcast
+  // refresh and the manual refresh buttons must always re-read from the API.
+  const load = useCallback(async (options?: { force?: boolean }) => {
+    const force = options?.force ?? false;
     setError('');
+    const cachedStatus = readCachedResource<EmailStatus>('email:status');
+    const cachedHistory = readCachedResource<EmailCampaign[]>('email:history');
+    if (!force && cachedStatus && cachedHistory) {
+      setStatus(cachedStatus);
+      setHistory(cachedHistory);
+      setLoading(false);
+
+      // The customer picker is optional — never let it fail the page.
+      try {
+        setCustomers((await CustomerService.list({ limit: 100 })).customers);
+      } catch {
+        // Customers stay empty; the page still works without a picker.
+      }
+      return;
+    }
+
     try {
       const [nextStatus, campaigns] = await Promise.all([EmailService.status(), EmailService.list()]);
+      setCachedResource('email:status', nextStatus);
+      setCachedResource('email:history', campaigns);
       setStatus(nextStatus);
       setHistory(campaigns);
 
@@ -114,7 +139,7 @@ export default function EmailPage() {
     );
     if (!active) return undefined;
     const timer = window.setInterval(() => {
-      void load();
+      void load({ force: true });
     }, 4000);
     return () => window.clearInterval(timer);
   }, [history, load]);
@@ -242,7 +267,7 @@ export default function EmailPage() {
       setConfirmOpen(false);
       clearAsset();
       setSelectedCustomerIds([]);
-      void load();
+      void load({ force: true });
     } catch (caught) {
       setError(msg(t, caught instanceof Error ? caught.message : t.email.startError));
       setConfirmOpen(false);
@@ -281,7 +306,7 @@ export default function EmailPage() {
         <div className="rounded-xl border border-danger-300/60 bg-danger-50 p-5 text-sm text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200">
           {error}
         </div>
-        <Button variant="outline" onClick={() => void load()}>
+        <Button variant="outline" onClick={() => void load({ force: true })}>
           {t.common.retry}
         </Button>
       </div>
@@ -566,7 +591,7 @@ export default function EmailPage() {
         title={t.email.title}
         description={t.email.description}
         actions={
-          <Button variant="outline" size="sm" onClick={() => void load()}>
+          <Button variant="outline" size="sm" onClick={() => void load({ force: true })}>
             <RefreshCw className="h-3.5 w-3.5" aria-hidden />
             {t.email.refresh}
           </Button>

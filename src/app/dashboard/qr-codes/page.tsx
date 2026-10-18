@@ -27,6 +27,7 @@ import { interpolate, msg } from '@/lib/i18n';
 import { campaignStatsAllowedForPlan } from '@/lib/plan-catalog';
 import { useDashboardBilling } from '@/contexts/billing-context';
 import { useT } from '@/hooks/use-t';
+import { readCachedResource, setCachedResource } from '@/hooks/useCachedResource';
 
 function fileSlug(value: string): string {
   const slug = value
@@ -115,24 +116,42 @@ export default function QRCodesPage() {
   const { access } = useDashboardBilling();
   const showStats = campaignStatsAllowedForPlan(access?.plan.slug ?? null);
   const [search, setSearch] = useState('');
-  const [qrCodes, setQrCodes] = useState<QrCode[]>([]);
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Seeded from the SWR cache so revisits paint instantly.
+  const [qrCodes, setQrCodes] = useState<QrCode[]>(() => readCachedResource<QrCode[]>('qr:list') ?? []);
+  const [campaigns, setCampaigns] = useState<Campaign[]>(() => readCachedResource<Campaign[]>('qr:campaigns') ?? []);
+  const [loading, setLoading] = useState(() => readCachedResource('qr:list') === null);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
-  const [formCampaignId, setFormCampaignId] = useState('');
+  const [formCampaignId, setFormCampaignId] = useState(() => readCachedResource<Campaign[]>('qr:campaigns')?.[0]?.id ?? '');
   const [formName, setFormName] = useState('');
   const [formLocation, setFormLocation] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    Promise.all([QrCodeService.list(), CampaignService.getCampaigns({ limit: 100 })])
+    const cachedQr = readCachedResource<QrCode[]>('qr:list');
+    const cachedCampaigns = readCachedResource<Campaign[]>('qr:campaigns');
+    if (cachedQr) setQrCodes(cachedQr);
+    if (cachedCampaigns) {
+      setCampaigns(cachedCampaigns);
+      setFormCampaignId((current) => current || cachedCampaigns[0]?.id || '');
+    }
+    // Every piece is cached and fresh: skip the network entirely.
+    if (cachedQr && cachedCampaigns) return;
+
+    Promise.all([
+      cachedQr ? Promise.resolve(cachedQr) : QrCodeService.list(),
+      cachedCampaigns ? Promise.resolve(cachedCampaigns) : CampaignService.getCampaigns({ limit: 100 }),
+    ])
       .then(([qrList, campaignList]) => {
+        if (!cachedQr) setCachedResource('qr:list', qrList);
+        if (!cachedCampaigns) {
+          setCachedResource('qr:campaigns', campaignList);
+          setFormCampaignId(campaignList[0]?.id ?? '');
+        }
         setQrCodes(qrList);
         setCampaigns(campaignList);
-        setFormCampaignId(campaignList[0]?.id ?? '');
       })
       .catch((cause: unknown) =>
         setError(msg(t, cause instanceof Error ? cause.message : 'Unable to load QR codes.')),
@@ -160,7 +179,11 @@ export default function QRCodesPage() {
         name: formName,
         location: formLocation,
       });
-      setQrCodes((current) => [created, ...current]);
+      setQrCodes((current) => {
+        const next = [created, ...current];
+        setCachedResource('qr:list', next);
+        return next;
+      });
       setFormName('');
       setFormLocation('');
       setShowForm(false);
@@ -176,7 +199,11 @@ export default function QRCodesPage() {
 
     try {
       const updated = await QrCodeService.update(qrCode.id, { active: !qrCode.active });
-      setQrCodes((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setQrCodes((current) => {
+        const next = current.map((item) => (item.id === updated.id ? updated : item));
+        setCachedResource('qr:list', next);
+        return next;
+      });
     } catch (cause) {
       setError(msg(t, cause instanceof Error ? cause.message : 'Unable to update the QR code.'));
     }

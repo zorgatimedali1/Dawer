@@ -3,11 +3,13 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import OverviewPage from '@/app/dashboard/overview/page';
 import { DashboardBillingProvider } from '@/contexts/billing-context';
+import { invalidateCachedResource } from '@/hooks/useCachedResource';
 
 const AUTH_KEY = 'campaign-engage-auth';
 
 describe('overview plan features', () => {
   beforeEach(() => {
+    invalidateCachedResource();
     window.localStorage.clear();
     window.localStorage.setItem(AUTH_KEY, JSON.stringify({ token: 'cf_abc.def' }));
   });

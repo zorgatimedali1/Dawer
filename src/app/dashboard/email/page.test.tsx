@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EmailPage from '@/app/dashboard/email/page';
+import { invalidateCachedResource } from '@/hooks/useCachedResource';
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -168,6 +169,7 @@ async function attachFile(file: File) {
 
 describe('Email marketing page', () => {
   beforeEach(() => {
+    invalidateCachedResource();
     window.localStorage.setItem(
       'campaign-engage-auth',
       JSON.stringify({ token: 'email-test-token', user: { id: 'u1', email: 'owner@cafe-tej.test' } }),

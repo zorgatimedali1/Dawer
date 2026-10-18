@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import QRCodesPage from '@/app/dashboard/qr-codes/page';
+import { invalidateCachedResource } from '@/hooks/useCachedResource';
 import { DashboardBillingProvider } from '@/contexts/billing-context';
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -80,6 +81,7 @@ describe('QR codes page', () => {
 
   beforeEach(() => {
     downloaded = null;
+    invalidateCachedResource();
     window.localStorage.setItem('campaign-engage-auth', JSON.stringify({ token: 'qr-test-token' }));
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
       downloaded = { href: this.href, download: this.download };

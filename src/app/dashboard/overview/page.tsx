@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -29,6 +29,7 @@ import { Sparkline } from '@/components/charts';
 import { EntityTile } from '@/components/ui/avatar';
 import { interpolate, msg, type Dictionary } from '@/lib/i18n';
 import { useLocale, useT } from '@/hooks/use-t';
+import { useCachedResource } from '@/hooks/useCachedResource';
 
 interface OverviewData {
   summary: AnalyticsSummary | null;
@@ -65,29 +66,35 @@ function statusLabel(t: Dictionary, status: CampaignStatusKey): string {
   return labels[status] ?? status;
 }
 
+/** The data-heavy half of OverviewData — the plan bits come fresh from billing. */
+interface OverviewBundle {
+  campaigns: Campaign[];
+  rewards: RewardSummary[];
+  summary: AnalyticsSummary | null;
+  timeseries: TimeseriesPoint[] | null;
+  sectionErrors: string[];
+}
+
 export default function OverviewPage() {
   const t = useT();
   const locale = useLocale();
-  const [data, setData] = useState<OverviewData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // Per-section failures: one flaky endpoint no longer blanks the whole page.
-  const [sectionErrors, setSectionErrors] = useState<string[]>([]);
-  const [reloadKey, setReloadKey] = useState(0);
   // The shell already read /api/billing for its plan-gated navigation; reuse
   // it here instead of issuing the same request (and its D1 queries) twice.
   const { access: planAccess, loading: billingLoading } = useDashboardBilling();
+  const planResolved = !billingLoading && planAccess !== null;
+  const hasAnalytics = planResolved
+    ? (planAccess?.plan.features.features.some((feature) => /analytics/i.test(feature)) ?? false)
+    : false;
 
-  useEffect(() => {
-    if (billingLoading) return undefined;
-    if (!planAccess) {
-      setError(msg(t, 'Unable to load billing.'));
-      return undefined;
-    }
-
-    const access = planAccess;
-    const hasAnalytics = access.plan.features.features.some((feature) => /analytics/i.test(feature));
-
-    void (async () => {
+  const {
+    data: bundleData,
+    error,
+    reload: reloadBundle,
+  } = useCachedResource<OverviewBundle>(
+    planResolved ? (hasAnalytics ? 'overview:bundle-analytics' : 'overview:bundle-base') : null,
+    async () => {
+      // Campaigns + rewards are the backbone; analytics degrades to an empty
+      // state when its endpoints fail or the plan lacks the feature.
       const [campaignsResult, rewardsResult, overviewResult, timeseriesResult] = await Promise.allSettled([
         CampaignService.getCampaigns({ limit: 20 }),
         RewardService.list(),
@@ -95,15 +102,11 @@ export default function OverviewPage() {
         hasAnalytics ? AnalyticsService.timeSeries(30) : Promise.resolve(null),
       ]);
 
-      // Campaigns + rewards are the backbone of the page; without them there
-      // is nothing worth rendering. Analytics degrades to an empty state.
       if (campaignsResult.status === 'rejected') {
-        setError(msg(t, campaignsResult.reason instanceof Error ? campaignsResult.reason.message : 'Unable to load the overview.'));
-        return;
+        throw new Error(msg(t, campaignsResult.reason instanceof Error ? campaignsResult.reason.message : 'Unable to load the overview.'));
       }
       if (rewardsResult.status === 'rejected') {
-        setError(msg(t, rewardsResult.reason instanceof Error ? rewardsResult.reason.message : 'Unable to load the overview.'));
-        return;
+        throw new Error(msg(t, rewardsResult.reason instanceof Error ? rewardsResult.reason.message : 'Unable to load the overview.'));
       }
 
       const failed: string[] = [];
@@ -113,21 +116,35 @@ export default function OverviewPage() {
       if (timeseriesResult.status === 'rejected') {
         failed.push(msg(t, 'Unable to load the activity timeline.'));
       }
-      setSectionErrors(failed);
 
-      setData({
-        summary: overviewResult.status === 'fulfilled' ? (overviewResult.value?.summary ?? null) : null,
+      return {
         campaigns: campaignsResult.value,
         rewards: rewardsResult.value,
-        access,
-        hasAnalytics,
-        daysLeft: access.endsAt
-          ? Math.max(0, Math.ceil((new Date(access.endsAt).getTime() - Date.now()) / 86_400_000))
-          : null,
+        summary: overviewResult.status === 'fulfilled' ? (overviewResult.value?.summary ?? null) : null,
         timeseries: timeseriesResult.status === 'fulfilled' ? timeseriesResult.value : null,
-      });
-    })();
-  }, [t, billingLoading, planAccess, reloadKey]);
+        sectionErrors: failed,
+      };
+    },
+  );
+  const sectionErrors = bundleData?.sectionErrors ?? [];
+
+  // Plan state and the day counter are rebuilt on every mount so a cached
+  // bundle never shows yesterday's subscription situation.
+  const data = useMemo<OverviewData | null>(() => {
+    if (!planAccess || !bundleData) return null;
+    return {
+      summary: bundleData.summary,
+      campaigns: bundleData.campaigns,
+      rewards: bundleData.rewards,
+      access: planAccess,
+      hasAnalytics,
+      daysLeft: planAccess.endsAt
+        // eslint-disable-next-line react-hooks/purity -- mount-time snapshot of the remaining days is the intended behavior; billing context refreshes on re-entry anyway
+        ? Math.max(0, Math.ceil((new Date(planAccess.endsAt).getTime() - Date.now()) / 86_400_000))
+        : null,
+      timeseries: bundleData.timeseries,
+    };
+  }, [bundleData, planAccess, hasAnalytics]);
 
   if (error) {
     return (
@@ -140,8 +157,7 @@ export default function OverviewPage() {
           variant="outline"
           size="sm"
           onClick={() => {
-            setError(null);
-            setReloadKey((key) => key + 1);
+            reloadBundle();
           }}
         >
           {t.common.retry}
@@ -167,7 +183,7 @@ export default function OverviewPage() {
     );
   }
 
-  const { summary, campaigns, rewards, access, hasAnalytics, timeseries } = data;
+  const { summary, campaigns, rewards, access, timeseries } = data;
   const activeCampaigns = campaigns.filter((campaign) => campaign.status !== 'archived').slice(0, 5);
   const topRewards = [...rewards].sort((a, b) => b.issuedCount - a.issuedCount).slice(0, 5);
   const maxParticipants = Math.max(1, ...campaigns.map((campaign) => campaign.participantCount));
@@ -244,9 +260,7 @@ export default function OverviewPage() {
             variant="outline"
             size="xs"
             onClick={() => {
-              setSectionErrors([]);
-              setData(null);
-              setReloadKey((key) => key + 1);
+              reloadBundle();
             }}
           >
             {t.common.retry}

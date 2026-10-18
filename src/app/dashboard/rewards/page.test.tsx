@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RewardsPage from '@/app/dashboard/rewards/page';
+import { invalidateCachedResource } from '@/hooks/useCachedResource';
 
 const AUTH_KEY = 'campaign-engage-auth';
 
@@ -51,6 +52,7 @@ function campaignRow(overrides: Record<string, unknown> = {}) {
 
 describe('rewards page', () => {
   beforeEach(() => {
+    invalidateCachedResource();
     window.localStorage.clear();
     window.localStorage.setItem(
       AUTH_KEY,

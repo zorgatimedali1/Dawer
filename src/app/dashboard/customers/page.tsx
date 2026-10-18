@@ -33,6 +33,7 @@ import {
 import { CustomerService, type Customer, type CustomerDetail } from '@/services/customer.service';
 import { CouponService } from '@/services/coupon.service';
 import { useT } from '@/hooks/use-t';
+import { readCachedResource, setCachedResource } from '@/hooks/useCachedResource';
 
 const DESKTOP_QUERY = '(min-width: 1024px)';
 const COLUMN_COUNT = 7;
@@ -60,11 +61,15 @@ function displayDate(value: string | null): string {
   return value ? new Date(value).toLocaleDateString() : '—';
 }
 
+const listKeyOf = (search: string): string => `customers:list:${search}`;
+const detailKeyOf = (id: string): string => `customers:detail:${id}`;
+
 export default function CustomersPage() {
   const t = useT();
   const [search, setSearch] = useState('');
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Seeded from the SWR cache at mount so revisits paint the table instantly.
+  const [customers, setCustomers] = useState<Customer[]>(() => readCachedResource<Customer[]>(listKeyOf('')) ?? []);
+  const [loading, setLoading] = useState(() => readCachedResource(listKeyOf('')) === null);
   const [error, setError] = useState<string | null>(null);
   const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
   const [customerDetail, setCustomerDetail] = useState<CustomerDetail | null>(null);
@@ -81,12 +86,22 @@ export default function CustomersPage() {
   useEffect(() => {
     let cancelled = false;
     const timer = setTimeout(() => {
+      const key = listKeyOf(search);
+      const cached = readCachedResource<Customer[]>(key);
+      if (cached) {
+        setCustomers(cached);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+
       setLoading(true);
       setError(null);
 
       CustomerService.list({ search: search || undefined, limit: 50 })
         .then((result) => {
           if (cancelled) return;
+          setCachedResource(key, result.customers);
           setCustomers(result.customers);
         })
         .catch((cause: unknown) => {
@@ -102,7 +117,16 @@ export default function CustomersPage() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [search]);
+  }, [search, t]);
+
+  const applyDetail = (detail: CustomerDetail) => {
+    setCustomerDetail(detail);
+    setCouponStatus(Object.fromEntries(detail.coupons.map((coupon) => [
+      coupon.id,
+      coupon.status === 'REDEEMED' ? 'REDEEMED' : 'ISSUED',
+    ])));
+    setCouponDeadline(Object.fromEntries(detail.coupons.map((coupon) => [coupon.id, coupon.expires_at?.slice(0, 10) ?? ''])));
+  };
 
   const toggleCustomer = async (customerId: string) => {
     if (expandedCustomerId === customerId) {
@@ -113,17 +137,20 @@ export default function CustomersPage() {
 
     setExpandedCustomerId(customerId);
     setCustomerDetail(null);
-    setDetailLoading(true);
     setDetailError(null);
 
     try {
+      const key = detailKeyOf(customerId);
+      const cached = readCachedResource<CustomerDetail>(key);
+      // Fresh cache hit: paint without the skeleton at all.
+      if (cached) {
+        applyDetail(cached);
+        return;
+      }
+      setDetailLoading(true);
       const detail = await CustomerService.get(customerId);
-      setCustomerDetail(detail);
-      setCouponStatus(Object.fromEntries(detail.coupons.map((coupon) => [
-        coupon.id,
-        coupon.status === 'REDEEMED' ? 'REDEEMED' : 'ISSUED',
-      ])));
-      setCouponDeadline(Object.fromEntries(detail.coupons.map((coupon) => [coupon.id, coupon.expires_at?.slice(0, 10) ?? ''])));
+      setCachedResource(key, detail);
+      applyDetail(detail);
     } catch (cause: unknown) {
       setDetailError(cause instanceof Error ? cause.message : t.customers.loadingPrizes);
     } finally {
@@ -155,14 +182,13 @@ export default function CustomersPage() {
           : {}),
       });
       const refreshed = await CustomerService.get(customerDetail.customer.id);
-      setCustomerDetail(refreshed);
-      setCouponStatus(Object.fromEntries(refreshed.coupons.map((entry) => [
-        entry.id,
-        entry.status === 'REDEEMED' ? 'REDEEMED' : 'ISSUED',
-      ])));
-      setCouponDeadline(Object.fromEntries(refreshed.coupons.map((entry) => [entry.id, entry.expires_at?.slice(0, 10) ?? ''])));
+      setCachedResource(detailKeyOf(customerDetail.customer.id), refreshed);
+      applyDetail(refreshed);
       CustomerService.list({ search: search || undefined, limit: 50 })
-        .then((result) => setCustomers(result.customers))
+        .then((result) => {
+          setCustomers(result.customers);
+          setCachedResource(listKeyOf(search), result.customers);
+        })
         .catch(() => undefined);
     } catch (cause: unknown) {
       setDetailError(cause instanceof Error ? cause.message : t.customers.prizeHistory);
@@ -185,13 +211,13 @@ export default function CustomersPage() {
     try {
       await CouponService.update(couponId, { status });
       const refreshed = await CustomerService.get(customerDetail.customer.id);
-      setCustomerDetail(refreshed);
-      setCouponStatus(Object.fromEntries(refreshed.coupons.map((entry) => [
-        entry.id,
-        entry.status === 'REDEEMED' ? 'REDEEMED' : 'ISSUED',
-      ])));
+      setCachedResource(detailKeyOf(customerDetail.customer.id), refreshed);
+      applyDetail(refreshed);
       CustomerService.list({ search: search || undefined, limit: 50 })
-        .then((result) => setCustomers(result.customers))
+        .then((result) => {
+          setCustomers(result.customers);
+          setCachedResource(listKeyOf(search), result.customers);
+        })
         .catch(() => undefined);
     } catch (cause: unknown) {
       setCouponStatus((current) => ({ ...current, [couponId]: previousStatus }));
@@ -210,15 +236,14 @@ export default function CustomersPage() {
     try {
       await CouponService.delete(couponId);
       const refreshed = await CustomerService.get(customerDetail.customer.id);
-      setCustomerDetail(refreshed);
-      setCouponStatus(Object.fromEntries(refreshed.coupons.map((entry) => [
-        entry.id,
-        entry.status === 'REDEEMED' ? 'REDEEMED' : 'ISSUED',
-      ])));
-      setCouponDeadline(Object.fromEntries(refreshed.coupons.map((entry) => [entry.id, entry.expires_at?.slice(0, 10) ?? ''])));
+      setCachedResource(detailKeyOf(customerDetail.customer.id), refreshed);
+      applyDetail(refreshed);
       setConfirmDeleteCouponId(null);
       CustomerService.list({ search: search || undefined, limit: 50 })
-        .then((result) => setCustomers(result.customers))
+        .then((result) => {
+          setCustomers(result.customers);
+          setCachedResource(listKeyOf(search), result.customers);
+        })
         .catch(() => undefined);
     } catch (cause: unknown) {
       setDetailError(cause instanceof Error ? cause.message : t.customers.deletePrizeError);

@@ -30,6 +30,7 @@ import { useAppContext } from '@/contexts/app-context';
 import { DashboardBillingProvider, useDashboardBilling } from '@/contexts/billing-context';
 import { useT } from '@/hooks/use-t';
 import { goToPublicDemo } from '@/lib/public-demo';
+import { prefetchCommonRoutes, prefetchRoute } from '@/lib/route-prefetch';
 
 type NavItem = { name: string; href: string; icon: typeof LayoutDashboard };
 type NavGroup = { label: string; items: NavItem[] };
@@ -99,6 +100,12 @@ function DashboardChrome() {
   useEffect(() => {
     setSidebarOpen(false);
   }, [pathname]);
+
+  // The nav chunks download on first click; hover/focus gives a head start
+  // and idle warm-up covers tabs the merchant never hovers.
+  useEffect(() => {
+    prefetchCommonRoutes();
+  }, []);
 
   useEffect(() => {
     if (!sidebarOpen) return undefined;
@@ -244,6 +251,8 @@ function DashboardChrome() {
                       <Link
                         to={item.href}
                         aria-current={active ? 'page' : undefined}
+                        onMouseEnter={() => prefetchRoute(item.href)}
+                        onFocus={() => prefetchRoute(item.href)}
                         className={cn(
                           'group relative flex items-center gap-3 rounded-lg py-2 pl-3 pr-2.5 text-[13.5px] font-medium',
                           'transition-[background-color,color] duration-180 ease-swift',

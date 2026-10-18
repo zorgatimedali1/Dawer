@@ -14,8 +14,18 @@ import { BadgeCheck, Percent, Ticket } from 'lucide-react';
 import { CouponService, type Coupon, type CouponStatus } from '@/services/coupon.service';
 import { msg } from '@/lib/i18n';
 import { useT } from '@/hooks/use-t';
+import { invalidateCachedResource, readCachedResource, setCachedResource } from '@/hooks/useCachedResource';
 
 type StatusFilter = 'ALL' | 'ISSUED' | 'REDEEMED' | 'EXPIRED';
+
+const STATS_KEY = 'coupons:stats';
+
+interface CouponsStats {
+  total: number;
+  redeemed: number;
+}
+
+const listKeyOf = (status: string, search: string): string => `coupons:list:${status}:${search}`;
 
 const STATUS_TONES: Record<string, BadgeTone> = {
   issued: 'info',
@@ -41,22 +51,34 @@ export default function CouponsPage() {
 
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('ALL');
-  const [coupons, setCoupons] = useState<Coupon[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Seeded from the SWR cache so revisits paint instantly; fresh-skip within
+  // the 60s TTL keeps filter changes off the network when data is still fresh.
+  const [coupons, setCoupons] = useState<Coupon[]>(() => readCachedResource<Coupon[]>(listKeyOf('ALL', '')) ?? []);
+  const [loading, setLoading] = useState(() => readCachedResource(listKeyOf('ALL', '')) === null);
   const [error, setError] = useState<string | null>(null);
   const [redeemingId, setRedeemingId] = useState<string | null>(null);
   // Global counts (not the filtered page): two limit-1 queries read the exact
   // totals off the paginated endpoint without pulling any rows.
-  const [stats, setStats] = useState<{ total: number; redeemed: number } | null>(null);
+  const [stats, setStats] = useState<CouponsStats | null>(() => readCachedResource<CouponsStats>(STATS_KEY));
 
   useEffect(() => {
     let cancelled = false;
+    const cached = readCachedResource<CouponsStats>(STATS_KEY);
+    if (cached) {
+      setStats(cached);
+      return () => {
+        cancelled = true;
+      };
+    }
     void Promise.all([
       CouponService.list({ status: 'ALL', limit: 1 }),
       CouponService.list({ status: 'REDEEMED', limit: 1 }),
     ])
       .then(([all, redeemed]) => {
-        if (!cancelled) setStats({ total: all.total, redeemed: redeemed.total });
+        if (cancelled) return;
+        const next = { total: all.total, redeemed: redeemed.total };
+        setCachedResource(STATS_KEY, next);
+        setStats(next);
       })
       .catch(() => {
         // Stats are decoration: the list below still works without them.
@@ -67,16 +89,46 @@ export default function CouponsPage() {
     };
   }, []);
 
-  const load = () => {
+  const load = (force = false) => {
+    const key = listKeyOf(status, search);
+    if (!force) {
+      const cached = readCachedResource<Coupon[]>(key);
+      if (cached) {
+        setCoupons(cached);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+    }
+
     setLoading(true);
     setError(null);
 
     CouponService.list({ status, search: search || undefined, limit: 50 })
-      .then((result) => setCoupons(result.coupons))
+      .then((result) => {
+        setCachedResource(key, result.coupons);
+        setCoupons(result.coupons);
+      })
       .catch((cause: unknown) =>
         setError(msg(t, cause instanceof Error ? cause.message : 'Unable to load coupons.')),
       )
       .finally(() => setLoading(false));
+  };
+
+  // The fresh-skip above must not swallow the results of a mutation: a force
+  // reload re-runs the network request and rewrites the cache entry.
+  const refreshStats = () => {
+    invalidateCachedResource(STATS_KEY);
+    void Promise.all([
+      CouponService.list({ status: 'ALL', limit: 1 }),
+      CouponService.list({ status: 'REDEEMED', limit: 1 }),
+    ])
+      .then(([all, redeemed]) => {
+        const next = { total: all.total, redeemed: redeemed.total };
+        setCachedResource(STATS_KEY, next);
+        setStats(next);
+      })
+      .catch(() => undefined);
   };
 
   useEffect(() => {
@@ -91,7 +143,8 @@ export default function CouponsPage() {
 
     try {
       await CouponService.redeem(couponId);
-      load();
+      load(true);
+      refreshStats();
     } catch (cause) {
       setError(msg(t, cause instanceof Error ? cause.message : 'Unable to redeem the coupon.'));
     } finally {

@@ -28,6 +28,7 @@ import { CampaignService, type Campaign } from '@/services/campaign.service';
 import { effectiveRewardOdds } from '@/lib/wheel-odds';
 import { interpolate, msg } from '@/lib/i18n';
 import { useT } from '@/hooks/use-t';
+import { readCachedResource, setCachedResource } from '@/hooks/useCachedResource';
 
 const TYPE_ICONS: Record<string, LucideIcon> = {
   percentage_discount: BadgePercent,
@@ -43,14 +44,17 @@ function valueSuffix(type: string, fixedSuffix: string): string {
   return type === 'percentage_discount' ? '%' : type === 'fixed_discount' ? fixedSuffix : '';
 }
 
+const rewardsKeyOf = (campaignFilter: string): string => `rewards:${campaignFilter}`;
+
 export default function RewardsPage() {
   const t = useT();
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [campaignFilter, setCampaignFilter] = useState('all');
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [rewards, setRewards] = useState<RewardSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [campaigns, setCampaigns] = useState<Campaign[]>(() => readCachedResource<Campaign[]>('rewards:campaigns') ?? []);
+  // Seeded from the SWR cache so revisits paint instantly.
+  const [rewards, setRewards] = useState<RewardSummary[]>(() => readCachedResource<RewardSummary[]>(rewardsKeyOf('all')) ?? []);
+  const [loading, setLoading] = useState(() => readCachedResource(rewardsKeyOf('all')) === null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -63,18 +67,40 @@ export default function RewardsPage() {
   };
 
   useEffect(() => {
+    const cached = readCachedResource<Campaign[]>('rewards:campaigns');
+    if (cached) {
+      setCampaigns(cached);
+      return;
+    }
     CampaignService.getCampaigns({ limit: 100 })
-      .then(setCampaigns)
+      .then((result) => {
+        setCachedResource('rewards:campaigns', result);
+        setCampaigns(result);
+      })
       .catch((cause: unknown) =>
         setError(msg(t, cause instanceof Error ? cause.message : t.rewards.loadError)),
       );
   }, [t]);
 
+  const rewardsKey = rewardsKeyOf(campaignFilter);
+
   useEffect(() => {
+    const key = rewardsKeyOf(campaignFilter);
+    const cached = readCachedResource<RewardSummary[]>(key);
+    if (cached) {
+      setRewards(cached);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     RewardService.list(campaignFilter === 'all' ? {} : { campaignId: campaignFilter })
-      .then(setRewards)
+      .then((result) => {
+        setCachedResource(key, result);
+        setRewards(result);
+      })
       .catch((cause: unknown) =>
         setError(msg(t, cause instanceof Error ? cause.message : t.rewards.loadError)),
       )
@@ -139,7 +165,11 @@ export default function RewardsPage() {
 
     try {
       const updated = await RewardService.update(reward.id, changes);
-      setRewards((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setRewards((current) => {
+        const next = current.map((item) => (item.id === updated.id ? updated : item));
+        setCachedResource(rewardsKey, next);
+        return next;
+      });
     } catch (cause) {
       setError(msg(t, cause instanceof Error ? cause.message : t.rewards.updateError));
     } finally {
@@ -154,7 +184,11 @@ export default function RewardsPage() {
     setError(null);
     try {
       await RewardService.delete(reward.id);
-      setRewards((current) => current.filter((item) => item.id !== reward.id));
+      setRewards((current) => {
+        const next = current.filter((item) => item.id !== reward.id);
+        setCachedResource(rewardsKey, next);
+        return next;
+      });
     } catch (cause) {
       setError(msg(t, cause instanceof Error ? cause.message : t.rewards.deleteError));
     } finally {

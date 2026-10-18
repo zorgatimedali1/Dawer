@@ -2,8 +2,10 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import CampaignsPage from '@/app/dashboard/campaigns/page';
 import { DashboardBillingProvider } from '@/contexts/billing-context';
+import { invalidateCachedResource } from '@/hooks/useCachedResource';
 
 const AUTH_KEY = 'campaign-engage-auth';
 
@@ -152,6 +154,7 @@ function renderPage() {
 
 describe('campaign management page', () => {
   beforeEach(() => {
+    invalidateCachedResource();
     window.localStorage.clear();
     window.localStorage.setItem(
       AUTH_KEY,

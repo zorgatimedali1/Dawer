@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CustomersPage from '@/app/dashboard/customers/page';
+import { invalidateCachedResource } from '@/hooks/useCachedResource';
 
 const customer = {
   id: 'customer-1',
@@ -40,6 +41,7 @@ function jsonResponse(payload: unknown) {
 
 describe('Customers page prize management', () => {
   beforeEach(() => {
+    invalidateCachedResource();
     window.localStorage.setItem('campaign-engage-auth', JSON.stringify({ token: 'test-token' }));
   });
 
