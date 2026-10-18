@@ -119,8 +119,8 @@ export function formatPlanPrice(priceCents: number): string {
 }
 
 const planIntervals: Record<Locale, Record<string, string>> = {
-  fr: { year: '1 an', '2_years': '2 ans', '3_years': '3 ans', '3_months': '3 mois' },
-  en: { year: '1 year', '2_years': '2 years', '3_years': '3 years', '3_months': '3 months' },
+  fr: { year: '1 an', '2_years': '2 ans', '3_years': '3 ans', '3_months': '3 mois', '6_months': '6 mois' },
+  en: { year: '1 year', '2_years': '2 years', '3_years': '3 years', '3_months': '3 months', '6_months': '6 months' },
 };
 
 export function formatPlanInterval(interval: string, locale: Locale = 'fr'): string {

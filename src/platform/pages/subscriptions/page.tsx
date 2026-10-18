@@ -25,9 +25,10 @@ import {
 } from '@/platform/services/subscriptions.service';
 
 // Product currency is TND (DT) everywhere else in the console; the legal
-// intervals are 3_months/year/2_years/3_years — never "month".
+// intervals are 3_months/6_months/year/2_years/3_years — never "month".
 const INTERVAL_LABELS: Record<string, string> = {
   '3_months': '3 months',
+  '6_months': '6 months',
   year: '1 year',
   '2_years': '2 years',
   '3_years': '3 years',

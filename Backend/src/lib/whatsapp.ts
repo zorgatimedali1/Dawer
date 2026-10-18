@@ -21,6 +21,7 @@ const PERIOD_LABELS: Record<string, string> = {
   '2_years': '2 ans',
   '3_years': '3 ans',
   '3_months': '3 mois',
+  '6_months': '6 mois',
 };
 
 export function buildSubscriptionWhatsAppUrl(details: SubscriptionWhatsAppDetails): string {

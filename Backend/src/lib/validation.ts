@@ -360,7 +360,7 @@ export const subscribeRequestSchema = z.object({
 
 export type SubscribeRequest = z.infer<typeof subscribeRequestSchema>;
 
-export const PLAN_INTERVALS = ['3_months', 'year', '2_years', '3_years'] as const;
+export const PLAN_INTERVALS = ['3_months', '6_months', 'year', '2_years', '3_years'] as const;
 
 /** The numerical criteria an operator can tune per plan. */
 const planLimitsSchema = z.object({
