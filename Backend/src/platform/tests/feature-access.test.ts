@@ -169,7 +169,7 @@ describe('platform-wide feature switches', () => {
     expect(payload.features).toMatchObject({
       whatsappEnabled: false,
       emailEnabled: false,
-      // No platform_settings row means the switch is on, so Business+ keeps
+      // No platform_settings row means the switch is on, so Pro+ keeps
       // the design access its plan already paid for.
       wheelDesignEnabled: true,
     });

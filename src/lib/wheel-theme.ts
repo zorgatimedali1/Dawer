@@ -44,8 +44,8 @@ export const DEFAULT_WHEEL_THEME: WheelTheme = {
   stepsColor: '#7DAB4B',
 };
 
-/** Custom wheel design (colors/motion) is a Business-tier feature. */
-export const WHEEL_DESIGN_PLAN_SLUGS = ['scale', 'premium'] as const;
+/** Custom wheel design (colors/motion) ships from the Pro tier up. */
+export const WHEEL_DESIGN_PLAN_SLUGS = ['growth', 'scale', 'premium'] as const;
 
 /** The merchant logo at the wheel hub ships from the Pro tier up. */
 export const WHEEL_CENTER_LOGO_PLAN_SLUGS = ['growth', 'scale', 'premium'] as const;

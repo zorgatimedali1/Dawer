@@ -352,7 +352,7 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     campaign.play_rules = effectiveRules ? JSON.stringify(effectiveRules) : null;
 
     // Same operator-wins shape for the wheel design: without the plan flag
-    // (Starter, Pro, or a locked plan) colors and motion stay default, while
+    // (Starter, or a locked plan) colors and motion stay default, while
     // the hub logo resolves separately so Pro can show it on the default wheel.
     const access = campaignAccess;
     const designAllowed = wheelDesignAllowed(access?.plan.slug, access?.plan.features.limits);

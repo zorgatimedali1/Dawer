@@ -36,7 +36,7 @@ export async function getPlatformFeatures(env: Env): Promise<FeatureFlags> {
     emailEnabled: settings.has(PLATFORM_KEYS.email) ? toBool(settings.get(PLATFORM_KEYS.email)) : false,
     // Wheel design has had a plan gate since before this switch existed, so a
     // missing row (fresh DB / failed migration) keeps that gate intact rather
-    // than killing a feature Business+ merchants already pay for.
+    // than killing a feature Pro+ merchants already pay for.
     wheelDesignEnabled: settings.has(PLATFORM_KEYS.wheel)
       ? toBool(settings.get(PLATFORM_KEYS.wheel))
       : true,

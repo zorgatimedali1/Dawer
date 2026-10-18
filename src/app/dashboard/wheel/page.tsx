@@ -573,7 +573,7 @@ export default function WheelConfigPage() {
     window.setTimeout(() => setSpinning(false), wheelMotionDurationMs(effectiveTheme) + 100);
   };
 
-  // Editable per plan flag: colors/motion need the design flag (Business+)
+  // Editable per plan flag: colors/motion need the design flag (Pro+)
   // and are pinned read-only while an operator override is in place; the hub
   // logo is the merchant's own brand asset, so it stays editable under an
   // override whenever the plan includes it (Pro+).
@@ -936,8 +936,8 @@ export default function WheelConfigPage() {
           </Card>
 
           {/* ── Design ─────────────────────────────────────────────────── */}
-          {/* Colors/motion need Business+. Pro keeps only the hub logo,
-              edited in Informations générales above; Starter sees neither. */}
+          {/* Colors/motion need Pro+. The hub logo is edited in Informations
+              générales above; Starter sees neither. */}
           {designAllowed || (!isLoadingTheme && !themeState) ? (
             <Card data-testid="wheel-design-section">
               <CardHeader className="flex-row flex-wrap items-start justify-between gap-3 space-y-0">

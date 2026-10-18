@@ -117,9 +117,9 @@ describe('GET /api/admin/plans', () => {
     expect(growth?.features.limits.whatsappMonthly).toBe(200);
     expect(growth?.features.limits.whatsappBatch).toBe(100);
     expect(growth?.features.limits.emailMonthly).toBe(1000);
-    // Wheel criteria resolve from their own legacy maps too: design is
-    // Business+, the hub logo Pro+.
-    expect(growth?.features.limits.wheelDesign).toBe(0);
+    // Wheel criteria resolve from their own legacy maps too: design, the hub
+    // logo and the step colour are all Pro+.
+    expect(growth?.features.limits.wheelDesign).toBe(1);
     expect(growth?.features.limits.wheelCenterLogo).toBe(1);
     expect(growth?.features.limits.wheelStepsColor).toBe(1);
     expect(plans.find((plan) => plan.slug === 'scale')?.features.limits.wheelDesign).toBe(1);

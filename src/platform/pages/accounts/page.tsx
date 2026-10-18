@@ -496,7 +496,7 @@ export default function AccountsPage() {
             <p className="mb-4 text-sm text-ink-muted">
               Hard override for the wheel of every business on this account. When applied it beats the
               merchant&apos;s own design; clearing it hands control back. Merchants edit their own design
-              when their plan carries the wheel criteria (design = Business and above, hub logo = Pro and
+              when their plan carries the wheel criteria (design and hub logo = Pro and
               above), tuned from Plans. Accounts without the design flag always render the default design
               regardless of what is set here.
             </p>

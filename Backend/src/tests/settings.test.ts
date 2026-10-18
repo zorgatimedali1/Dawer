@@ -655,13 +655,13 @@ describe('wheel design', () => {
     expect(restored.status).toBe(200);
   });
 
-  it('locks colors on Pro while the hub logo stays available', async () => {
+  it('lets Pro merchants save the full design and the hub logo', async () => {
     await upgradeToPro();
 
     const payload = await body(
       await handleSettingsRoute(jsonRequest('/api/settings/wheel-theme', 'GET', undefined, alice.token), env),
     );
-    expect(payload.designAllowed).toBe(false);
+    expect(payload.designAllowed).toBe(true);
     expect(payload.centerLogoAllowed).toBe(true);
     expect(payload.stepsColorAllowed).toBe(true);
     expect(payload.planSlug).toBe('growth');
@@ -671,19 +671,18 @@ describe('wheel design', () => {
       env,
     );
     expect(saved.status).toBe(200);
-    // Colors and motion are a Business-tier edit: they stay untouched.
     expect((await body(saved)).theme).toMatchObject({
-      colors: { rim: '#ffffff', pointer: '#0f172a' },
-      motion: { preset: 'standard' },
+      colors: { rim: '#111111', pointer: '#222222' },
+      motion: { preset: 'fast' },
       centerLogo: true,
     });
 
     const refreshed = await body(
       await handleSettingsRoute(jsonRequest('/api/settings/wheel-theme', 'GET', undefined, alice.token), env),
     );
-    expect(refreshed.designAllowed).toBe(false);
-    expect(refreshed.theme).toMatchObject({ motion: { preset: 'standard' }, centerLogo: true });
-    expect(refreshed.effective).toMatchObject({ motion: { preset: 'standard' }, centerLogo: true });
+    expect(refreshed.designAllowed).toBe(true);
+    expect(refreshed.theme).toMatchObject({ motion: { preset: 'fast' }, centerLogo: true });
+    expect(refreshed.effective).toMatchObject({ motion: { preset: 'fast' }, centerLogo: true });
 
     const logo = await handleSettingsRoute(
       jsonRequest('/api/settings/wheel-logo', 'POST', { mimeType: 'image/png', dataBase64: PNG_BASE64 }, alice.token),
@@ -692,7 +691,7 @@ describe('wheel design', () => {
     expect(logo.status).toBe(200);
   });
 
-  it('lets Pro merchants set the gate step colour while colors stay locked', async () => {
+  it('lets Pro merchants set the gate step colour with the full design', async () => {
     await upgradeToPro();
 
     const saved = await handleSettingsRoute(
@@ -701,7 +700,7 @@ describe('wheel design', () => {
     );
     expect(saved.status).toBe(200);
     expect((await body(saved)).theme).toMatchObject({
-      colors: { rim: '#ffffff', pointer: '#0f172a' },
+      colors: { rim: '#111111', pointer: '#222222' },
       stepsColor: '#112233',
     });
 

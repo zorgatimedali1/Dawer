@@ -59,8 +59,9 @@ export function readPlanLimit(
   return planOverride(limits, key) ?? legacy[slug] ?? 0;
 }
 
-/** Wheel design (colors/motion) by plan slug; absent slug = off. Business+. */
+/** Wheel design (colors/motion) by plan slug; absent slug = off. Pro+. */
 export const WHEEL_DESIGN_PLAN_LIMITS: Record<string, number> = {
+  growth: 1,
   scale: 1,
   premium: 1,
 };

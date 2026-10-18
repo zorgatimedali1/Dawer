@@ -672,7 +672,7 @@ describe('POST /api/admin/accounts/:id/wheel-theme', () => {
     });
     expect(withDesign.businesses[0].planSlug).toBe('scale');
 
-    // Pro keeps its saved theme but loses the design flag (hub logo only).
+    // Pro keeps its saved theme and the design flag (Pro+ carries the gate).
     db.prepare(
       `UPDATE subscriptions SET plan_id = 'plan_growth', updated_at = ? WHERE business_id = ?`,
     )
@@ -686,7 +686,7 @@ describe('POST /api/admin/accounts/:id/wheel-theme', () => {
     );
     expect(pro).toMatchObject({
       planSlug: 'growth',
-      designAllowed: false,
+      designAllowed: true,
       wheelTheme: { motion: { preset: 'fast' } },
     });
 

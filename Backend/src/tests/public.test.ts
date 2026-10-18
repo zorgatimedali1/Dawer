@@ -347,7 +347,7 @@ describe('wheel theme in the public payload', () => {
     expect(campaign.wheel_logo).toBe(`/api/public/businesses/${businessId}/wheel-logo`);
   });
 
-  it('keeps the default colors on Pro while still showing the hub logo', async () => {
+  it('applies the merchant theme on Pro and ships the center logo URL', async () => {
     await upgradeTo('plan_growth');
     db.prepare('UPDATE businesses SET wheel_theme = ? WHERE id = ?')
       .bind(merchantTheme, businessId)
@@ -356,7 +356,8 @@ describe('wheel theme in the public payload', () => {
     const campaign = await loadCampaign();
 
     expect(campaign.wheel_theme).toMatchObject({
-      motion: { preset: 'standard' },
+      colors: { rim: '#111111', pointer: '#222222' },
+      motion: { preset: 'fast' },
       centerLogo: true,
       stepsColor: '#112233',
     });

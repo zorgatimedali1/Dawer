@@ -715,8 +715,8 @@ async function handleWheelThemeGet(request: Request, env: Env, user: Authenticat
 }
 
 /**
- * Plan flags first: colors/motion are a Business-tier edit, the hub logo
- * ships from the Pro tier up. There is no per-account grant anymore.
+ * Plan flags first: colors/motion, the hub logo and the step colour all ship
+ * from the Pro tier up. There is no per-account grant anymore.
  */
 async function handleWheelThemePut(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
   const input = wheelThemeSchema.parse(await request.json());
@@ -736,7 +736,7 @@ async function handleWheelThemePut(request: Request, env: Env, user: Authenticat
   if (!designAllowed && !centerLogoAllowed && !stepsColorAllowed) {
     return errorResponse(
       features.wheelDesignEnabled
-        ? 'Custom wheel design requires the Business plan and the center logo requires the Pro plan. Upgrade from Billing.'
+        ? 'Custom wheel design requires the Pro plan or above. Upgrade from Billing.'
         : 'Wheel design is currently disabled by the platform administrator.',
       403,
     );
