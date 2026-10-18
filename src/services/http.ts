@@ -11,17 +11,33 @@ export async function apiRequest<T>(
   body?: unknown,
   fallbackError = 'Unable to reach the server.',
 ): Promise<T> {
-  const response = await fetch(path, {
-    method,
-    credentials: 'same-origin',
-    headers: {
-      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
+  let response: Response;
+  let text: string;
+  try {
+    response = await fetch(path, {
+      method,
+      credentials: 'same-origin',
+      headers: {
+        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    text = await response.text();
+  } catch {
+    // Network-level failure (offline, DNS, connection reset): surface the
+    // translated fallback instead of a raw "Failed to fetch" TypeError.
+    throw new Error(fallbackError);
+  }
 
-  const text = await response.text();
-  const result = (text ? JSON.parse(text) : {}) as T & { message?: string; error?: string };
+  let result: T & { message?: string; error?: string };
+  try {
+    result = (text ? JSON.parse(text) : {}) as T & { message?: string; error?: string };
+  } catch {
+    // An intermediate proxy returned an HTML error page (502/522/…): the
+    // envelope is unparseable, so report the status, not a JSON SyntaxError.
+    console.error(`apiRequest: non-JSON ${response.status} body from ${method} ${path}`);
+    throw new Error(response.ok ? fallbackError : 'The server returned an error.');
+  }
 
   if (!response.ok) {
     if (response.status === 401) {

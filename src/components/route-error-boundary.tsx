@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/hooks/use-t';
+import { isChunkLoadError } from '@/lib/lazy-recovery';
 import { reportError } from '@/lib/monitoring';
 
 export type ErrorFallbackProps = { error: Error; reset: () => void };
@@ -9,14 +10,17 @@ export type ErrorFallbackProps = { error: Error; reset: () => void };
 type Props = { children: ReactNode; fallback?: (props: ErrorFallbackProps) => ReactNode };
 type State = { error: Error | null };
 
-function DefaultErrorFallback({ reset }: ErrorFallbackProps) {
+function DefaultErrorFallback({ error, reset }: ErrorFallbackProps) {
   const t = useT();
+  // React caches a rejected lazy() promise, so a soft reset can never recover
+  // a failed chunk import — only a full reload fetches the current build.
+  const retry = isChunkLoadError(error) ? () => window.location.reload() : reset;
   return (
     <div role="alert" className="flex min-h-[50vh] flex-col items-center justify-center px-5 text-center">
       <h1 className="text-lg font-semibold text-ink">{t.boundary.title}</h1>
       <p className="mt-2 max-w-md text-sm text-ink-muted">{t.boundary.description}</p>
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-        <Button onClick={reset}>{t.boundary.retry}</Button>
+        <Button onClick={retry}>{t.boundary.retry}</Button>
         <Button asChild variant="outline">
           <Link to="/">{t.boundary.home}</Link>
         </Button>

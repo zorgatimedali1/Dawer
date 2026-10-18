@@ -116,6 +116,9 @@ export const auth: D<typeof frDict.auth> = {
 };
 
 export const errors: D<typeof frDict.errors> = {
+  'Authentication required.': 'Authentication required.',
+  'Too many requests.': 'Too many requests.',
+  'The server returned an error.': 'The server returned an error.',
   'Your session has expired. Sign in again.': 'Your session has expired. Sign in again.',
   'Unable to complete sign in.': 'Unable to complete sign in.',
   'Unable to load campaigns.': 'Unable to load campaigns.',

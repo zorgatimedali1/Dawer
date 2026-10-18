@@ -113,6 +113,9 @@ export const auth = {
 
 /** Exact-message lookup for service/API errors; unknown messages pass through. */
 export const errors = {
+  'Authentication required.': 'Authentification requise. Veuillez vous reconnecter.',
+  'Too many requests.': 'Trop de requêtes. Patientez un instant puis réessayez.',
+  'The server returned an error.': 'Le serveur a renvoyé une erreur. Réessayez dans un instant.',
   'Your session has expired. Sign in again.': 'Votre session a expiré. Veuillez vous reconnecter.',
   'Unable to complete sign in.': 'Impossible de finaliser la connexion.',
   'Unable to load campaigns.': 'Impossible de charger les campagnes.',

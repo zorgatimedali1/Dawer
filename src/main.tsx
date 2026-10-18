@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import RootLayout from './app/layout';
@@ -9,6 +9,7 @@ import DashboardLayout from './app/dashboard/layout';
 import { LandingGate, RedirectIfAuthenticated, RequireAuth } from './components/route-guards';
 import { RouteBoundary } from './components/route-error-boundary';
 import { BrandLoader } from './components/brand/brand-loader';
+import { lazyWithRecovery } from './lib/lazy-recovery';
 import './app/globals.css';
 
 // Fire-and-forget: only loads the SDK chunk when a DSN was baked in at build
@@ -17,28 +18,31 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   void import('./lib/sentry.client').then((m) => m.initSentry('merchant'));
 }
 
-const LandingPage = lazy(() => import('./app/page'));
-const PrivacyPage = lazy(() => import('./app/privacy/page'));
-const LoginPage = lazy(() => import('./app/auth/login/page'));
-const RegisterPage = lazy(() => import('./app/auth/register/page'));
-const AuthCallbackPage = lazy(() => import('./app/auth/callback/page'));
-const ForgotPasswordPage = lazy(() => import('./app/auth/forgot-password/page'));
-const ResetPasswordPage = lazy(() => import('./app/auth/reset-password/page'));
-const CustomerPage = lazy(() => import('./app/customer/[campaignId]/page'));
-const OverviewPage = lazy(() => import('./app/dashboard/overview/page'));
-const AnalyticsPage = lazy(() => import('./app/dashboard/analytics/page'));
-const BillingPage = lazy(() => import('./app/dashboard/billing/page'));
-const CampaignsPage = lazy(() => import('./app/dashboard/campaigns/page'));
-const CouponsPage = lazy(() => import('./app/dashboard/coupons/page'));
-const CustomersPage = lazy(() => import('./app/dashboard/customers/page'));
-const DemoPage = lazy(() => import('./app/dashboard/demo/page'));
-const EmailPage = lazy(() => import('./app/dashboard/email/page'));
-const PosterPage = lazy(() => import('./app/dashboard/poster/page'));
-const QrCodesPage = lazy(() => import('./app/dashboard/qr-codes/page'));
-const RewardsPage = lazy(() => import('./app/dashboard/rewards/page'));
-const SettingsPage = lazy(() => import('./app/dashboard/settings/page'));
-const WheelPage = lazy(() => import('./app/dashboard/wheel/page'));
-const WhatsappPage = lazy(() => import('./app/dashboard/whatsapp/page'));
+// lazyWithRecovery: a tab that outlived a deploy references content-hashed
+// chunks that no longer exist; instead of a dead error page on the next menu
+// click, the page reloads once and picks up the current build.
+const LandingPage = lazyWithRecovery(() => import('./app/page'));
+const PrivacyPage = lazyWithRecovery(() => import('./app/privacy/page'));
+const LoginPage = lazyWithRecovery(() => import('./app/auth/login/page'));
+const RegisterPage = lazyWithRecovery(() => import('./app/auth/register/page'));
+const AuthCallbackPage = lazyWithRecovery(() => import('./app/auth/callback/page'));
+const ForgotPasswordPage = lazyWithRecovery(() => import('./app/auth/forgot-password/page'));
+const ResetPasswordPage = lazyWithRecovery(() => import('./app/auth/reset-password/page'));
+const CustomerPage = lazyWithRecovery(() => import('./app/customer/[campaignId]/page'));
+const OverviewPage = lazyWithRecovery(() => import('./app/dashboard/overview/page'));
+const AnalyticsPage = lazyWithRecovery(() => import('./app/dashboard/analytics/page'));
+const BillingPage = lazyWithRecovery(() => import('./app/dashboard/billing/page'));
+const CampaignsPage = lazyWithRecovery(() => import('./app/dashboard/campaigns/page'));
+const CouponsPage = lazyWithRecovery(() => import('./app/dashboard/coupons/page'));
+const CustomersPage = lazyWithRecovery(() => import('./app/dashboard/customers/page'));
+const DemoPage = lazyWithRecovery(() => import('./app/dashboard/demo/page'));
+const EmailPage = lazyWithRecovery(() => import('./app/dashboard/email/page'));
+const PosterPage = lazyWithRecovery(() => import('./app/dashboard/poster/page'));
+const QrCodesPage = lazyWithRecovery(() => import('./app/dashboard/qr-codes/page'));
+const RewardsPage = lazyWithRecovery(() => import('./app/dashboard/rewards/page'));
+const SettingsPage = lazyWithRecovery(() => import('./app/dashboard/settings/page'));
+const WheelPage = lazyWithRecovery(() => import('./app/dashboard/wheel/page'));
+const WhatsappPage = lazyWithRecovery(() => import('./app/dashboard/whatsapp/page'));
 
 function App() {
   return (
