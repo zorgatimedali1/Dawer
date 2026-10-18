@@ -7,6 +7,18 @@ export function customerLimitFromAccess(access: BusinessAccess | null | undefine
   return Number.isFinite(limit) ? limit : 100;
 }
 
+/**
+ * Campaign stats (participants / conversion) ride with the analytics
+ * entitlement — the same criterion as the analytics 403 gate — so Pro tier
+ * and up unlock both and Starter sees neither.
+ */
+export function campaignStatsAllowed(access: BusinessAccess | null | undefined): boolean {
+  return Boolean(
+    access?.canManage &&
+    access.plan.features.features.some((feature) => /analytics/i.test(feature)),
+  );
+}
+
 export async function getCustomerLimit(env: Env, businessId: string): Promise<number> {
   return customerLimitFromAccess(await getBusinessAccess(env, businessId));
 }

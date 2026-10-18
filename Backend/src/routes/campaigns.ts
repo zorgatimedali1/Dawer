@@ -13,9 +13,12 @@ import {
   CAMPAIGN_COLUMNS,
   findCampaignForUser,
   getBusinessIds,
+  getPrimaryBusinessId,
   writeAuditLog,
   type AuthenticatedUser,
 } from '../lib/tenant';
+import { getBusinessAccess } from '../lib/subscription-access';
+import { campaignStatsAllowed } from '../lib/subscription-limits';
 import type { Env } from '../types';
 
 const CONFIG_PATH = '/api/business/campaign-config';
@@ -418,22 +421,40 @@ async function handleCampaignList(request: Request, env: Env, user: Authenticate
             c.game_type, c.created_at, c.updated_at,
             (SELECT COUNT(*) FROM participations p WHERE p.campaign_id = c.id) AS participant_count,
             (SELECT COUNT(*) FROM rewards r WHERE r.campaign_id = c.id) AS reward_count,
-            (SELECT COUNT(*) FROM coupons cp WHERE cp.campaign_id = c.id) AS redemption_count
+            (SELECT COUNT(*) FROM coupons cp WHERE cp.campaign_id = c.id
+              AND cp.status <> 'DELETED') AS redemption_count
      FROM campaigns c
      WHERE ${where}
      ORDER BY c.updated_at DESC
      LIMIT ? OFFSET ?`,
   )
     .bind(...params, query.limit, (query.page - 1) * query.limit)
-    .all();
+    .all<Record<string, unknown>>();
+
+  // Campaign stats are an analytics entitlement (same gate as the analytics
+  // page): Starter merchants get NULL counts so the numbers are unavailable
+  // everywhere, not just hidden by the dashboard table.
+  const primaryBusinessId = await getPrimaryBusinessId(user.id, env);
+  const statsAllowed = await campaignStatsAllowedForBusiness(env, primaryBusinessId);
 
   return jsonResponse({
     success: true,
-    campaigns: rows.results ?? [],
+    campaigns: (rows.results ?? []).map((row) =>
+      statsAllowed ? row : { ...row, participant_count: null, redemption_count: null },
+    ),
     total: totalRow?.total ?? 0,
     page: query.page,
     limit: query.limit,
   });
+}
+
+/** Resolves the analytics entitlement for the user's primary business. */
+async function campaignStatsAllowedForBusiness(
+  env: Env,
+  primaryBusinessId: string | null,
+): Promise<boolean> {
+  const access = primaryBusinessId ? await getBusinessAccess(env, primaryBusinessId) : null;
+  return campaignStatsAllowed(access);
 }
 
 async function handleCampaignCreate(request: Request, env: Env, user: AuthenticatedUser): Promise<Response> {
@@ -744,19 +765,23 @@ async function handleCampaignDetail(
     env.DB.prepare(`SELECT COUNT(*) AS total FROM participations WHERE campaign_id = ?`)
       .bind(campaignId)
       .first<{ total: number }>(),
-    env.DB.prepare(`SELECT COUNT(*) AS total FROM coupons WHERE campaign_id = ?`)
+    env.DB.prepare(`SELECT COUNT(*) AS total FROM coupons WHERE campaign_id = ? AND status <> 'DELETED'`)
       .bind(campaignId)
       .first<{ total: number }>(),
     loadRewards(env, campaignId),
   ]);
 
+  // Same analytics entitlement as the list: Starter gets NULL stats.
+  const primaryBusinessId = await getPrimaryBusinessId(user.id, env);
+  const statsAllowed = await campaignStatsAllowedForBusiness(env, primaryBusinessId);
+
   return jsonResponse({
     success: true,
     campaign: {
       ...campaign,
-      participant_count: participants?.total ?? 0,
+      participant_count: statsAllowed ? participants?.total ?? 0 : null,
       reward_count: rewards.length,
-      redemption_count: coupons?.total ?? 0,
+      redemption_count: statsAllowed ? coupons?.total ?? 0 : null,
       rewards,
     },
   });

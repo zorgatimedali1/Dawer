@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import CampaignsPage from '@/app/dashboard/campaigns/page';
+import { DashboardBillingProvider } from '@/contexts/billing-context';
 
 const AUTH_KEY = 'campaign-engage-auth';
 
@@ -46,11 +47,43 @@ function jsonResponse(payload: unknown, status = 200) {
   });
 }
 
-function mockCampaignApi(initial: CampaignRow[] = []) {
+function mockCampaignApi(
+  initial: CampaignRow[] = [],
+  { planSlug = 'growth' }: { planSlug?: string } = {},
+) {
   const campaigns = [...initial];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? 'GET').toUpperCase();
+
+    if (url === '/api/billing') {
+      return jsonResponse({
+        success: true,
+        plans: [],
+        subscription: null,
+        pendingRequest: null,
+        usage: { campaigns: campaigns.length, customers: 0 },
+        access: {
+          state: 'active',
+          canManage: true,
+          startsAt: '2026-10-01T00:00:00.000Z',
+          endsAt: '2027-01-01T00:00:00.000Z',
+          plan: {
+            id: `plan_${planSlug}`,
+            name: 'Plan',
+            slug: planSlug,
+            priceCents: 14900,
+            interval: '3_months',
+            features: {
+              limits: { campaigns: 4, customers: 200 },
+              features: planSlug === 'starter'
+                ? ['Accès complet à la roue']
+                : ['Accès complet à la roue', 'Statistiques & analytics'],
+            },
+          },
+        },
+      });
+    }
 
     if (method === 'GET' && url.startsWith('/api/business/campaigns') && !url.match(/\/api\/business\/campaigns\/[^/?]+$/)) {
       return jsonResponse({ success: true, campaigns, total: campaigns.length });
@@ -110,7 +143,9 @@ function mockCampaignApi(initial: CampaignRow[] = []) {
 function renderPage() {
   return render(
     <MemoryRouter>
-      <CampaignsPage />
+      <DashboardBillingProvider>
+        <CampaignsPage />
+      </DashboardBillingProvider>
     </MemoryRouter>,
   );
 }
@@ -199,5 +234,27 @@ describe('campaign management page', () => {
 
     await screen.findByText('Campagne supprimée.');
     expect(screen.queryByRole('heading', { name: 'Autumn promo' })).toBeNull();
+  });
+
+  it('hides participant and conversion stats on the Starter plan', async () => {
+    mockCampaignApi([campaignRow({ status: 'ACTIVE', participant_count: 8, redemption_count: 5 })], { planSlug: 'starter' });
+    renderPage();
+
+    await screen.findByRole('heading', { name: 'Autumn promo' });
+    await waitFor(() => {
+      expect(screen.queryByText('Participants')).toBeNull();
+      expect(screen.queryByText('Conversion')).toBeNull();
+      expect(screen.queryByRole('link', { name: 'Analytique' })).toBeNull();
+    });
+  });
+
+  it('shows participant and conversion stats for an analytics plan', async () => {
+    mockCampaignApi([campaignRow({ status: 'ACTIVE', participant_count: 8, redemption_count: 5 })], { planSlug: 'growth' });
+    renderPage();
+
+    expect(await screen.findByText('8')).toBeInTheDocument();
+    expect(screen.getByText('Participants')).toBeInTheDocument();
+    expect(screen.getByText('Conversion')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Analytique' })).toBeInTheDocument();
   });
 });

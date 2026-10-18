@@ -207,6 +207,52 @@ describe('GET /api/public/campaigns/:code', () => {
   });
 });
 
+describe('scheduled campaigns auto-live', () => {
+  async function scheduledSpin(code: string, email: string): Promise<Response> {
+    return handlePublicCampaignRoute(
+      participateRequest(publicPath(code, '/participate'), { firstName: 'Spin', lastName: 'Ner', email }),
+      env,
+    );
+  }
+
+  it('stays hidden while its window has not opened', async () => {
+    const code = await createCampaign({
+      status: 'SCHEDULED',
+      startAt: new Date(Date.now() + 86_400_000).toISOString(),
+      endAt: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+    });
+
+    expect((await handlePublicCampaignRoute(jsonRequest(publicPath(code), 'GET'), env)).status).toBe(404);
+    expect((await scheduledSpin(code, 'notyet@example.test')).status).toBe(409);
+  });
+
+  it('goes live on its own once the window opens, with no manual status flip', async () => {
+    const code = await createCampaign({
+      status: 'SCHEDULED',
+      startAt: new Date(Date.now() - 86_400_000).toISOString(),
+      endAt: new Date(Date.now() + 86_400_000).toISOString(),
+      rewards: [{ name: 'Free coffee', weight: 100 }],
+    });
+
+    expect((await handlePublicCampaignRoute(jsonRequest(publicPath(code), 'GET'), env)).status).toBe(200);
+
+    const spin = await scheduledSpin(code, 'opened@example.test');
+    expect(spin.status).toBe(200);
+    expect((await body(spin)).participation.reward.name).toBe('Free coffee');
+  });
+
+  it('closes again once the window has passed', async () => {
+    const code = await createCampaign({
+      status: 'SCHEDULED',
+      startAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+      endAt: new Date(Date.now() - 86_400_000).toISOString(),
+    });
+
+    expect((await handlePublicCampaignRoute(jsonRequest(publicPath(code), 'GET'), env)).status).toBe(404);
+    expect((await scheduledSpin(code, 'over@example.test')).status).toBe(409);
+  });
+});
+
 describe('QR scan counting', () => {
   async function loadCampaign(code: string, cookie?: string): Promise<Response> {
     return handlePublicCampaignRoute(

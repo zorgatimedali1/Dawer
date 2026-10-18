@@ -28,6 +28,8 @@ import {
   type CampaignStatusKey,
 } from '@/services/campaign.service';
 import { msg, type Dictionary } from '@/lib/i18n';
+import { campaignStatsAllowedForPlan } from '@/lib/plan-catalog';
+import { useDashboardBilling } from '@/contexts/billing-context';
 import { useT } from '@/hooks/use-t';
 
 interface CampaignForm {
@@ -113,7 +115,11 @@ function useIsDesktop(): boolean {
 
 export default function CampaignsPage() {
   const t = useT();
-  const { campaigns, loading, error, refetch } = useCampaign();
+  const { access } = useDashboardBilling();
+  // Participants/Conversion ride with the analytics entitlement: hidden on
+  // Starter, and while billing is still resolving (null → not allowed).
+  const showStats = campaignStatsAllowedForPlan(access?.plan.slug ?? null);
+  const { campaigns, loading, error, refetch } = useCampaign({ limit: 100 });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -218,11 +224,13 @@ export default function CampaignsPage() {
           {t.campaigns.configureWheel}
         </Link>
       </Button>
-      <Button asChild variant="outline" size={size}>
-        <Link to={`/dashboard/analytics?campaign=${encodeURIComponent(campaign.id)}`}>
-          {t.campaigns.viewAnalytics}
-        </Link>
-      </Button>
+      {showStats && (
+        <Button asChild variant="outline" size={size}>
+          <Link to={`/dashboard/analytics?campaign=${encodeURIComponent(campaign.id)}`}>
+            {t.campaigns.viewAnalytics}
+          </Link>
+        </Button>
+      )}
       <Button
         variant="outline"
         size={size}
@@ -260,8 +268,12 @@ export default function CampaignsPage() {
                 <TableHeadCell>{t.campaigns.columnCampaign}</TableHeadCell>
                 <TableHeadCell>{t.campaigns.columnStatus}</TableHeadCell>
                 <TableHeadCell>{t.campaigns.columnSchedule}</TableHeadCell>
-                <TableHeadCell className="text-right">{t.campaigns.columnParticipants}</TableHeadCell>
-                <TableHeadCell className="text-right">{t.campaigns.columnConversion}</TableHeadCell>
+                {showStats && (
+                  <>
+                    <TableHeadCell className="text-right">{t.campaigns.columnParticipants}</TableHeadCell>
+                    <TableHeadCell className="text-right">{t.campaigns.columnConversion}</TableHeadCell>
+                  </>
+                )}
                 <TableHeadCell className="text-right">{t.campaigns.columnActions}</TableHeadCell>
               </TableRow>
             </TableHead>
@@ -289,8 +301,12 @@ export default function CampaignsPage() {
                       {displayDate(campaign.endsAt, t.campaigns.notSet)}
                     </p>
                   </TableCell>
-                  <TableCell numeric>{campaign.participantCount}</TableCell>
-                  <TableCell numeric>{campaign.conversionRate}%</TableCell>
+                  {showStats && (
+                    <>
+                      <TableCell numeric>{campaign.participantCount}</TableCell>
+                      <TableCell numeric>{campaign.conversionRate}%</TableCell>
+                    </>
+                  )}
                   <TableCell>{campaignActions(campaign, 'xs')}</TableCell>
                 </TableRow>
               ))}
@@ -331,20 +347,24 @@ export default function CampaignsPage() {
                   {displayDate(campaign.endsAt, t.campaigns.notSet)}
                 </dd>
               </div>
-              <div>
-                <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                  {t.campaigns.columnParticipants}
-                </dt>
-                <dd className="numeric mt-1 text-[13px] text-ink">{campaign.participantCount}</dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                  {t.campaigns.columnConversion}
-                </dt>
-                <dd className="numeric mt-1 text-[13px] font-medium text-brand-700 dark:text-accent-bright">
-                  {campaign.conversionRate}%
-                </dd>
-              </div>
+              {showStats && (
+                <>
+                  <div>
+                    <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                      {t.campaigns.columnParticipants}
+                    </dt>
+                    <dd className="numeric mt-1 text-[13px] text-ink">{campaign.participantCount}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                      {t.campaigns.columnConversion}
+                    </dt>
+                    <dd className="numeric mt-1 text-[13px] font-medium text-brand-700 dark:text-accent-bright">
+                      {campaign.conversionRate}%
+                    </dd>
+                  </div>
+                </>
+              )}
             </dl>
 
             {campaignActions(campaign, 'sm')}

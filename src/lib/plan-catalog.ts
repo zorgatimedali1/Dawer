@@ -127,3 +127,15 @@ export function formatPlanInterval(interval: string, locale: Locale = 'fr'): str
   const labels = planIntervals[locale];
   return labels[interval] ?? (locale === 'fr' ? '3 mois' : '3 months');
 }
+
+/**
+ * Campaign stats (participants / conversion) ship from the Pro tier up —
+ * mirrors the backend gate (whose analytics entitlement check unlocks the same
+ * set of seeded plans). While billing is loading the slug is unknown and the
+ * stats stay hidden, the starter-safe default.
+ */
+export const CAMPAIGN_STATS_PLAN_SLUGS = ['growth', 'scale', 'premium'] as const;
+
+export function campaignStatsAllowedForPlan(slug: string | null | undefined): boolean {
+  return Boolean(slug && (CAMPAIGN_STATS_PLAN_SLUGS as readonly string[]).includes(slug));
+}

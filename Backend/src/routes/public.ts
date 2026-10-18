@@ -309,12 +309,19 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
   if (request.method === 'GET' && campaignMatch) {
     const now = new Date().toISOString();
     const shared = sharedCampaign;
-    if (
-      !shared ||
-      shared.status !== 'ACTIVE' ||
-      (shared.start_at && shared.start_at > now) ||
-      (shared.end_at && shared.end_at < now)
-    ) {
+    if (!shared) {
+      return errorResponse('Campaign not found.', 404);
+    }
+
+    // A Scheduled campaign whose window has opened goes live on its own — a
+    // merchant who set dates must not have to flip the status manually.
+    // Everything else keeps the old shape: only an ACTIVE campaign inside its
+    // window (if any) is publicly reachable.
+    const withinWindow =
+      (!shared.start_at || shared.start_at <= now) &&
+      (!shared.end_at || shared.end_at >= now);
+    const publiclyLive = withinWindow && (shared.status === 'ACTIVE' || shared.status === 'SCHEDULED');
+    if (!publiclyLive) {
       return errorResponse('Campaign not found.', 404);
     }
 
@@ -533,7 +540,12 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       (!campaign.start_at || campaign.start_at <= nowIso) &&
       (!campaign.end_at || campaign.end_at >= nowIso);
 
-    if (campaign.status !== 'ACTIVE' || !withinWindow) {
+    // Mirror the public GET: a Scheduled campaign inside its own window plays
+    // like an active one; everything else (ACTIVE outside the window, Draft,
+    // Paused, Completed, Archived) refuses.
+    const live = withinWindow && (campaign.status === 'ACTIVE' || campaign.status === 'SCHEDULED');
+
+    if (!live) {
       return errorResponse('Campaign is not accepting spins right now.', 409);
     }
 

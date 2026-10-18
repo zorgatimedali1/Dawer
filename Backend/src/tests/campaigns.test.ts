@@ -391,7 +391,58 @@ describe('campaign CRUD', () => {
     expect(payload.total).toBe(1);
     expect(payload.campaigns).toHaveLength(1);
     expect(payload.campaigns[0].reward_count).toBe(1);
-    expect(payload.campaigns[0].participant_count).toBe(0);
+    // Starter plans carry no analytics entitlement: the stats come back NULL
+    // instead of readable numbers (the dashboard hides the columns too).
+    expect(payload.campaigns[0].participant_count).toBeNull();
+    expect(payload.campaigns[0].redemption_count).toBeNull();
+  });
+
+  it('exposes real counts for a Pro plan and never counts voided coupons', async () => {
+    const pro = await seedMerchant(db, {
+      email: 'pro@example.test',
+      businessName: 'Pro Shop',
+      withActiveSubscription: true,
+      planId: 'plan_growth',
+    });
+
+    const campaignId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO campaigns (id, business_id, name, description, public_code, status, created_at, updated_at)
+       VALUES (?, ?, 'Pro spin', '', ?, 'ACTIVE', ?, ?)`,
+    )
+      .bind(campaignId, pro.businessId, `PRO${crypto.randomUUID().slice(0, 4).toUpperCase()}`, now, now)
+      .run();
+
+    db.prepare(
+      `INSERT INTO participations (id, campaign_id, created_at) VALUES (?, ?, ?)`,
+    )
+      .bind(crypto.randomUUID(), campaignId, now)
+      .run();
+    db.prepare(
+      `INSERT INTO participations (id, campaign_id, created_at) VALUES (?, ?, ?)`,
+    )
+      .bind(crypto.randomUUID(), campaignId, now)
+      .run();
+
+    for (const [index, status] of ['ISSUED', 'REDEEMED', 'DELETED'].entries()) {
+      db.prepare(
+        `INSERT INTO coupons (id, business_id, campaign_id, code, status, issued_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(crypto.randomUUID(), pro.businessId, campaignId, `CODE-${index}-${status}`, status, now)
+        .run();
+    }
+
+    const payload = await body(
+      await handleBusinessRoute(jsonRequest(`${LIST}?search=Pro+spin`, 'GET', undefined, pro.token), env),
+    );
+
+    expect(payload.campaigns).toHaveLength(1);
+    expect(payload.campaigns[0].participant_count).toBe(2);
+    // The voided (DELETED) coupon never counts as a delivered reward —
+    // matching the analytics routes' coupon semantics.
+    expect(payload.campaigns[0].redemption_count).toBe(2);
   });
 
   it('filters by status and search', async () => {
