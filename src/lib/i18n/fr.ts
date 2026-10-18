@@ -163,6 +163,7 @@ export const errors = {
   'PRO plan allows 100 recipients per broadcast.': 'Le plan PRO autorise 100 destinataires par diffusion.',
   'BUSINESS plan allows 250 recipients per broadcast.': 'Le plan BUSINESS autorise 250 destinataires par diffusion.',
   'No reward available for this campaign.': 'Aucune récompense disponible pour cette campagne.',
+  'This reward is no longer available.': 'Ce lot n’est plus disponible, contactez le commerçant.',
   'Unable to delete the reward.': 'Impossible de supprimer la récompense.',
   'WhatsApp Broadcasts require a Pro or Business plan. Upgrade to unlock bulk messaging.':
     'Les diffusions WhatsApp nécessitent un plan Pro ou Business. Passez à une offre supérieure pour débloquer l’envoi groupé.',

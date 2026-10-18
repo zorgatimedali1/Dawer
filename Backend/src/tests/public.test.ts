@@ -658,28 +658,81 @@ describe('reward stock loop', () => {
     );
   }
 
-  it('burns one unit of stock per win and reports what is left', async () => {
+  /**
+   * Full winner journey: a spin with a fresh signed cookie, then the details
+   * submission ("Recevoir mon lot") with the very same browser identity —
+   * the only step that burns reward stock and issues a coupon now.
+   */
+  async function spinThenClaim(code: string, email: string) {
+    const cookie = takeVisitorCookie();
+    const spinRes = await handlePublicCampaignRoute(
+      participateRequest(publicPath(code, '/participate'), { firstName: 'Spin', lastName: 'Ner', email }, { cookie }),
+      env,
+    );
+    const spinPayload = await body(spinRes);
+    const claimRes = await handlePublicCampaignRoute(
+      withCookie(
+        jsonRequest(publicPath(code, `/participations/${spinPayload.participation.participationId}/customer`), 'POST', {
+          firstName: 'Jean',
+          lastName: 'Dupont',
+          phone: '+21622111222',
+        }),
+        cookie,
+      ),
+      env,
+    );
+    return { spinRes, spinPayload, claimRes, claimPayload: await body(claimRes) };
+  }
+
+  it('burns one unit only when the winner claims the coupon, not at spin', async () => {
     const code = await createCampaign({ rewards: [{ name: 'Free coffee', weight: 100, quantity: 2 }] });
 
-    const payload = await body(await spin(code, 'stock-one@example.test'));
+    const { claimRes, claimPayload } = await spinThenClaim(code, 'stock-one@example.test');
 
-    expect(payload.participation.reward.quantity).toBe(1);
-    expect(payload.participation.reward.quantityInitial).toBe(2);
+    // Only the details submission commits the burn — one coupon, one unit —
+    // while the spin itself left the shelf untouched (asserted above and in
+    // the spin-claim tests).
+    expect(claimRes.status).toBe(200);
+    expect(claimPayload.couponCode).toMatch(/^CF-[0-9A-F]{16}$/);
     expect(db.query(`SELECT quantity, quantity_initial FROM rewards`)).toEqual([
       { quantity: 1, quantity_initial: 2 },
     ]);
+    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(1);
   });
 
-  it('stops offering a reward once its stock runs out', async () => {
+  it('refuses the claim when the reward sold out between the spin and the submit', async () => {
     const code = await createCampaign({ rewards: [{ name: 'Rare', weight: 100, quantity: 1 }] });
 
-    await spin(code, 'burn-one@example.test');
-    const second = await spin(code, 'burn-two@example.test');
+    // Spin while the shelf still shows one unit, then simulate a concurrent
+    // claim draining it before this winner submits their details.
+    const cookie = takeVisitorCookie();
+    const spinRes = await handlePublicCampaignRoute(
+      participateRequest(publicPath(code, '/participate'), { firstName: 'Spin', lastName: 'Ner', email: 'late-claim@example.test' }, { cookie }),
+      env,
+    );
+    const spinPayload = await body(spinRes);
+    expect(spinRes.status).toBe(200);
 
-    expect(second.status).toBe(400);
-    expect((await body(second)).message).toBe('No reward available for this campaign.');
+    db.prepare(`UPDATE rewards SET quantity = 0 WHERE campaign_id = (SELECT id FROM campaigns WHERE public_code = ?)`)
+      .bind(code)
+      .run();
+
+    const claimRes = await handlePublicCampaignRoute(
+      withCookie(
+        jsonRequest(publicPath(code, `/participations/${spinPayload.participation.participationId}/customer`), 'POST', {
+          firstName: 'Jean',
+          lastName: 'Dupont',
+          phone: '+21622111222',
+        }),
+        cookie,
+      ),
+      env,
+    );
+
+    expect(claimRes.status).toBe(409);
+    expect((await body(claimRes)).message).toBe('This reward is no longer available.');
+    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(0);
     expect(db.query(`SELECT quantity FROM rewards`)).toEqual([{ quantity: 0 }]);
-    expect(db.query(`SELECT id FROM participations`)).toHaveLength(1);
   });
 
   it('keeps a sold-out reward on the wheel at 0% and hands its weight to the none slice', async () => {
@@ -694,7 +747,8 @@ describe('reward stock loop', () => {
       .bind(code)
       .run();
 
-    await spin(code, 'burn-one@example.test');
+    const { claimRes } = await spinThenClaim(code, 'burn-one@example.test');
+    expect(claimRes.status).toBe(200);
 
     const payload = await body(await handlePublicCampaignRoute(jsonRequest(publicPath(code), 'GET'), env));
     const rare = payload.rewards.find((reward: { name: string }) => reward.name === 'Rare');
@@ -714,7 +768,8 @@ describe('reward stock loop', () => {
       ],
     });
 
-    expect((await spin(code, 'burn-one@example.test')).status).toBe(200);
+    const first = await spinThenClaim(code, 'burn-one@example.test');
+    expect(first.claimRes.status).toBe(200);
 
     const loser = await spin(code, 'after-sellout@example.test');
     const payload = await body(loser);
@@ -722,7 +777,7 @@ describe('reward stock loop', () => {
     expect(loser.status).toBe(200);
     expect(payload.participation.reward).toMatchObject({ name: 'Prochaine fois', type: 'none' });
     expect(db.query(`SELECT quantity FROM rewards WHERE type != 'none'`)).toEqual([{ quantity: 0 }]);
-    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(0);
+    expect(db.query(`SELECT id FROM coupons`)).toHaveLength(1);
   });
 
   it('restores the original odds when the merchant tops the stock back up', async () => {
@@ -733,7 +788,7 @@ describe('reward stock loop', () => {
       ],
     });
 
-    await spin(code, 'burn-one@example.test');
+    await spinThenClaim(code, 'burn-one@example.test');
     db.prepare(
       `UPDATE rewards SET quantity = 2 WHERE campaign_id = (SELECT id FROM campaigns WHERE public_code = ?) AND type != 'none'`,
     )
@@ -751,7 +806,8 @@ describe('reward stock loop', () => {
 
   it('drops the freed weight instead of guessing when no none slice exists', async () => {
     const code = await createCampaign({ rewards: [{ name: 'Rare', weight: 100, quantity: 1 }] });
-    await spin(code, 'burn-one@example.test');
+    const { claimRes } = await spinThenClaim(code, 'burn-one@example.test');
+    expect(claimRes.status).toBe(200);
 
     const payload = await body(await handlePublicCampaignRoute(jsonRequest(publicPath(code), 'GET'), env));
 
@@ -770,17 +826,26 @@ describe('reward stock loop', () => {
   });
 
   it('never leaves an orphan customer row when a spin fails after capture', async () => {
-    const code = await createCampaign({ rewards: [{ name: 'Rare', weight: 100, quantity: 1 }] });
+    const code = await createCampaign({ rewards: [{ name: 'Rare', weight: 100, quantity: 5 }] });
 
     const winner = await spin(code, 'keep-row@example.test');
     expect(winner.status).toBe(200);
 
+    // Stock moved to coupon-claim time, so a raw mid-flight failure needs to
+    // be injected: blow up the loser's audit-trail commit after the customer
+    // row was already captured.
+    const originalBatch = db.batch.bind(db);
+    const batchSpy = vi
+      .spyOn(db, 'batch')
+      .mockImplementationOnce((_statements) => Promise.reject(new Error('commit failed')));
     const loser = await spin(code, 'drop-row@example.test');
-    expect(loser.status).toBe(400);
+    batchSpy.mockRestore();
+
+    expect(loser.status).toBe(500);
 
     // The winning spin keeps its CRM row; the failed spin's freshly created
-    // row is rolled back so scripted failures (random emails at a sold-out
-    // wheel) cannot fill the merchant's customer-storage quota.
+    // row is rolled back so scripted failures (random emails mid-flight)
+    // cannot fill the merchant's customer-storage quota.
     expect(db.query<{ email: string }>(`SELECT email FROM customers`)).toEqual([
       { email: 'keep-row@example.test' },
     ]);
@@ -1165,7 +1230,9 @@ describe('spin claim backstop', () => {
     const campaignId = db.query<{ id: string }>(`SELECT id FROM campaigns WHERE public_code = ?`, code)[0]?.id;
     const cookieKey = await sha256Hex(`${campaignId}:${browserValue}`);
     expect(db.query(`SELECT visitor_key FROM spin_claims`)).toEqual([{ visitor_key: cookieKey }]);
-    expect(db.query(`SELECT quantity FROM rewards`)).toEqual([{ quantity: 2 }]);
+    // Stock is not burned by the spin; the unit leaves the shelf when the
+    // winner submits their details.
+    expect(db.query(`SELECT quantity FROM rewards`)).toEqual([{ quantity: 3 }]);
   });
 
   it('blocks a rotated email once the durable object storage is gone', async () => {
@@ -1181,7 +1248,7 @@ describe('spin claim backstop', () => {
 
     expect(response.status).toBe(409);
     expect(await body(response)).toMatchObject({ message: expect.stringContaining('already participated') });
-    expect(db.query(`SELECT quantity FROM rewards`)).toEqual([{ quantity: 2 }]);
+    expect(db.query(`SELECT quantity FROM rewards`)).toEqual([{ quantity: 3 }]);
     expect(db.query(`SELECT id FROM participations`)).toHaveLength(1);
   });
 
@@ -1354,9 +1421,9 @@ describe('windowed play rules', () => {
     const second = await body(await spin(code, { anonymousId: visitorA }));
     expect(second.participation.reward.name).toBe('Try again');
 
-    expect(db.query(`SELECT quantity FROM rewards WHERE name = 'Free coffee'`)).toEqual([{ quantity: 9 }]);
-    // The win burned stock but the winner never submitted their details, so
-    // no coupon row exists yet.
+    expect(db.query(`SELECT quantity FROM rewards WHERE name = 'Free coffee'`)).toEqual([{ quantity: 10 }]);
+    // The spin only records the win; the unit burns when the claimed stake
+    // submits its details, so no coupon row exists yet either.
     expect(db.query(`SELECT id FROM coupons`)).toHaveLength(0);
   });
 
@@ -1465,8 +1532,9 @@ describe('anti-farm per-IP safety floors', () => {
       expect(next.participation.reward.name).toBe('Try again');
     }
 
-    // Only the single winner burned stock; the forced no-win spins did not.
-    expect(db.query(`SELECT quantity FROM rewards WHERE name = 'Free coffee'`)).toEqual([{ quantity: 99 }]);
+    // Only the single win is recorded here; the forced no-win spins burn
+    // nothing, and the winner's unit leaves the shelf at claim time.
+    expect(db.query(`SELECT quantity FROM rewards WHERE name = 'Free coffee'`)).toEqual([{ quantity: 100 }]);
   });
 });
 
@@ -2093,7 +2161,9 @@ describe('per-network controls in "once" mode', () => {
       { is_win: 1 },
       { is_win: 1 },
     ]);
-    expect(db.query(`SELECT quantity FROM rewards WHERE name = 'Free coffee'`)).toEqual([{ quantity: 8 }]);
+    // The audit trail saw exactly the two wins; the claimed stock alone will
+    // burn a unit per submit, so the shelf still shows the full quantity.
+    expect(db.query(`SELECT quantity FROM rewards WHERE name = 'Free coffee'`)).toEqual([{ quantity: 10 }]);
   });
 });
 

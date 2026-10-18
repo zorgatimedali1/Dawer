@@ -473,13 +473,12 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
   }
 
   // Undo bookkeeping for the participation chain: if a write fails part-way
-  // through, the catch block below restores stock, hands the claim rows back
-  // and releases the Durable Object lock so the visitor can retry.
+  // through, the catch block below hands the claim rows back and releases the
+  // Durable Object lock so the visitor can retry.
   type LockStub = ReturnType<typeof env.CAMPAIGN_LOCK.getByName>;
   let lock: LockStub | null = null;
   let lockClaimed = false;
   let undoRelease: (() => Promise<void>) | null = null;
-  let decrementedRewardId: string | null = null;
   // Set only when *this* attempt materialized the customer row: the rollback
   // path deletes it so a failed spin never leaves an orphan that counts
   // against the merchant's storage quota.
@@ -975,31 +974,13 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       }
     }
 
-    // A `type = 'none'` slice ("Prochaine fois") hands out nothing: no stock to
-    // burn and no coupon to issue, but the spin is still recorded.
+    // A `type = 'none'` slice ("Prochaine fois") hands out nothing: no stock
+    // is associated with it and no coupon will ever be issued, but the spin
+    // is still recorded. Stock is NOT burned here anymore: `rewards.quantity`
+    // is decremented only when the winner actually submits their details and
+    // claims the coupon (see handleCustomerDetails). An abandoned form never
+    // costs the merchant a unit.
     const isNoWin = selectedReward.type === 'none';
-
-    // Only rewards that were capped at creation time burn stock; an
-    // unconfigured quantity means unlimited availability. The UPDATE doubles
-    // as a compare-and-swap: if a concurrent spin took the last unit, hand
-    // every claim back instead of issuing a coupon for stock we no longer hold.
-    if (!isNoWin && selectedReward.quantityInitial > 0) {
-      const decremented = await env.DB.prepare(
-        `UPDATE rewards SET quantity = MAX(quantity - 1, 0), updated_at = ?
-         WHERE id = ? AND quantity > 0
-         RETURNING quantity`,
-      )
-        .bind(nowIso, selectedReward.id)
-        .first<{ quantity: number }>();
-
-      if (!decremented) {
-        await dropSpinClaimRows();
-        await releaseClaims();
-        return errorResponse('No reward available for this campaign.', 409);
-      }
-      decrementedRewardId = selectedReward.id;
-      selectedReward.quantity = Number(decremented.quantity ?? 0);
-    }
 
     // No coupon is written here: the row is created only once the winner
     // submits their details, so an abandoned form never leaves an unnamed
@@ -1048,7 +1029,6 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     // lock claims must stay held: that is what blocks the next spin. The
     // customer row is now legitimate CRM data, not a rollback target.
     claimRowIds.length = 0;
-    decrementedRewardId = null;
     lockClaimed = false;
     stickyLockClaimed = false;
     createdCustomerId = null;
@@ -1088,12 +1068,6 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     // visitor their spin or the merchant its stock.
     try {
       await dropSpinClaimRows();
-      if (decrementedRewardId) {
-        await env.DB.prepare(`UPDATE rewards SET quantity = quantity + 1, updated_at = ? WHERE id = ?`)
-          .bind(new Date().toISOString(), decrementedRewardId)
-          .run();
-        decrementedRewardId = null;
-      }
       if (undoRelease) {
         // releaseClaims checks each held flag itself, so a sticky-only claim
         // (primary denied mid-flight) is handed back too.
@@ -1188,7 +1162,7 @@ async function handleCustomerDetails(
 
     const participation = await env.DB.prepare(
       `SELECT p.id, p.customer_id, p.campaign_id, p.reward_id, p.visitor_hash, c.business_id,
-              r.type AS reward_type
+              r.type AS reward_type, r.quantity_initial AS reward_quantity_initial
        FROM participations p
        JOIN campaigns c ON c.id = p.campaign_id
        LEFT JOIN rewards r ON r.id = p.reward_id
@@ -1204,6 +1178,7 @@ async function handleCustomerDetails(
         visitor_hash: string | null;
         business_id: string;
         reward_type: string | null;
+        reward_quantity_initial: number | null;
       }>();
 
     if (!participation) {
@@ -1336,30 +1311,92 @@ async function handleCustomerDetails(
       .run();
 
     // The coupon is issued here — and only here — so a winner who abandons
-    // this form never leaves an unnamed row in the merchant's list. The
-    // `WHERE NOT EXISTS` guard makes a replayed submit idempotent, and a
-    // `type = 'none'` slice never wins a coupon at all.
+    // this form never leaves an unnamed row in the merchant's list. This is
+    // also the moment the reward's stock is burned: a unit only leaves the
+    // shelf when the winner actually clicks "Recevoir mon lot", never at spin
+    // time and never for an abandoned form. The `WHERE NOT EXISTS` guard makes
+    // a replayed submit idempotent, and a `type = 'none'` slice never wins a
+    // coupon at all.
     if (participation.reward_id && participation.reward_type !== 'none') {
-      // Race-safe (M1): the partial UNIQUE index on participation_id plus
-      // `ON CONFLICT ... DO NOTHING` means two concurrent submits can never
-      // mint two codes — the loser simply gets no row and falls through to the
-      // SELECT below, which returns the winner's code.
-      await env.DB.prepare(
-        `INSERT INTO coupons (id, business_id, campaign_id, customer_id, participation_id, reward_id, code, status, issued_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'ISSUED', ?)
-         ON CONFLICT(participation_id) DO NOTHING`,
+      // A coupon already attached to this participation means an earlier
+      // submit (or an earlier request in a concurrency race) already burned
+      // the unit and minted the code: replaying must not decrement twice.
+      const existingCoupon = await env.DB.prepare(
+        `SELECT code FROM coupons WHERE participation_id = ? LIMIT 1`,
       )
-        .bind(
-          crypto.randomUUID(),
-          participation.business_id,
-          participation.campaign_id,
-          targetId,
-          participation.id,
-          participation.reward_id,
-          `CF-${secureRandomHex(8).toUpperCase()}`,
-          now,
-        )
-        .run();
+        .bind(participation.id)
+        .first<{ code: string }>();
+
+      if (!existingCoupon) {
+        // Race-safe (M1): the partial UNIQUE index on participation_id plus
+        // `ON CONFLICT ... DO NOTHING` means two concurrent submits can never
+        // mint two codes — the loser simply gets no row and falls through to
+        // the SELECT below, which returns the winner's code.
+        let stockBurned = false;
+
+        try {
+          // Only rewards that were capped at creation time burn stock; an
+          // unconfigured quantity means unlimited availability. The UPDATE
+          // doubles as a compare-and-swap: if a concurrent claim took the
+          // last unit, refuse to mint a coupon for stock we no longer hold.
+          if (
+            participation.reward_quantity_initial !== null &&
+            participation.reward_quantity_initial > 0
+          ) {
+            const decremented = await env.DB.prepare(
+              `UPDATE rewards SET quantity = MAX(quantity - 1, 0), updated_at = ?
+               WHERE id = ? AND quantity > 0
+               RETURNING quantity`,
+            )
+              .bind(now, participation.reward_id)
+              .first<{ quantity: number }>();
+
+            if (!decremented) {
+              return errorResponse('This reward is no longer available.', 409);
+            }
+            stockBurned = true;
+          }
+
+          const issued = await env.DB.prepare(
+            `INSERT INTO coupons (id, business_id, campaign_id, customer_id, participation_id, reward_id, code, status, issued_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'ISSUED', ?)
+             ON CONFLICT(participation_id) DO NOTHING`,
+          )
+            .bind(
+              crypto.randomUUID(),
+              participation.business_id,
+              participation.campaign_id,
+              targetId,
+              participation.id,
+              participation.reward_id,
+              `CF-${secureRandomHex(8).toUpperCase()}`,
+              now,
+            )
+            .run();
+
+          // A concurrent claim of the same participation minted the code
+          // first: hand the extra unit back so one coupon costs exactly one.
+          if (stockBurned && Number(issued.meta?.changes ?? 0) === 0) {
+            await env.DB.prepare(`UPDATE rewards SET quantity = quantity + 1, updated_at = ? WHERE id = ?`)
+              .bind(now, participation.reward_id)
+              .run();
+            stockBurned = false;
+          }
+        } catch (issueError) {
+          // The coupon row never made it: put the burned unit back on the
+          // shelf so this failed claim does not silently shrink the stock.
+          if (stockBurned) {
+            try {
+              await env.DB.prepare(`UPDATE rewards SET quantity = quantity + 1, updated_at = ? WHERE id = ?`)
+                .bind(now, participation.reward_id)
+                .run();
+            } catch (restockError) {
+              console.error('Claim restock failed.', restockError);
+            }
+          }
+          throw issueError;
+        }
+      }
     }
 
     // The exact coupon this submission issued (linked above); the legacy

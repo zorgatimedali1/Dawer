@@ -166,6 +166,7 @@ export const errors: D<typeof frDict.errors> = {
   'PRO plan allows 100 recipients per broadcast.': 'PRO plan allows 100 recipients per broadcast.',
   'BUSINESS plan allows 250 recipients per broadcast.': 'BUSINESS plan allows 250 recipients per broadcast.',
   'No reward available for this campaign.': 'No reward available for this campaign.',
+  'This reward is no longer available.': 'This reward is no longer available. Contact the merchant.',
   'Unable to delete the reward.': 'Unable to delete the reward.',
   'WhatsApp Broadcasts require a Pro or Business plan. Upgrade to unlock bulk messaging.':
     'WhatsApp Broadcasts require a Pro or Business plan. Upgrade to unlock bulk messaging.',
