@@ -6,12 +6,8 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
-	// Worker CPU budget: a login runs 100k-iteration PBKDF2 (~70 ms), so the
-	// cap sits well above that but far below the runtime's default allowance,
-	// starving any runaway loop of a permanent queue slot.
-	"limits": {
-		"cpu_ms": 200
-	},
+	// NOTE: `limits.cpu_ms` (from the M-7 audit item) is not supported on the
+	// Free plan — re-add it (value 200) when/after switching to a paid plan.
 	// Custom domains (attached in the Cloudflare dashboard: Workers >
 	// campaignflow-backend > Settings > Domains & Routes):
 	//   dawer.tn               → this worker (SPA + /api, merchant app)

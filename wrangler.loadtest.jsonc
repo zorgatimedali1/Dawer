@@ -6,10 +6,8 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
-	// Worker CPU budget — same rationale as wrangler.jsonc (PBKDF2 logins).
-	"limits": {
-		"cpu_ms": 200
-	},
+	// NOTE: `limits.cpu_ms` is not supported on the Free plan — re-add it
+	// (value 200) when/after switching to a paid plan.
 	"vars": {
 		"APP_ENV": "development",
 		"GEOFENCE_COUNTRIES": "TN",
