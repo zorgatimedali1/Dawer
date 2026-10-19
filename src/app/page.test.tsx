@@ -137,8 +137,12 @@ describe('home demo section', () => {
   it('links “Voir la démo” to the in-page demo anchor', () => {
     renderHome();
 
-    const demoLink = screen.getByRole('link', { name: 'Voir la démo' });
-    expect(demoLink).toHaveAttribute('href', '#demo');
+    // Both the hero secondary CTA and the footer link to the demo section.
+    const demoLinks = screen.getAllByRole('link', { name: 'Voir la démo' });
+    expect(demoLinks.length).toBeGreaterThanOrEqual(2);
+    for (const demoLink of demoLinks) {
+      expect(demoLink).toHaveAttribute('href', '#demo');
+    }
   });
 
   it('renders the YouTube demo video in a responsive aspect-video container', () => {
@@ -181,11 +185,73 @@ describe('home auth links', () => {
   it('always shows the sign-in link and register CTAs', () => {
     renderHome();
 
-    expect(screen.getByRole('link', { name: 'Se connecter' })).toHaveAttribute('href', '/auth/login');
+    // Sign-in sits both in the top nav and in the footer.
+    const signInLinks = screen.getAllByRole('link', { name: 'Se connecter' });
+    expect(signInLinks.length).toBeGreaterThanOrEqual(2);
+    for (const link of signInLinks) {
+      expect(link).toHaveAttribute('href', '/auth/login');
+    }
     const ctaLinks = screen.getAllByRole('link', { name: /Demander un essai gratuit/ });
     for (const link of ctaLinks) {
       expect(link).toHaveAttribute('href', '/auth/register');
     }
+  });
+
+  it('places the register CTA in the nav, the hero and the footer', () => {
+    renderHome();
+
+    const heroCta = screen.getByRole('link', { name: 'Commencer gratuitement' });
+    expect(heroCta).toHaveAttribute('href', '/auth/register');
+
+    // Exact name match: the hero CTA reads "Commencer gratuitement", the nav one "Commencer".
+    const navCta = screen.getByRole('link', { name: 'Commencer' });
+    expect(navCta).toHaveAttribute('href', '/auth/register');
+
+    // The honest product facts strip replaces the old fabricated metrics.
+    expect(screen.getByText('QR → Roue → Coupon')).toBeInTheDocument();
+    expect(screen.getByText('Analytics en direct')).toBeInTheDocument();
+    expect(screen.getByText('Essai gratuit')).toBeInTheDocument();
+  });
+});
+
+describe('home footer', () => {
+  it('shows login, demo, contact and privacy links', () => {
+    renderHome();
+
+    expect(screen.getByRole('link', { name: 'Nous contacter' })).toHaveAttribute(
+      'href',
+      'mailto:contact@dawer.com',
+    );
+    expect(screen.getByRole('link', { name: 'Politique de confidentialité' })).toHaveAttribute(
+      'href',
+      '/privacy',
+    );
+  });
+});
+
+describe('home hero wheel demo', () => {
+  it('renders the interactive prize wheel with its spin button', () => {
+    renderHome();
+
+    expect(screen.getByTestId('landing-wheel-demo')).toBeInTheDocument();
+    // The six sample slices are visible, including the retry slice.
+    expect(screen.getAllByText('Café offert').length).toBeGreaterThan(0);
+    expect(screen.getByText('Réessayez')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tourner la roue' })).toBeInTheDocument();
+  });
+
+  it('spins the wheel and reveals the result', async () => {
+    renderHome();
+
+    const spinButton = screen.getByRole('button', { name: 'Tourner la roue' });
+    fireEvent.click(spinButton);
+
+    expect(screen.getByRole('button', { name: 'La roue tourne…' })).toBeDisabled();
+
+    // The "fast" motion preset spins for 2s; the win/no-win chip lands just after.
+    const result = await screen.findByText(/Vous avez gagné|Presque !/, {}, { timeout: 6000 });
+    expect(result).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rejouer' })).toBeEnabled();
   });
 });
 
@@ -203,6 +269,16 @@ describe('home mobile navigation', () => {
     expect(within(panel).getByRole('link', { name: 'Confidentialité' })).toBeInTheDocument();
     expect(within(panel).getByRole('link', { name: 'Tarifs' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Fermer le menu' })).toBeInTheDocument();
+  });
+
+  it('offers the register CTA at the bottom of the mobile panel', () => {
+    renderHome();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ouvrir le menu' }));
+
+    const panel = screen.getByRole('navigation', { name: 'Navigation principale' });
+    const cta = within(panel).getByRole('link', { name: 'Commencer gratuitement' });
+    expect(cta).toHaveAttribute('href', '/auth/register');
   });
 
   it('closes the mobile nav on Escape', () => {

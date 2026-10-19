@@ -5,7 +5,6 @@ import {
   BarChart3,
   Check,
   Gift,
-  LayoutDashboard,
   Menu,
   Workflow,
   X,
@@ -15,28 +14,16 @@ import { PublicPlansService } from '@/services/public-plans.service';
 import { DEMO_VIDEO_EMBED_URL } from '@/lib/demo-video';
 import { DawerLogo } from '@/components/brand/dawer-logo';
 import { PartnerMarquee } from '@/components/marketing/partner-marquee';
+import { WheelDemo } from '@/components/marketing/wheel-demo';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/toast';
 import { cn } from '@/lib/cn';
 import { useLocale, useT } from '@/hooks/use-t';
-
-const weekBars = [38, 52, 46, 68, 74, 92, 64];
-
-const weekDaysFr = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
-const weekDaysEn = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-
-const heroStatValues: Record<string, string> = {
-  merchantRating: '4.9/5',
-  avgUplift: '32%',
-  campaignVisibility: '24/7',
-};
 
 export default function Home() {
   const t = useT();
   const locale = useLocale();
-  const weekDays = locale === 'fr' ? weekDaysFr : weekDaysEn;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // Live operator-maintained plans; null until the feed answers, in which case
   // the bundled catalog stays (never a blank pricing section).
@@ -90,10 +77,11 @@ export default function Home() {
     t.landing.stepMeasure,
   ];
 
-  const heroStats = (['merchantRating', 'avgUplift', 'campaignVisibility'] as const).map((key) => ({
-    value: heroStatValues[key],
-    label: t.landing[key],
-  }));
+  const heroFacts = [
+    { value: t.landing.heroFact1, label: t.landing.heroFact1Label },
+    { value: t.landing.heroFact2, label: t.landing.heroFact2Label },
+    { value: t.landing.heroFact3, label: t.landing.heroFact3Label },
+  ];
 
   return (
     <main className="relative min-h-screen bg-surface text-ink">
@@ -125,6 +113,9 @@ export default function Home() {
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost" size="sm">
               <Link to="/auth/login">{t.auth.signIn}</Link>
+            </Button>
+            <Button asChild size="sm" className="hidden md:inline-flex">
+              <Link to="/auth/register">{t.landing.navCta}</Link>
             </Button>
             <Button
               variant="ghost"
@@ -176,13 +167,20 @@ export default function Home() {
                 {t.landing.navPrivacy}
               </Link>
             </div>
+            <div className="mt-3 border-t border-line pt-3">
+              <Button asChild className="w-full">
+                <Link to="/auth/register" onClick={() => setMobileNavOpen(false)}>
+                  {t.landing.heroCta}
+                </Link>
+              </Button>
+            </div>
           </nav>
         ) : null}
       </header>
 
       <section className="relative">
         <div className="mx-auto grid max-w-7xl items-center gap-14 px-5 pb-20 pt-16 sm:px-8 sm:pt-24 lg:grid-cols-[1.04fr_0.96fr]">
-          <div className="animate-slide-up">
+          <div className="animate-slide-up motion-reduce:animate-none">
             <Badge tone="brand" size="sm">
               {t.landing.heroBadge}
             </Badge>
@@ -196,6 +194,12 @@ export default function Home() {
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Button asChild size="lg">
+                <Link to="/auth/register">
+                  {t.landing.heroCta}
+                  <ArrowRight aria-hidden className="h-4 w-4" />
+                </Link>
+              </Button>
               <Button asChild variant="outline" size="lg">
                 {/* In-page anchor: the global smooth scroll (globals.css) takes
                     the visitor straight to the demo video, same pattern as the
@@ -204,104 +208,21 @@ export default function Home() {
               </Button>
             </div>
 
-            <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-3 border-t border-line pt-6">
-              {heroStats.map((stat) => (
-                <p key={stat.label} className="text-[13px] text-ink-muted">
-                  <span className="numeric text-[15px] font-semibold tracking-[-0.02em] text-ink">{stat.value}</span>{' '}
-                  {stat.label}
-                </p>
+            {/* Concrete product facts, not invented metrics: every line maps
+                to a real capability shipped in the product. */}
+            <div className="mt-10 grid grid-cols-3 gap-4 border-t border-line pt-6">
+              {heroFacts.map((fact) => (
+                <div key={fact.value}>
+                  <p className="text-[13px] font-semibold tracking-[-0.01em] text-ink sm:text-[13.5px]">{fact.value}</p>
+                  <p className="mt-1 text-[11.5px] leading-snug text-ink-subtle sm:text-[12px]">{fact.label}</p>
+                </div>
               ))}
             </div>
           </div>
 
-          <div className="relative animate-fade-in">
+          <div className="relative animate-fade-in motion-reduce:animate-none">
             <div aria-hidden className="pointer-events-none absolute -inset-5 rounded-[2.25rem] bg-brand-400/20 blur-3xl" />
-
-            <Card className="relative overflow-hidden">
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-x-0 -top-24 h-44 bg-[radial-gradient(70%_100%_at_50%_0%,rgb(125_171_75/0.22),transparent_70%)]"
-              />
-
-              <div className="relative flex items-center gap-2.5 border-b border-line px-5 py-3.5">
-                <LayoutDashboard aria-hidden className="h-4 w-4 text-brand-600 dark:text-accent-bright" />
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-subtle">{t.landing.liveOverview}</p>
-                <Badge tone="success" size="sm" dot className="ml-auto">
-                  {t.common.active}
-                </Badge>
-              </div>
-
-              <div className="relative space-y-4 p-5">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                  <h2 className="text-[17px] font-semibold tracking-[-0.02em] text-ink">{t.landing.sampleCampaign}</h2>
-                  <p className="text-[12px] text-ink-subtle">{t.landing.sampleDates}</p>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-lg border border-line bg-elevated p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.landing.customers}</p>
-                    <p className="numeric mt-2 text-[26px] font-semibold tracking-[-0.03em] text-ink">1,247</p>
-                    <p className="mt-1.5 text-[12.5px] font-medium text-success-600 dark:text-success-300">
-                      {t.landing.monthDelta}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-line bg-elevated p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.landing.rewardsIssued}</p>
-                    <p className="numeric mt-2 text-[26px] font-semibold tracking-[-0.03em] text-ink">284</p>
-                    <p className="mt-1.5 text-[12.5px] font-medium text-brand-700 dark:text-accent-bright">
-                      {t.landing.redemptionRate}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-line bg-elevated p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[12.5px] font-medium text-ink-muted">{t.landing.scansThisWeek}</p>
-                    <Badge tone="brand" size="sm">
-                      +18.4%
-                    </Badge>
-                  </div>
-                  <div aria-hidden className="mt-4 flex h-16 items-end gap-2">
-                    {weekBars.map((value, index) => (
-                      <span
-                        key={value}
-                        style={{ height: `${value}%`, animationDelay: `${index * 60}ms` }}
-                        className="flex-1 animate-slide-up rounded-t-sm bg-brand-500/25 last:bg-brand-500 motion-reduce:animate-none"
-                      />
-                    ))}
-                  </div>
-                  <div aria-hidden className="mt-2 flex gap-2 text-[10px] font-medium uppercase tracking-[0.06em] text-ink-subtle">
-                    {weekDays.map((day, index) => (
-                      <span key={`${day}-${index}`} className="flex-1 text-center">
-                        {day}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-line bg-elevated p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <p className="text-[12.5px] font-medium text-ink-muted">{t.landing.campaignConversion}</p>
-                    <span className="numeric text-[13px] font-semibold text-ink">68.5%</span>
-                  </div>
-                  <Progress value={68} label={t.landing.campaignConversion} />
-                  <div className="mt-4 grid grid-cols-3 gap-3 border-t border-line pt-3.5">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.landing.qrScans}</p>
-                      <p className="numeric mt-1 text-[14px] font-semibold text-ink">3.2k</p>
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.landing.starts}</p>
-                      <p className="numeric mt-1 text-[14px] font-semibold text-ink">1.1k</p>
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t.landing.redeems}</p>
-                      <p className="numeric mt-1 text-[14px] font-semibold text-ink">420</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Card>
+            <WheelDemo />
           </div>
         </div>
       </section>
@@ -486,18 +407,38 @@ export default function Home() {
         </div>
       </section>
 
-      <footer className="relative bg-surface">
+      <footer className="relative border-t border-line bg-surface">
         <div className="mx-auto flex max-w-7xl flex-col items-start gap-6 px-5 py-10 sm:px-8 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-col gap-3">
             <DawerLogo className="h-8 w-auto" />
-            <p className="text-[13px] text-ink-subtle">© 2026 dawer</p>
+            <p className="text-[13px] text-ink-subtle">© {new Date().getFullYear()} dawer</p>
           </div>
-          <Link
-            to="/privacy"
-            className="text-[13px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink"
-          >
-            {t.landing.privacyLink}
-          </Link>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <Link
+              to="/auth/login"
+              className="text-[13px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink"
+            >
+              {t.auth.signIn}
+            </Link>
+            <a
+              href="#demo"
+              className="text-[13px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink"
+            >
+              {t.landing.viewDemo}
+            </a>
+            <a
+              href="mailto:contact@dawer.com"
+              className="text-[13px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink"
+            >
+              {t.landing.footerContact}
+            </a>
+            <Link
+              to="/privacy"
+              className="text-[13px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink"
+            >
+              {t.landing.privacyLink}
+            </Link>
+          </div>
         </div>
       </footer>
     </main>
