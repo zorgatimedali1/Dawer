@@ -93,6 +93,10 @@ export default function WheelConfigPage() {
   const [description, setDescription] = useState('Tournez la roue et d\u00e9couvrez votre cadeau imm\u00e9diatement\u00a0!');
   const [logo, setLogo] = useState<string | null>(null);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  // Instant chosen-file previews (object URLs) shown while the upload
+  // round-trip runs, so the merchant sees the new logo without a save + reload.
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [hubLogoPreview, setHubLogoPreview] = useState<string | null>(null);
   const [action, setAction] = useState<CampaignConfigurationInput['action']>('google-review');
   const [googleMapsSearch, setGoogleMapsSearch] = useState('');
   const [googlePlaceId, setGooglePlaceId] = useState<string>();
@@ -364,6 +368,10 @@ export default function WheelConfigPage() {
 
     setIsUploadingLogo(true);
     setConfigError('');
+    // Instant local preview while the upload round-trip runs.
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    const previewUrl = URL.createObjectURL(file);
+    setLogoPreview(previewUrl);
     try {
       const optimized = await prepareLogoUpload(file, msg(t, 'The logo must be 512 KB or smaller.'));
       const logoUrl = await SettingsService.uploadLogo(optimized);
@@ -372,6 +380,8 @@ export default function WheelConfigPage() {
     } catch (error) {
       setConfigError(msg(t, error instanceof Error ? error.message : 'Unable to upload the logo.'));
     } finally {
+      URL.revokeObjectURL(previewUrl);
+      setLogoPreview(null);
       setIsUploadingLogo(false);
     }
   };
@@ -645,6 +655,11 @@ export default function WheelConfigPage() {
     setIsUploadingWheelLogo(true);
     setThemeMessage('');
     setThemeError('');
+    // Instant local preview shown in the card and the wheel while the upload
+    // + theme save run.
+    if (hubLogoPreview) URL.revokeObjectURL(hubLogoPreview);
+    const previewUrl = URL.createObjectURL(file);
+    setHubLogoPreview(previewUrl);
     try {
       const optimized = await prepareLogoUpload(file, msg(t, 'The logo must be 512 KB or smaller.'));
       await SettingsService.uploadWheelLogo(optimized);
@@ -661,6 +676,8 @@ export default function WheelConfigPage() {
     } catch (error) {
       setThemeError(msg(t, error instanceof Error ? error.message : t.wheel.designError));
     } finally {
+      URL.revokeObjectURL(previewUrl);
+      setHubLogoPreview(null);
       setIsUploadingWheelLogo(false);
     }
   };
@@ -786,12 +803,19 @@ export default function WheelConfigPage() {
                 <div className="rounded-xl border border-dashed border-line-strong bg-surface-2/50 p-4">
                   <div className="flex items-center gap-4">
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-elevated ring-1 ring-line">
-                      {logo ? (
+                      {(logoPreview || logo) ? (
                         <img
-                          src={logo}
+                          src={logoPreview ?? logo ?? undefined}
                           alt={t.wheel.logoAlt}
                           className="h-full w-full object-contain"
-                          onError={() => setLogo(null)}
+                          onError={() => {
+                            if (logoPreview) {
+                              URL.revokeObjectURL(logoPreview);
+                              setLogoPreview(null);
+                            } else {
+                              setLogo(null);
+                            }
+                          }}
                         />
                       ) : (
                         <UploadCloud className="h-5 w-5 text-ink-subtle" aria-hidden />
@@ -841,6 +865,23 @@ export default function WheelConfigPage() {
                       />
                       <span className="text-[13px] font-medium text-ink">{t.wheel.centerLogoToggle}</span>
                     </label>
+                    {(hubLogoPreview || themeState?.centerLogo) ? (
+                      <div className="mt-4 flex items-center gap-4">
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-elevated ring-1 ring-line">
+                          <img
+                            src={hubLogoPreview || themeState?.centerLogo || undefined}
+                            alt={t.wheel.logoAlt}
+                            className="h-full w-full object-contain"
+                            onError={() => {
+                              if (hubLogoPreview) {
+                                URL.revokeObjectURL(hubLogoPreview);
+                                setHubLogoPreview(null);
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="mt-4 flex flex-wrap items-center gap-2">
                       <label className={cn(
                         'inline-flex h-9 cursor-pointer select-none items-center gap-2 rounded-md bg-ink px-3 text-[13px] font-medium text-surface transition-colors duration-180 ease-swift hover:bg-ink/90 disabled:pointer-events-none disabled:opacity-60 dark:bg-ink-inverse dark:text-surface-2 dark:hover:bg-ink-inverse/90',
@@ -1677,12 +1718,19 @@ export default function WheelConfigPage() {
               <div className="rounded-xl border border-line bg-surface-2/60 p-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-elevated ring-1 ring-line">
-                    {logo ? (
+                    {(logoPreview || logo) ? (
                       <img
-                        src={logo}
+                        src={logoPreview ?? logo ?? undefined}
                         alt={t.wheel.logoPreviewAlt}
                         className="h-full w-full object-contain"
-                        onError={() => setLogo(null)}
+                        onError={() => {
+                          if (logoPreview) {
+                            URL.revokeObjectURL(logoPreview);
+                            setLogoPreview(null);
+                          } else {
+                            setLogo(null);
+                          }
+                        }}
                       />
                     ) : (
                       <span className="h-full w-full bg-ink/[0.06]" />
@@ -1701,7 +1749,9 @@ export default function WheelConfigPage() {
                     spinning={spinning}
                     testId="preview-wheel"
                     theme={effectiveTheme}
-                    centerLogoSrc={effectiveTheme.centerLogo ? (themeState?.centerLogo ?? null) : null}
+                    centerLogoSrc={(themeDraft?.centerLogo || effectiveTheme.centerLogo || hubLogoPreview)
+                      ? (hubLogoPreview ?? themeState?.centerLogo ?? null)
+                      : null}
                     centerLogoAlt={t.wheel.logoAlt}
                     wrapperClassName="w-full max-w-[460px]"
                   />

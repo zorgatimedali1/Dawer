@@ -966,7 +966,7 @@ export const wheel: D<typeof frDict.wheel> = {
   wheelTitle: 'Wheel title',
   descriptionLabel: 'Description',
   logoLabel: 'Company logo',
-  logoHint: 'PNG, JPG, SVG, WEBP — up to 512 KB.',
+  logoHint: 'PNG, JPG, SVG, WEBP — up to 512 KB. Square image, max 512 × 512 px, transparent background preferred.',
   logoUploadButton: 'Upload',
   logoRemoveButton: 'Remove',
   logoAlt: 'Company logo',

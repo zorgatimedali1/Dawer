@@ -623,7 +623,7 @@ export default function CampaignCustomerPage() {
               <img
                 src={campaign.business_logo}
                 alt={merchantName}
-                className="h-48 w-48 rounded-2xl object-cover shadow-soft ring-1 ring-line"
+                className="h-48 w-48 rounded-2xl bg-elevated object-contain p-3 shadow-soft ring-1 ring-line"
               />
             ) : (
               <div className="flex h-48 w-48 items-center justify-center rounded-2xl bg-brand-500 text-5xl font-bold text-accent-ink shadow-soft">

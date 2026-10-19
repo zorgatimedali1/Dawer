@@ -969,7 +969,7 @@ export const wheel = {
   wheelTitle: 'Titre de la roue',
   descriptionLabel: 'Description',
   logoLabel: 'Logo de l\u2019entreprise',
-  logoHint: 'PNG, JPG, SVG, WEBP \u2014 jusqu\u2019\u00e0 512 Ko.',
+  logoHint: 'PNG, JPG, SVG ou WEBP \u2014 jusqu\u2019\u00e0 512 Ko. Image carr\u00e9e de 512 \u00d7 512 px maximum, fond transparent de pr\u00e9f\u00e9rence.',
   logoUploadButton: 'T\u00e9l\u00e9charger',
   logoRemoveButton: 'Retirer',
   logoAlt: 'Logo de l\u2019entreprise',
