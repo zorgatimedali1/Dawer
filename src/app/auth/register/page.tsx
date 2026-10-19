@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Chrome, LockKeyhole, Mail, Store, User } from 'lucide-react';
+import { GoogleLogo } from '@/components/brand/google-logo';
+import { LockKeyhole, Mail, Store, User } from 'lucide-react';
 import { AuthService } from '@/services/auth.service';
 import { useAppContext } from '@/contexts/app-context';
 import { Button } from '@/components/ui/button';
@@ -70,7 +71,7 @@ export default function RegisterPage() {
         className="w-full"
         onClick={() => window.location.assign(AuthService.googleSignInUrl())}
       >
-        <Chrome aria-hidden className="h-4 w-4" />
+        <GoogleLogo className="h-4 w-4" />
         {t.auth.googleSignUp}
       </Button>
 
