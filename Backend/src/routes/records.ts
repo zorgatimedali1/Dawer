@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { errorResponse, jsonResponse } from '../lib/http';
 import { secureRandomHex } from '../lib/crypto';
-import { ensureNoWinSlice } from '../lib/reward';
+import { ensureNoWinSlice, transferDeactivatedWeightToNoWin } from '../lib/reward';
 import { markAnalyticsDirtySafe } from '../lib/analytics-cache';
 import {
   couponListQuerySchema,
@@ -507,12 +507,20 @@ async function handleRewardPatch(request: Request, env: Env, user: Authenticated
   if (businessIds.length === 0) return errorResponse('Reward not found.', 404);
 
   const reward = await env.DB.prepare(
-    `SELECT id, business_id, campaign_id, type, quantity_initial FROM rewards
+    `SELECT id, business_id, campaign_id, type, quantity_initial, weight, active FROM rewards
      WHERE id = ? AND business_id IN (${placeholders(businessIds.length)})
      LIMIT 1`,
   )
     .bind(rewardId, ...businessIds)
-    .first<{ id: string; business_id: string; campaign_id: string; type: string; quantity_initial: number | null }>();
+    .first<{
+      id: string;
+      business_id: string;
+      campaign_id: string;
+      type: string;
+      quantity_initial: number | null;
+      weight: number;
+      active: number;
+    }>();
 
   if (!reward) return errorResponse('Reward not found.', 404);
 
@@ -542,6 +550,14 @@ async function handleRewardPatch(request: Request, env: Env, user: Authenticated
     reward.type !== 'none';
   if (emptiedStock) {
     await ensureNoWinSlice(env, reward.campaign_id);
+  }
+
+  // Deactivating a prize hands its stored weight to the "Prochaine fois"
+  // slice — activating it when it was off, topping it up otherwise — so the
+  // freed percentage lands where the disabled prize used to be instead of
+  // silently renormalizing across the remaining prizes.
+  if (input.active === false && reward.type !== 'none') {
+    await transferDeactivatedWeightToNoWin(env, reward.campaign_id, reward.id, Number(reward.weight ?? 0));
   }
 
   await writeAuditLog(env, {

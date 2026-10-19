@@ -508,6 +508,82 @@ describe('GET /api/business/rewards', () => {
     expect(db.query<{ active: number }>(`SELECT active FROM rewards WHERE id = ?`, noWinId)).toEqual([{ active: 1 }]);
   });
 
+  it('hands a deactivated prize weight to an inactive none slice', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const noWinId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO rewards (id, business_id, campaign_id, name, type, quantity, quantity_initial, weight, active, created_at, updated_at)
+       VALUES (?, ?, ?, 'Prochaine fois', 'none', 0, 0, 0, 0, ?, ?)`,
+    )
+      .bind(noWinId, alice.businessId, aliceCampaign, now, now)
+      .run();
+
+    const updated = await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { active: false }, alice.token),
+      env,
+    );
+    expect(updated.status).toBe(200);
+    expect((await body(updated)).reward).toMatchObject({ active: 0, weight: 0 });
+    expect(
+      db.query<{ active: number; weight: number }>(`SELECT active, weight FROM rewards WHERE id = ?`, noWinId),
+    ).toEqual([{ active: 1, weight: 50 }]);
+  });
+
+  it('tops up an active none slice when a prize is deactivated', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const noWinId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO rewards (id, business_id, campaign_id, name, type, quantity, quantity_initial, weight, active, created_at, updated_at)
+       VALUES (?, ?, ?, 'Prochaine fois', 'none', 0, 0, 5, 1, ?, ?)`,
+    )
+      .bind(noWinId, alice.businessId, aliceCampaign, now, now)
+      .run();
+
+    await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { active: false }, alice.token),
+      env,
+    );
+
+    expect(
+      db.query<{ active: number; weight: number }>(`SELECT active, weight FROM rewards WHERE id = ?`, noWinId),
+    ).toEqual([{ active: 1, weight: 55 }]);
+  });
+
+  it('deactivating the none slice itself leaves every weight untouched', async () => {
+    const noWinId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO rewards (id, business_id, campaign_id, name, type, quantity, quantity_initial, weight, active, created_at, updated_at)
+       VALUES (?, ?, ?, 'Prochaine fois', 'none', 0, 0, 25, 1, ?, ?)`,
+    )
+      .bind(noWinId, alice.businessId, aliceCampaign, now, now)
+      .run();
+
+    const updated = await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${noWinId}`, 'PATCH', { active: false }, alice.token),
+      env,
+    );
+    expect(updated.status).toBe(200);
+    expect(
+      db.query<{ active: number; weight: number }>(`SELECT active, weight FROM rewards WHERE id = ?`, noWinId),
+    ).toEqual([{ active: 0, weight: 25 }]);
+  });
+
+  it('keeps the deactivated weight when the campaign has no none slice', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+
+    const updated = await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { active: false }, alice.token),
+      env,
+    );
+    expect(updated.status).toBe(200);
+    expect(
+      db.query<{ active: number; weight: number }>(`SELECT active, weight FROM rewards WHERE id = ?`, rewardId),
+    ).toEqual([{ active: 0, weight: 50 }]);
+  });
+
   it('deletes a reward immediately and 404s foreign or unknown ids', async () => {
     const rewardId = seedReward(alice.businessId, aliceCampaign);
 
