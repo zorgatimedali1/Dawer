@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '../types';
+import { markAnalyticsDirty } from '../lib/analytics-cache';
 import { handleAnalyticsRoute } from '../routes/analytics';
 import { createTestEnv, type TestDatabase } from './helpers/d1';
 import { jsonRequest, seedMerchant, type SeededMerchant } from './helpers/fixtures';
@@ -88,7 +89,7 @@ describe('analytics authentication', () => {
 });
 
 describe('GET /api/analytics/overview', () => {
-  it('only counts events belonging to the caller businesses', async () => {
+  it('only counts data belonging to the caller businesses', async () => {
     // A coupon row is the live source of truth for a win (no REWARD_CLAIMED
     // event is written anymore), so seed one to drive the derived rewards count.
     db.prepare(
@@ -103,9 +104,11 @@ describe('GET /api/analytics/overview', () => {
     );
 
     expect(payload.success).toBe(true);
-    // REWARD_CLAIMED is derived from the coupons table (1 issued coupon), not
-    // from a stored event — it no longer appears in analytics_events.
+    // Totals derive from the permanent tables (the seeded cross-business
+    // bob event must not leak in); REWARD_CLAIMED comes from the coupons
+    // table (1 issued coupon) — it no longer appears in analytics_events.
     expect(payload.totals).toEqual([
+      { event_type: 'COUPON_REDEEMED', count: 0 },
       { event_type: 'PARTICIPATION', count: 1 },
       { event_type: 'REWARD_CLAIMED', count: 1 },
     ]);
@@ -144,6 +147,7 @@ describe('GET /api/analytics/overview', () => {
 
     expect(payload.summary).toMatchObject({ participations: 1, coupons: 2, redeemed: 1, customers: 1 });
     expect(payload.totals).toEqual([
+      { event_type: 'COUPON_REDEEMED', count: 1 },
       { event_type: 'PARTICIPATION', count: 1 },
       { event_type: 'REWARD_CLAIMED', count: 2 },
     ]);
@@ -600,6 +604,33 @@ describe('analytics KV response cache', () => {
       const second = await handleAnalyticsRoute(jsonRequest(path, 'GET', undefined, alice.token), env);
       expect(cacheHeader(second), path).toBe('HIT');
     }
+  });
+
+  it('recomputes while a write-activity dirty marker is live', async () => {
+    const url = '/api/analytics/timeseries?days=7';
+    const first = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, alice.token), env);
+    expect(cacheHeader(first)).toBe('MISS');
+
+    // Mutating routes stamp a short-TTL marker after every spin/scan/redeem;
+    // the read must recompute even though the entry is inside its TTL window.
+    await markAnalyticsDirty(env, alice.businessId);
+    const second = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, alice.token), env);
+    expect(cacheHeader(second)).toBe('MISS');
+
+    // Marker expired (or was never re-stamped): normal caching resumes.
+    await env.TOKENS.delete(`analytics:dirty:${alice.businessId}`);
+    const third = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, alice.token), env);
+    expect(cacheHeader(third)).toBe('HIT');
+  });
+
+  it('ignores another tenant’s dirty marker', async () => {
+    const url = '/api/analytics/timeseries?days=7';
+    const first = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, alice.token), env);
+    expect(cacheHeader(first)).toBe('MISS');
+
+    await markAnalyticsDirty(env, bob.businessId);
+    const second = await handleAnalyticsRoute(jsonRequest(url, 'GET', undefined, alice.token), env);
+    expect(cacheHeader(second)).toBe('HIT');
   });
 
   it('never serves one tenant the cache entry of another', async () => {

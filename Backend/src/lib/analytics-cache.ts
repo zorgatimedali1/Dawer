@@ -55,3 +55,38 @@ export async function writeAnalyticsCache(
 ): Promise<void> {
   await env.TOKENS.put(key, JSON.stringify(body), { expirationTtl: ttlSeconds });
 }
+
+/**
+ * Write-activity invalidation: the analytics cache can sit for 1–3h, so a
+ * spin or a redemption the merchant just performed would stay invisible until
+ * the TTL window closed (KV delete has the same weakness — data propagates
+ * globally only after ~60s). Instead, every mutating route stamps a short-TTL
+ * per-business marker. Readers that find a live marker skip the cached body
+ * and recompute from D1; once the marker expires (5 min), normal caching
+ * resumes. Self-healing at any edge: even a lagging replica that serves an
+ * old marker keeps the next reads cache-free, while a marker that never
+ * landed only costs the usual bounded TTL.
+ */
+const DIRTY_PREFIX = 'analytics:dirty';
+const DIRTY_TTL_SECONDS = 300;
+
+export function markAnalyticsDirty(env: Env, businessId: string): Promise<void> {
+  return env.TOKENS.put(`${DIRTY_PREFIX}:${businessId}`, '1', { expirationTtl: DIRTY_TTL_SECONDS });
+}
+
+/** Best-effort stamp — losing one only re-arms the normal TTL. */
+export async function markAnalyticsDirtySafe(env: Env, businessId: string): Promise<void> {
+  try {
+    await markAnalyticsDirty(env, businessId);
+  } catch (error) {
+    console.error('analytics_dirty_mark_failed', error instanceof Error ? error.message : String(error));
+  }
+}
+
+export async function isAnalyticsDirty(env: Env, businessIds: string[]): Promise<boolean> {
+  if (businessIds.length === 0) return false;
+  const marks = await Promise.all(
+    businessIds.map((businessId) => env.TOKENS.get(`${DIRTY_PREFIX}:${businessId}`)),
+  );
+  return marks.some((mark) => mark !== null);
+}

@@ -4,6 +4,7 @@ import { getBusinessAccess } from '../lib/subscription-access';
 import {
   analyticsCacheKey,
   analyticsTtlSeconds,
+  isAnalyticsDirty,
   readAnalyticsCache,
   writeAnalyticsCache,
 } from '../lib/analytics-cache';
@@ -75,6 +76,9 @@ async function openAnalyticsCache(
   if (businessIds.length === 0) return { key: null, hit: null };
   const key = await analyticsCacheKey(businessIds, endpoint, days);
   if (url.searchParams.get('fresh') === '1') return { key, hit: null };
+  // A spin/redemption/scan within the last 5 minutes forces a recompute so
+  // the merchant sees their own action instead of the pre-activity snapshot.
+  if (await isAnalyticsDirty(env, businessIds)) return { key, hit: null };
   return { key, hit: await readAnalyticsCache(env, key) };
 }
 
@@ -377,15 +381,6 @@ export async function handleAnalyticsRoute(request: Request, env: Env): Promise<
     if (cache.hit !== null) return cachedJsonResponse(cache.hit);
 
     const placeholders = businessIds.map(() => '?').join(', ');
-    const counts = await analyticsDb(env).prepare(
-      `SELECT event_type, COUNT(*) AS count
-       FROM analytics_events
-       WHERE business_id IN (${placeholders})
-       GROUP BY event_type
-       ORDER BY event_type ASC`,
-    )
-      .bind(...businessIds)
-      .all();
 
     // Table counts, not event sums: events are pruned after retention while
     // these rows are permanent, and a soft-deleted coupon (`status='DELETED'`,
@@ -393,7 +388,7 @@ export async function handleAnalyticsRoute(request: Request, env: Env): Promise<
     const summary = await analyticsDb(env).prepare(
       `SELECT
          (SELECT COUNT(*) FROM participations p INNER JOIN campaigns c ON c.id = p.campaign_id
-           WHERE c.business_id IN (${placeholders})) AS participations,
+            WHERE c.business_id IN (${placeholders})) AS participations,
          (SELECT COUNT(*) FROM coupons cp WHERE cp.business_id IN (${placeholders}) AND cp.status <> 'DELETED') AS coupons,
          (SELECT COUNT(*) FROM coupons cr WHERE cr.business_id IN (${placeholders}) AND cr.status = 'REDEEMED') AS redeemed,
          (SELECT COUNT(*) FROM customers cu WHERE cu.business_id IN (${placeholders})) AS customers`,
@@ -401,17 +396,27 @@ export async function handleAnalyticsRoute(request: Request, env: Env): Promise<
       .bind(...businessIds, ...businessIds, ...businessIds, ...businessIds)
       .first();
 
-    // Wins are no longer written as a REWARD_CLAIMED event (the coupon row
-    // below is the source of truth), so derive that count from coupons to
-    // keep the "Rewards won" card live instead of frozen at its pre-change
-    // total. Every redeemed coupon was also issued, so `coupons` is an exact
-    // stand-in for issued count.
+    // The totals grid mirrors the permanent tables too. Event-derived counts
+    // would sink after the 400-day retention prune and, for redemptions,
+    // overcount coupons the merchant un-redeemed (the event has no delete
+    // counterpart). Only QR_SCANNED has no permanent table — it keeps coming
+    // straight from analytics_events.
+    const scans = await analyticsDb(env).prepare(
+      `SELECT COUNT(*) AS total FROM analytics_events
+       WHERE business_id IN (${placeholders}) AND event_type = 'QR_SCANNED'`,
+    )
+      .bind(...businessIds)
+      .first<{ total: number }>();
+
     const rewardsIssued = Number(summary?.coupons ?? 0);
-    const totals = (counts.results ?? []).filter((row) => row.event_type !== 'REWARD_CLAIMED');
-    if (rewardsIssued > 0) {
-      totals.push({ event_type: 'REWARD_CLAIMED', count: rewardsIssued });
-    }
-    totals.sort((a, b) => String(a.event_type).localeCompare(String(b.event_type)));
+    const totals = [
+      { event_type: 'PARTICIPATION', count: Number(summary?.participations ?? 0) },
+      { event_type: 'REWARD_CLAIMED', count: rewardsIssued },
+      { event_type: 'COUPON_REDEEMED', count: Number(summary?.redeemed ?? 0) },
+    ];
+    const scanTotal = Number(scans?.total ?? 0);
+    if (scanTotal > 0) totals.push({ event_type: 'QR_SCANNED', count: scanTotal });
+    totals.sort((a, b) => a.event_type.localeCompare(b.event_type));
 
     return storeAnalyticsCache(env, cache.key, overviewDays, {
       success: true,

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { errorResponse, jsonResponse } from '../lib/http';
 import { secureRandomHex } from '../lib/crypto';
 import { ensureNoWinSlice } from '../lib/reward';
+import { markAnalyticsDirtySafe } from '../lib/analytics-cache';
 import {
   couponListQuerySchema,
   couponUpdateSchema,
@@ -299,6 +300,8 @@ async function handleCouponRedeem(request: Request, env: Env, user: Authenticate
     .bind(crypto.randomUUID(), coupon.business_id, coupon.campaign_id, JSON.stringify({ couponId }), now)
     .run();
 
+  void markAnalyticsDirtySafe(env, String(coupon.business_id));
+
   await writeAuditLog(env, {
     businessId: String(coupon.business_id),
     userId: user.id,
@@ -403,6 +406,8 @@ async function handleCouponUpdate(request: Request, env: Env, user: Authenticate
     )
       .bind(crypto.randomUUID(), coupon.business_id, coupon.campaign_id, JSON.stringify({ couponId }), now)
       .run();
+
+    void markAnalyticsDirtySafe(env, String(coupon.business_id));
   }
 
   await writeAuditLog(env, {

@@ -92,14 +92,17 @@ export default function OverviewPage() {
     reload: reloadBundle,
   } = useCachedResource<OverviewBundle>(
     planResolved ? (hasAnalytics ? 'overview:bundle-analytics' : 'overview:bundle-base') : null,
-    async () => {
-      // Campaigns + rewards are the backbone; analytics degrades to an empty
-      // state when its endpoints fail or the plan lacks the feature.
+    async ({ fresh }) => {
+      // A caller-forced retry bypasses the analytics KV cache so the Retry
+      // button shows truly latest numbers; normal visits keep the server's
+      // 3h snapshot. Campaigns + rewards are the backbone; analytics degrades
+      // to an empty state when its endpoints fail or the plan lacks the feature.
+      const options = fresh ? { fresh: true } : undefined;
       const [campaignsResult, rewardsResult, overviewResult, timeseriesResult] = await Promise.allSettled([
         CampaignService.getCampaigns({ limit: 20 }),
         RewardService.list(),
-        hasAnalytics ? AnalyticsService.overview() : Promise.resolve(null),
-        hasAnalytics ? AnalyticsService.timeSeries(30) : Promise.resolve(null),
+        hasAnalytics ? AnalyticsService.overview(options) : Promise.resolve(null),
+        hasAnalytics ? AnalyticsService.timeSeries(30, options) : Promise.resolve(null),
       ]);
 
       if (campaignsResult.status === 'rejected') {

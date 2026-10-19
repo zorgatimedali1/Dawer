@@ -5,6 +5,7 @@ import {
   invalidateCachedResource,
   setCachedResource,
   useCachedResource,
+  type FetchContext,
 } from '@/hooks/useCachedResource';
 
 type Payload = { items: string[]; revision: number };
@@ -19,7 +20,7 @@ function writeCache(key: string, payload: Payload, ageSeconds = 0) {
   if (ageSeconds > 0) ageCachedResourceForTests(key, ageSeconds * 1000);
 }
 
-function Probe({ cacheKey, fetcher }: { cacheKey: string | null; fetcher: () => Promise<Payload> }) {
+function Probe({ cacheKey, fetcher }: { cacheKey: string | null; fetcher: (context: FetchContext) => Promise<Payload> }) {
   const { data, loading, updating, error, reload, mutate } = useCachedResource(cacheKey, fetcher);
   return (
     <div>
@@ -127,6 +128,26 @@ describe('useCachedResource', () => {
     });
     await waitFor(() => expect(state('k7')).toBe('settled|idle|11:v2|no-error'));
     expect(fetcher2).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes fresh=false on ordinary fetches and fresh=true after reload()', async () => {
+    const fetcher = vi.fn((context: { fresh: boolean }) =>
+      json({ items: [context.fresh ? 'forced' : 'normal'], revision: 14 }),
+    );
+    const result = render(<Probe cacheKey="k10" fetcher={fetcher} />);
+    await screen.findByText('settled|idle|14:normal|no-error');
+    expect(fetcher).toHaveBeenCalledWith({ fresh: false });
+
+    await act(async () => {
+      screen.getByText('reload').click();
+    });
+    await waitFor(() => expect(state('k10')).toBe('settled|idle|14:forced|no-error'));
+    expect(fetcher).toHaveBeenLastCalledWith({ fresh: true });
+
+    // The flag is consumed: the next ordinary fetch is not a forced one.
+    result.rerender(<Probe cacheKey="k11" fetcher={fetcher} />);
+    await screen.findByText('settled|idle|14:normal|no-error');
+    expect(fetcher).toHaveBeenLastCalledWith({ fresh: false });
   });
 
   it('mutate() writes through to the cache without a fetch', async () => {

@@ -77,12 +77,20 @@ export interface CachedResource<T> {
   mutate: (value: T) => void;
 }
 
+/** Fetcher context: `fresh` is true only when the caller forced the refetch. */
+export interface FetchContext {
+  fresh: boolean;
+}
+
 /**
  * SWR-style read for one cache key. The fetcher is re-read every render, so
  * closures over filters/search state stay fresh. A `null` key = not mounted
  * or not applicable yet: no fetch, no loading flash.
  */
-export function useCachedResource<T>(key: string | null, fetcher: () => Promise<T>): CachedResource<T> {
+export function useCachedResource<T>(
+  key: string | null,
+  fetcher: (context: FetchContext) => Promise<T>,
+): CachedResource<T> {
   const [state, setState] = useState<{
     key: string | null;
     data: T | null;
@@ -106,6 +114,11 @@ export function useCachedResource<T>(key: string | null, fetcher: () => Promise<
   useEffect(() => {
     fetcherRef.current = fetcher;
   }, [fetcher]);
+  // Consumed on the next fetch pass: `reload()` marks the not-yet-run fetch
+  // as caller-forced so server-side caches (analytics ?fresh=1) can be
+  // bypassed. Cleared right after reading so a later key change fetches
+  // normally again.
+  const forcedRef = useRef(false);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -140,8 +153,10 @@ export function useCachedResource<T>(key: string | null, fetcher: () => Promise<
     if (fresh) return () => { void active; };
 
     let cancelled = false;
+    const context = { fresh: forcedRef.current };
+    forcedRef.current = false;
     fetcherRef
-      .current()
+      .current(context)
       .then((value) => {
         if (cancelled) return;
         setCachedResource(key, value);
@@ -164,7 +179,10 @@ export function useCachedResource<T>(key: string | null, fetcher: () => Promise<
     };
   }, [key, tick]);
 
-  const reload = useCallback(() => setTick((value) => value + 1), []);
+  const reload = useCallback(() => {
+    forcedRef.current = true;
+    setTick((value) => value + 1);
+  }, []);
 
   const mutate = useCallback((value: T) => {
     setState((prev) => {

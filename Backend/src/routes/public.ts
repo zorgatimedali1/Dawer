@@ -8,6 +8,7 @@ import { mintActionTicket, verifyActionTicket } from '../lib/action-ticket';
 import { distanceMetersBetween } from '../lib/geo';
 import { getCustomerLimit, customerLimitFromAccess, wheelCenterLogoAllowed, wheelDesignAllowed, wheelStepsColorAllowed } from '../lib/subscription-limits';
 import { accessFromSubscriptionRow, readStarterPlan, type BusinessAccess } from '../lib/subscription-access';
+import { markAnalyticsDirtySafe } from '../lib/analytics-cache';
 import { handlePublicLogoRoute, handlePublicWheelLogoRoute, businessWheelLogoPath } from './settings';
 import type { Env } from '../types';
 
@@ -86,6 +87,8 @@ async function recordQrScan(
     )
       .bind(crypto.randomUUID(), businessId, campaignId, scanKey, now.toISOString())
       .run();
+
+    void markAnalyticsDirtySafe(env, businessId);
   } catch (error) {
     console.error('qr_scan_record_failed', error instanceof Error ? error.message : String(error));
   }
@@ -1036,6 +1039,11 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     );
 
     await env.DB.batch(chain);
+
+    // The dashboard analytics caches can serve pre-spin aggregates for hours;
+    // stamp the 5-minute dirty marker so the next read recomputes (best
+    // effort: losing the stamp only extends the normal TTL).
+    void markAnalyticsDirtySafe(env, campaign.business_id);
 
     // The chain committed — from here nothing is worth unwinding, and the
     // lock claims must stay held: that is what blocks the next spin. The

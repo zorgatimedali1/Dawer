@@ -4,12 +4,12 @@ import dawerLogo from '@/assets/dawer-logo.png';
 /**
  * The official Dawer wordmark.
  *
- * The default asset is a flat #7DAB4B logotype on a fully transparent
- * background, so it stays legible on the light (#FFFFFF / #F5F9EF) surfaces
- * as-is. `tone="white"` re-renders the same logotype as a pure white
- * silhouette via a `brightness-0 invert` filter — there is no separate white
- * wordmark asset (the "blanc" files in src/assets are wheel icons). It is
- * never cropped or scaled non-proportionally.
+ * The asset is a fully transparent PNG: the wheel-badge "D" followed by the
+ * green (#7DAB4B) logotype, so it stays legible on the light (#FFFFFF /
+ * #F5F9EF) surfaces as-is. `tone="white"` re-renders the whole logo as a pure
+ * white silhouette via a `brightness-0 invert` filter — there is no separate
+ * white wordmark asset (the "blanc" files in src/assets are wheel icons). It
+ * is never cropped or scaled non-proportionally.
  *
  * Size it with a height class and let width follow the intrinsic aspect
  * ratio: `<DawerLogo className="h-9 w-auto" />`
@@ -29,8 +29,8 @@ export function DawerLogo({ alt = 'Dawer', className, tone = 'green', ...props }
     <img
       src={dawerLogo}
       alt={alt}
-      width={953}
-      height={232}
+      width={940}
+      height={181}
       decoding="async"
       className={cls}
       {...props}
