@@ -30,6 +30,12 @@ export interface WheelTheme {
   centerLogo: boolean;
   /** Brand colour for the gate step badges + CTA buttons on the public page. */
   stepsColor: string;
+  /**
+   * Slice label ink: 'light' (default) renders the historic white labels on
+   * every slice; 'auto' picks black or white per slice by fill luminance so
+   * light slices like white stay readable.
+   */
+  labelInk?: 'light' | 'auto';
 }
 
 /** The palette and timing every wheel falls back to. */
@@ -78,6 +84,16 @@ export function gateAccentInk(hex: string | undefined | null): string {
   // Contrast crossover for the two ink tones: brighter accents keep dark ink,
   // darker accents flip to the light tone.
   return luminance > 0.2 ? '#0D120B' : '#F7FBF2';
+}
+
+export function labelInkForSlice(hex: string | undefined | null): string {
+  const value = hex && HEX_COLOR.test(hex) ? hex : '#ffffff';
+  const channel = (offset: number) => {
+    const c = parseInt(value.slice(offset, offset + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+  return luminance > 0.6 ? '#0F172A' : '#FFFFFF';
 }
 
 export function wheelMotionDurationMs(theme: WheelTheme | undefined | null): number {

@@ -2,6 +2,7 @@ import { cn } from '@/lib/cn';
 import {
   DEFAULT_WHEEL_THEME,
   WHEEL_MOTION_EASING,
+  labelInkForSlice,
   wheelGradient,
   wheelMotionDurationMs,
   type WheelTheme,
@@ -76,6 +77,8 @@ export function PrizeWheel({
             14,
             Math.min(29, 60 * Math.sin(Math.PI / Math.max(segments.length, 1)) - 2),
           );
+          const labelColor =
+            activeTheme.labelInk === 'auto' ? labelInkForSlice(segment.color) : undefined;
 
           return (
             <span
@@ -88,6 +91,7 @@ export function PrizeWheel({
                 width: `${labelWidth}%`,
                 fontSize: `${segments.length > 10 ? 3.2 : segments.length > 7 ? 3.6 : 4.1}cqw`,
                 transform: `translate(-50%, -50%) rotate(${segment.angle}deg) translateY(-30cqw) rotate(${labelRotation - segment.angle}deg)`,
+                color: labelColor,
               }}
             >
               <span>{segment.label}</span>
