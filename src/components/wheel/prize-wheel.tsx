@@ -14,6 +14,8 @@ export interface WheelSegment {
   percent: number;
   color: string;
   angle: number;
+  /** Optional secondary line under the label (e.g. Arabic word on the no-win slice). */
+  note?: string | undefined;
 }
 
 interface PrizeWheelProps {
@@ -29,6 +31,30 @@ interface PrizeWheelProps {
   /** Sizing wrapper around the rotor (width, float animation). */
   wrapperClassName?: string;
   shadowClassName?: string;
+  /** Show each slice's winning odds. The public wheel hides them; the dashboard keeps them. */
+  showPercent?: boolean;
+}
+
+/** Splits a label into plain text and emoji runs so the emoji can render larger. */
+const EMOJI_RUN = /(\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?)/gu;
+const EMOJI_EXACT = /^\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?$/u;
+
+function renderLabelWithEmoji(label: string, emojiSize: string) {
+  const parts = label.split(EMOJI_RUN);
+  if (parts.length === 1) return <span>{label}</span>;
+  return (
+    <span>
+      {parts.map((part, index) =>
+        part && EMOJI_EXACT.test(part) ? (
+          <span key={index} aria-hidden="true" style={{ fontSize: emojiSize, lineHeight: 1 }}>
+            {part}
+          </span>
+        ) : (
+          <span key={index}>{part}</span>
+        ),
+      )}
+    </span>
+  );
 }
 
 /**
@@ -46,6 +72,7 @@ export function PrizeWheel({
   centerLogoAlt,
   wrapperClassName,
   shadowClassName,
+  showPercent = true,
 }: PrizeWheelProps) {
   const activeTheme = theme ?? DEFAULT_WHEEL_THEME;
   const durationMs = wheelMotionDurationMs(activeTheme);
@@ -94,8 +121,15 @@ export function PrizeWheel({
                 color: labelColor,
               }}
             >
-              <span>{segment.label}</span>
-              <span className="text-[0.78em] font-bold opacity-95">{segment.percent}%</span>
+              {renderLabelWithEmoji(segment.label, '1.55em')}
+              {segment.note ? (
+                <span dir="auto" className="text-[0.72em] font-bold opacity-95">
+                  {segment.note}
+                </span>
+              ) : null}
+              {showPercent ? (
+                <span className="text-[0.78em] font-bold opacity-95">{segment.percent}%</span>
+              ) : null}
             </span>
           );
         })}

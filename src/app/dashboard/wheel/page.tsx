@@ -19,6 +19,7 @@ import {
   DEFAULT_WHEEL_THEME,
   WHEEL_MOTION_PRESETS,
   gateAccentInk,
+  NO_WIN_ARABIC_NOTE,
   segmentColorAt,
   wheelMotionDurationMs,
   type WheelMotionPreset,
@@ -548,6 +549,9 @@ export default function WheelConfigPage() {
         percent: totalProbability > 0 ? Math.round((reward.probability * 100) / totalProbability) : 0,
         color: segmentColorAt(index, effectiveTheme.colors.segments),
         angle: ((index + 0.5) * 360) / Math.max(activeRewards.length, 1),
+        // The public wheel carries this note on the no-win slice; the preview
+        // mirrors it so the merchant sees exactly what visitors will see.
+        note: reward.type === 'none' ? NO_WIN_ARABIC_NOTE : undefined,
       })),
     [activeRewards, totalProbability, effectiveTheme],
   );

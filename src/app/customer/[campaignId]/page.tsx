@@ -15,6 +15,7 @@ import { getGoogleReviewUrl } from '@/lib/google-maps';
 import {
   DEFAULT_WHEEL_THEME,
   gateAccentInk,
+  NO_WIN_ARABIC_NOTE,
   segmentColorAt,
   wheelMotionDurationMs,
 } from '@/lib/wheel-theme';
@@ -290,6 +291,7 @@ export default function CampaignCustomerPage() {
       percent: Math.round(((weights[index] ?? 0) * 100) / total),
       color: segmentColorAt(index, wheelTheme.colors.segments),
       angle: ((index + 0.5) * 360) / Math.max(rewards.length, 1),
+      note: reward.type === 'none' ? NO_WIN_ARABIC_NOTE : undefined,
     }));
   }, [rewards, wheelTheme]);
 
@@ -815,6 +817,7 @@ export default function CampaignCustomerPage() {
                   centerLogoAlt={campaign?.business_name ?? ''}
                   wrapperClassName="cf-wheel-float w-[min(90vw,380px,58vh)]"
                   shadowClassName="shadow-[0_20px_50px_rgba(77,120,45,0.28)]"
+                  showPercent={false}
                 />
               </div>
 

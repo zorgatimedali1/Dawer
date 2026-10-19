@@ -53,6 +53,9 @@ export const DEFAULT_WHEEL_THEME: WheelTheme = {
 /** Custom wheel design (colors/motion) ships from the Pro tier up. */
 export const WHEEL_DESIGN_PLAN_SLUGS = ['growth', 'scale', 'premium'] as const;
 
+/** Arabic twin of the "Prochaine fois" no-win slice, shown under the label. */
+export const NO_WIN_ARABIC_NOTE = 'المرة القادمة';
+
 /** The merchant logo at the wheel hub ships from the Pro tier up. */
 export const WHEEL_CENTER_LOGO_PLAN_SLUGS = ['growth', 'scale', 'premium'] as const;
 

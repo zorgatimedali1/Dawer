@@ -328,7 +328,7 @@ describe('public campaign page', () => {
     expect(vi.mocked(window.open)).not.toHaveBeenCalled();
   });
 
-  it('prints every prize inside a wheel segment', async () => {
+  it('prints every prize inside a wheel segment without the winning odds', async () => {
     stubFetch({ require_action: 'NONE' });
     const { container } = renderPage();
 
@@ -339,14 +339,42 @@ describe('public campaign page', () => {
     expect(wheel.textContent).toContain('Try again');
     const labels = wheel.querySelectorAll('[data-wheel-segment]');
     expect(labels).toHaveLength(rewards.length);
-    expect((labels[0] as HTMLElement).textContent).toContain('70%');
-    expect((labels[1] as HTMLElement).textContent).toContain('30%');
+    // Odds stay behind the scenes on the public wheel.
+    expect((labels[0] as HTMLElement).textContent).not.toContain('70%');
+    expect((labels[1] as HTMLElement).textContent).not.toContain('30%');
+    expect((labels[0] as HTMLElement).textContent).not.toContain('%');
+    // The no-win slice carries its Arabic twin.
+    expect((labels[1] as HTMLElement).textContent).toContain('المرة القادمة');
     expect((labels[0] as HTMLElement).style.width).toContain('%');
     expect((labels[0] as HTMLElement).style.fontSize).toContain('cqw');
     expect(container.querySelector('.lucide-trophy')).toBeNull();
   });
 
-  it('normalizes the displayed odds over the prizes entered', async () => {
+  it('renders emojis inside slice labels larger than the text', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          success: true,
+          campaign: { ...campaign, require_action: 'NONE' },
+          rewards: [
+            { id: 'e1', name: '☕ Café offert', description: '', type: 'free_product', value: '1', weight: 60, quantity: 5 },
+            { id: 'e2', name: 'Try again', description: null, type: 'none', value: '0', weight: 40, quantity: 0 },
+          ],
+        }),
+      ),
+    );
+
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /Tourner la roue/i }));
+
+    const labels = (await screen.findByTestId('prize-wheel')).querySelectorAll('[data-wheel-segment]');
+    const emojiSpan = (labels[0] as HTMLElement).querySelector('span[style*="1.55em"]');
+    expect(emojiSpan).toBeTruthy();
+    expect(emojiSpan?.textContent).toBe('☕');
+  });
+
+  it('keeps the normalized odds hidden with two slices on the wheel', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -365,8 +393,9 @@ describe('public campaign page', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Tourner la roue/i }));
 
     const labels = (await screen.findByTestId('prize-wheel')).querySelectorAll('[data-wheel-segment]');
-    expect((labels[0] as HTMLElement).textContent).toContain('67%');
-    expect((labels[1] as HTMLElement).textContent).toContain('33%');
+    expect((labels[0] as HTMLElement).textContent).not.toContain('67%');
+    expect((labels[1] as HTMLElement).textContent).not.toContain('33%');
+    expect((labels[0] as HTMLElement).textContent).not.toContain('%');
   });
 
   it('shows the empty wheel and blocks the spin when every weight is zero', async () => {
