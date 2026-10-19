@@ -8,7 +8,11 @@ import { useAppContext } from '@/contexts/app-context';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { TurnstileWidget } from '@/components/turnstile';
 import { useT } from '@/hooks/use-t';
+
+/** Site key is public; enforcement on the Worker is decided by the secret. */
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITEKEY;
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -18,6 +22,8 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileReset, setTurnstileReset] = useState(0);
   // The OAuth callback redirects here with `?error=...` on any handoff
   // failure (Google denial, state mismatch, account guard) — a browser
   // navigation, so the message must ride the URL, not a JSON body.
@@ -27,16 +33,24 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (TURNSTILE_SITE_KEY && !turnstileToken) {
+      setError(t.auth.captchaRequired);
+      setTurnstileReset((n) => n + 1);
+      return;
+    }
     setLoading(true);
     setError(null);
 
     try {
-      const response = await AuthService.login({ email, password });
+      const response = await AuthService.login({ email, password, turnstileToken: turnstileToken ?? undefined });
       login(response);
       const from = (location.state as { from?: string } | null)?.from;
       navigate(from ?? '/dashboard/overview', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : t.auth.invalidCredentials);
+      // Tokens are single-use — clear the spent one so the widget issues a
+      // fresh challenge before the next attempt.
+      setTurnstileReset((n) => n + 1);
     } finally {
       setLoading(false);
     }
@@ -91,6 +105,10 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </Field>
+
+        {TURNSTILE_SITE_KEY && (
+          <TurnstileWidget siteKey={TURNSTILE_SITE_KEY} action="login" onToken={setTurnstileToken} resetSignal={turnstileReset} />
+        )}
 
         {error && (
           <p className="rounded-lg border border-danger-300/60 bg-danger-50 px-3 py-2.5 text-[13px] leading-relaxed text-danger-800 dark:border-danger-900/60 dark:bg-danger-900/30 dark:text-danger-200">

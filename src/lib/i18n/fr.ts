@@ -83,6 +83,7 @@ export const auth = {
   noAccount: 'Pas encore inscrit ?',
   createAccount: 'Créer un compte',
   invalidCredentials: 'Adresse e-mail ou mot de passe invalide.',
+  captchaRequired: 'Veuillez compléter la vérification de sécurité.',
   registerTitle: 'Créer un compte',
   registerSubtitle: 'Démarrez votre espace marchand.',
   googleSignUp: 'S’inscrire avec Google',

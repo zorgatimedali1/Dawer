@@ -10,6 +10,7 @@ import {
   googleCallbackSchema,
 } from '../lib/validation';
 import { getEmailConfig, sendPasswordResetEmail } from '../lib/email';
+import { verifyTurnstile } from '../lib/turnstile';
 import { getPlatformFeatures } from '../lib/feature-access';
 import { getUserByToken } from '../lib/tenant';
 import { isCrossSitePost } from '../lib/security';
@@ -160,6 +161,15 @@ const LOGIN_LOCKOUT_MS = 15 * 60_000;
 export async function loginUser(request: Request, env: Env): Promise<Response> {
   try {
     const body = loginSchema.parse(await request.json());
+    // Turnstile runs before any DB work: bots get a 403 and unknown-account
+    // timing stays reserved for PBKDF2, not siteverify.
+    const captchaValid = await verifyTurnstile(request, env, body.turnstileToken, 'login');
+    if (!captchaValid) {
+      return errorResponse(
+        body.turnstileToken ? 'Bot check failed. Please try again.' : 'Please complete the security check.',
+        403,
+      );
+    }
     const email = normalizeEmail(body.email);
     const existing = await env.DB.prepare(
       `SELECT id, email, password_hash, salt, first_name, last_name, status,

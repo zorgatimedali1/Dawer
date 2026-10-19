@@ -11,6 +11,9 @@ export const registerSchema = z.object({
 export const loginSchema = z.object({
   email: z.string().trim().email(),
   password: z.string().min(8).max(128),
+  // Cloudflare Turnstile token (optional: absent when no widget/secret is
+  // provisioned — verification itself fails open on config, fail closed on data).
+  turnstileToken: z.string().max(2048).optional(),
 });
 
 export const forgotPasswordSchema = z.object({

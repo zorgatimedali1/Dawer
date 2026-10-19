@@ -1,6 +1,8 @@
 export interface LoginCredentials {
   email: string;
   password: string;
+  /** Single-use Turnstile token; sent whenever a widget is rendered. */
+  turnstileToken?: string | undefined;
 }
 
 export interface RegisterData {

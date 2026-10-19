@@ -87,6 +87,7 @@ export const auth: D<typeof frDict.auth> = {
   noAccount: "Don't have an account?",
   createAccount: 'Create account',
   invalidCredentials: 'Invalid email or password.',
+  captchaRequired: 'Please complete the security check.',
   registerTitle: 'Create account',
   registerSubtitle: 'Start your merchant workspace.',
   googleSignUp: 'Sign up with Google',

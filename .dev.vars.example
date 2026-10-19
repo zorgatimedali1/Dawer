@@ -56,6 +56,14 @@ COOKIE_SIGNING_KEY=replace-with-long-random-cookie-signing-key
 # (default off - missing country passes). Production secret if enabled.
 # GEOFENCE_STRICT=true
 
+# Cloudflare Turnstile - widget "dawer.tn (Spin)" (dashboard > Turnstile).
+# The SITE key is public: it lives in wrangler.jsonc vars (worker) and in the
+# root .env (VITE_TURNSTILE_SITEKEY, SPA). The SECRET is a wrangler secret:
+#   npx wrangler secret put TURNSTILE_SECRET_KEY
+# While it is unset the login + spin checks fail open (no enforcement);
+# set it locally to exercise enforcement:
+# TURNSTILE_SECRET_KEY=replace-with-turnstile-secret-key
+
 # WhatsApp Web gateway (whatsapp-saas-backend container)
 # Base URL of the deployed gateway, e.g. https://whatsapp-saas-backend.onrender.com
 # Production: npx wrangler secret put GATEWAY_URL

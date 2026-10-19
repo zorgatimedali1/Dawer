@@ -433,6 +433,108 @@ describe('POST /api/auth/login', () => {
   });
 });
 
+describe('POST /api/auth/login (Turnstile)', () => {
+  /** Stubs the siteverify endpoint without touching the network. */
+  function stubSiteverify(result: unknown, status = 200) {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify(result), { status, headers: { 'content-type': 'application/json' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  beforeEach(() => {
+    env.TURNSTILE_SECRET_KEY = 'turnstile-secret.test';
+    env.TURNSTILE_HOSTNAMES = 'dawer.tn,localhost,127.0.0.1';
+  });
+
+  it('rejects a login without a token when the secret is set', async () => {
+    const fetchMock = stubSiteverify({ success: true });
+
+    await handleAuthRoute(jsonRequest('/api/auth/register', 'POST', registerBody()), env);
+    const response = await handleAuthRoute(
+      jsonRequest('/api/auth/login', 'POST', { email, password: 'Sup3rSecret!' }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect((await body(response)).message).toBe('Please complete the security check.');
+    // A missing token never needs the network — nothing was sent to siteverify.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts a valid token and forwards it with the client IP', async () => {
+    const fetchMock = stubSiteverify({ success: true, action: 'login', hostname: 'dawer.tn' });
+
+    await handleAuthRoute(jsonRequest('/api/auth/register', 'POST', registerBody()), env);
+    const response = await handleAuthRoute(
+      jsonRequest('/api/auth/login', 'POST', { email, password: 'Sup3rSecret!', turnstileToken: 'tok.abc.vok' }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect((await body(response)).success).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe('https://challenges.cloudflare.com/turnstile/v0/siteverify');
+    const sent = String(init?.body);
+    expect(sent).toContain('secret=turnstile-secret.test');
+    expect(sent).toContain('response=tok.abc.vok');
+  });
+
+  it('rejects a token minted for another action', async () => {
+    stubSiteverify({ success: true, action: 'spin', hostname: 'dawer.tn' });
+
+    const response = await handleAuthRoute(
+      jsonRequest('/api/auth/login', 'POST', { email, password: 'Sup3rSecret!', turnstileToken: 'tok.abc.vok' }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect((await body(response)).message).toBe('Bot check failed. Please try again.');
+  });
+
+  it('rejects a token minted on an unlisted hostname', async () => {
+    stubSiteverify({ success: true, action: 'login', hostname: 'spoof.example' });
+
+    const response = await handleAuthRoute(
+      jsonRequest('/api/auth/login', 'POST', { email, password: 'Sup3rSecret!', turnstileToken: 'tok.abc.vok' }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect((await body(response)).message).toBe('Bot check failed. Please try again.');
+  });
+
+  it('fails closed when siteverify is unreachable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('network down');
+      }),
+    );
+
+    const response = await handleAuthRoute(
+      jsonRequest('/api/auth/login', 'POST', { email, password: 'Sup3rSecret!', turnstileToken: 'tok.abc.vok' }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect((await body(response)).message).toBe('Bot check failed. Please try again.');
+  });
+
+  it('stays fail-open without a secret so pre-provision deployments keep working', async () => {
+    env.TURNSTILE_SECRET_KEY = undefined;
+
+    await handleAuthRoute(jsonRequest('/api/auth/register', 'POST', registerBody()), env);
+    const response = await handleAuthRoute(
+      jsonRequest('/api/auth/login', 'POST', { email, password: 'Sup3rSecret!' }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+  });
+});
+
 describe('transactional batch', () => {
   it('rolls every statement back when any of them fails', async () => {
     const now = new Date().toISOString();
