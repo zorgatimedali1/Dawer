@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
-import { Input, Select, Textarea } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { PageHeader } from '@/components/ui/page-header';
 import { SkeletonCard } from '@/components/ui/skeleton';
@@ -35,7 +35,6 @@ import { useT } from '@/hooks/use-t';
 interface CampaignForm {
   id?: string;
   name: string;
-  description: string;
   startsOn: string;
   endsOn: string;
   status: CampaignStatusKey;
@@ -63,7 +62,6 @@ function campaignForm(campaign?: Campaign): CampaignForm {
   return {
     ...(campaign ? { id: campaign.id } : {}),
     name: campaign?.name ?? '',
-    description: campaign?.description ?? '',
     startsOn: campaign ? dateValue(campaign.startsAt) : today,
     endsOn: campaign ? dateValue(campaign.endsAt) : new Date(Date.now() + 30 * DAY_MS).toISOString().slice(0, 10),
     status: campaign?.status ?? 'draft',
@@ -165,7 +163,6 @@ export default function CampaignsPage() {
       if (form.id) {
         await CampaignService.updateCampaign(form.id, {
           name: form.name,
-          description: form.description,
           status: form.status,
           ...dates,
         });
@@ -173,7 +170,6 @@ export default function CampaignsPage() {
       } else {
         await CampaignService.createCampaign({
           name: form.name,
-          description: form.description,
           status: form.status,
           ...dates,
         });
@@ -282,9 +278,6 @@ export default function CampaignsPage() {
                 <TableRow key={campaign.id} interactive>
                   <TableCell className="max-w-[18rem]">
                     <p className="truncate font-semibold text-ink">{campaign.name}</p>
-                    <p className="mt-0.5 line-clamp-1 text-[12.5px] text-ink-muted">
-                      {campaign.description || t.campaigns.noDescription}
-                    </p>
                   </TableCell>
                   <TableCell>
                     <Badge size="sm" tone={STATUS_TONES[campaign.status]} dot>
@@ -321,9 +314,6 @@ export default function CampaignsPage() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h3 className="truncate text-[15px] font-semibold text-ink">{campaign.name}</h3>
-                <p className="mt-1 line-clamp-2 text-[13px] text-ink-muted">
-                  {campaign.description || t.campaigns.noDescription}
-                </p>
               </div>
               <Badge size="sm" tone={STATUS_TONES[campaign.status]} dot>
                 {statusLabel(t, campaign.status)}
@@ -464,16 +454,6 @@ export default function CampaignsPage() {
                 maxLength={120}
                 value={form.name}
                 onChange={(event) => setForm({ ...form, name: event.target.value })}
-              />
-            </Field>
-
-            <Field label={t.campaigns.descriptionLabel} htmlFor="campaign-description">
-              <Textarea
-                id="campaign-description"
-                maxLength={1000}
-                rows={3}
-                value={form.description}
-                onChange={(event) => setForm({ ...form, description: event.target.value })}
               />
             </Field>
 

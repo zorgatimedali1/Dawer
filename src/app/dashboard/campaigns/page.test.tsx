@@ -94,7 +94,6 @@ function mockCampaignApi(
     if (method === 'POST' && url === '/api/business/campaigns') {
       const body = JSON.parse(String(init?.body)) as {
         name: string;
-        description: string;
         status: string;
         startAt: string;
         endAt: string;
@@ -102,7 +101,6 @@ function mockCampaignApi(
       const created = campaignRow({
         id: 'campaign-created',
         name: body.name,
-        description: body.description,
         status: body.status,
         start_at: body.startAt,
         end_at: body.endAt,
@@ -121,7 +119,6 @@ function mockCampaignApi(
     if (method === 'PATCH' && target) {
       const body = JSON.parse(String(init?.body)) as Record<string, string>;
       if (body.name !== undefined) target.name = body.name;
-      if (body.description !== undefined) target.description = body.description;
       if (body.status !== undefined) target.status = body.status;
       if (body.startAt !== undefined) target.start_at = body.startAt || null;
       if (body.endAt !== undefined) target.end_at = body.endAt || null;
