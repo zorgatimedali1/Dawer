@@ -57,6 +57,20 @@ function seedReward(businessId: string, campaignId: string): string {
   return id;
 }
 
+function seedNoWinSlice(businessId: string, campaignId: string, weight: number, active: number): string {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  db.prepare(
+    `INSERT INTO rewards (id, business_id, campaign_id, name, type, quantity, quantity_initial, weight, active, created_at, updated_at)
+     VALUES (?, ?, ?, 'Prochaine fois', 'none', 0, 0, ?, ?, ?, ?)`,
+  )
+    .bind(id, businessId, campaignId, weight, active, now, now)
+    .run();
+
+  return id;
+}
+
 function seedCoupon(businessId: string, campaignId: string, customerId: string, rewardId: string): string {
   const id = crypto.randomUUID();
 
@@ -582,6 +596,90 @@ describe('GET /api/business/rewards', () => {
     expect(
       db.query<{ active: number; weight: number }>(`SELECT active, weight FROM rewards WHERE id = ?`, rewardId),
     ).toEqual([{ active: 0, weight: 50 }]);
+  });
+
+  it('gives a reactivated prize its remembered weight back and switches the none slice off', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const noWinId = await seedNoWinSlice(alice.businessId, aliceCampaign, 0, 0);
+
+    await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { active: false }, alice.token),
+      env,
+    );
+    expect(
+      db.query<{ active: number; weight: number }>(`SELECT active, weight FROM rewards WHERE id = ?`, noWinId),
+    ).toEqual([{ active: 1, weight: 50 }]);
+
+    const reactivated = await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { active: true }, alice.token),
+      env,
+    );
+    expect(reactivated.status).toBe(200);
+    expect(
+      db.query<{ active: number; weight: number; stored_weight: number }>(
+        `SELECT active, weight, stored_weight FROM rewards WHERE id = ?`,
+        rewardId,
+      ),
+    ).toEqual([{ active: 1, weight: 50, stored_weight: 0 }]);
+    expect(
+      db.query<{ active: number; weight: number }>(`SELECT active, weight FROM rewards WHERE id = ?`, noWinId),
+    ).toEqual([{ active: 0, weight: 0 }]);
+  });
+
+  it('shrinks a topped-up none slice back down on reactivation', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const noWinId = await seedNoWinSlice(alice.businessId, aliceCampaign, 5, 1);
+
+    await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { active: false }, alice.token),
+      env,
+    );
+    expect(
+      db.query<{ active: number; weight: number }>(`SELECT active, weight FROM rewards WHERE id = ?`, noWinId),
+    ).toEqual([{ active: 1, weight: 55 }]);
+
+    await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { active: true }, alice.token),
+      env,
+    );
+
+    expect(
+      db.query<{ active: number; weight: number; stored_weight: number }>(
+        `SELECT active, weight, stored_weight FROM rewards WHERE id = ?`,
+        rewardId,
+      ),
+    ).toEqual([{ active: 1, weight: 50, stored_weight: 0 }]);
+    expect(
+      db.query<{ active: number; weight: number }>(`SELECT active, weight FROM rewards WHERE id = ?`, noWinId),
+    ).toEqual([{ active: 1, weight: 5 }]);
+  });
+
+  it('keeps a percentage the merchant set while the prize was deactivated', async () => {
+    const rewardId = seedReward(alice.businessId, aliceCampaign);
+    const noWinId = await seedNoWinSlice(alice.businessId, aliceCampaign, 0, 0);
+
+    await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { active: false }, alice.token),
+      env,
+    );
+    await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { weight: 15 }, alice.token),
+      env,
+    );
+    await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { active: true }, alice.token),
+      env,
+    );
+
+    expect(
+      db.query<{ weight: number; stored_weight: number }>(
+        `SELECT weight, stored_weight FROM rewards WHERE id = ?`,
+        rewardId,
+      ),
+    ).toEqual([{ weight: 15, stored_weight: 0 }]);
+    expect(
+      db.query<{ active: number; weight: number }>(`SELECT active, weight FROM rewards WHERE id = ?`, noWinId),
+    ).toEqual([{ active: 0, weight: 0 }]);
   });
 
   it('deletes a reward immediately and 404s foreign or unknown ids', async () => {

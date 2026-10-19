@@ -83,9 +83,10 @@ export async function ensureNoWinSlice(env: Env, campaignId: string): Promise<bo
  * A merchant deactivating a prize must not silently renormalize its share
  * across the remaining prizes: its stored weight moves to the campaign's
  * "Prochaine fois" slice — activating it when it was still off, topping up
- * its percentage otherwise — and the deactivated row drops to weight 0 so
- * re-activating it later starts from a clean slate. A campaign without a
- * "none" row keeps the deactivated weight untouched (it is inert anyway).
+ * its percentage otherwise — and the deactivated row drops to weight 0 while
+ * remembering its percentage in `stored_weight` for the hand-back on
+ * re-activation. A campaign without a "none" row keeps the deactivated
+ * weight untouched (it is inert anyway).
  */
 export async function transferDeactivatedWeightToNoWin(
   env: Env,
@@ -106,7 +107,11 @@ export async function transferDeactivatedWeightToNoWin(
 
     const now = new Date().toISOString();
     await env.DB.batch([
-      env.DB.prepare('UPDATE rewards SET weight = 0, updated_at = ? WHERE id = ?').bind(now, rewardId),
+      env.DB.prepare('UPDATE rewards SET weight = 0, stored_weight = ?, updated_at = ? WHERE id = ?').bind(
+        weight,
+        now,
+        rewardId,
+      ),
       Number(noWin.active) === 1
         ? env.DB.prepare('UPDATE rewards SET weight = weight + ?, updated_at = ? WHERE id = ?').bind(
             weight,
@@ -123,6 +128,61 @@ export async function transferDeactivatedWeightToNoWin(
     return true;
   } catch (error) {
     console.error('no_win_weight_transfer_failed', error instanceof Error ? error.message : String(error));
+    return false;
+  }
+}
+
+/**
+ * The hand-back: a re-activated prize takes its remembered percentage out of
+ * the "Prochaine fois" slice again. The slice shrinks by what it can give
+ * (never below 0) and goes back to deactivated once it holds nothing, so a
+ * "Prochaine fois" that was only switched on to absorb the deactivated prize
+ * does not linger as an empty slice. The prize regains its remembered weight
+ * unless the merchant already picked a new one while it was deactivated.
+ */
+export async function restoreDeactivatedWeightFromNoWin(
+  env: Env,
+  campaignId: string,
+  rewardId: string,
+  storedWeight: number,
+): Promise<boolean> {
+  if (!(Number(storedWeight) > 0)) return false;
+
+  try {
+    const reward = await env.DB.prepare('SELECT weight FROM rewards WHERE id = ? LIMIT 1')
+      .bind(rewardId)
+      .first<{ weight: number }>();
+    const noWin = await env.DB.prepare(
+      `SELECT id, weight FROM rewards WHERE campaign_id = ? AND type = 'none' LIMIT 1`,
+    )
+      .bind(campaignId)
+      .first<{ id: string; weight: number }>();
+
+    if (!reward) return false;
+
+    const now = new Date().toISOString();
+    const statements = [
+      env.DB.prepare(
+        'UPDATE rewards SET weight = CASE WHEN weight > 0 THEN weight ELSE ? END, stored_weight = 0, updated_at = ? WHERE id = ?',
+      ).bind(storedWeight, now, rewardId),
+    ];
+
+    if (noWin) {
+      const giveaway = Math.min(storedWeight, Math.max(0, Number(noWin.weight ?? 0)));
+      if (giveaway > 0) {
+        const remaining = Math.max(0, Number(noWin.weight ?? 0) - giveaway);
+        statements.push(
+          remaining > 0
+            ? env.DB.prepare('UPDATE rewards SET weight = ?, updated_at = ? WHERE id = ?').bind(remaining, now, noWin.id)
+            : env.DB.prepare('UPDATE rewards SET active = 0, weight = 0, updated_at = ? WHERE id = ?').bind(now, noWin.id),
+        );
+      }
+    }
+
+    await env.DB.batch(statements);
+    return true;
+  } catch (error) {
+    console.error('no_win_weight_restore_failed', error instanceof Error ? error.message : String(error));
     return false;
   }
 }
