@@ -12,6 +12,12 @@ import { BrandLoader } from './components/brand/brand-loader';
 import { lazyWithRecovery } from './lib/lazy-recovery';
 import './app/globals.css';
 
+// A refresh must always land at the top of the page; the browser's default
+// scroll restoration instead re-applies the previous visit's scroll offset.
+if ('scrollRestoration' in window.history) {
+  window.history.scrollRestoration = 'manual';
+}
+
 // Fire-and-forget: only loads the SDK chunk when a DSN was baked in at build
 // time, so unconfigured builds ship no Sentry bytes at all.
 if (import.meta.env.VITE_SENTRY_DSN) {

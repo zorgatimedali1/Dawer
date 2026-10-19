@@ -167,13 +167,14 @@ describe('home demo section', () => {
     expect(demo.compareDocumentPosition(pricing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeGreaterThan(0);
   });
 
-  it('scrolls to the demo section when arriving with a #demo hash (post sign-out)', () => {
+  it('scrolls to the demo section when arriving with a #demo hash (post sign-out) and clears it so a refresh lands on top', () => {
     window.location.hash = '#demo';
     const scrollSpy = vi.fn();
     Element.prototype.scrollIntoView = scrollSpy;
     try {
       renderHome();
       expect(scrollSpy).toHaveBeenCalledTimes(1);
+      expect(window.location.hash).toBe('');
     } finally {
       delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
       window.location.hash = '';

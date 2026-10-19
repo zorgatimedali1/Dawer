@@ -45,13 +45,15 @@ export default function Home() {
 
   // Arriving with a #demo hash (e.g. right after sign-out): the browser's own
   // fragment scroll fires before this SPA renders, so re-run it once the
-  // section actually exists.
+  // section actually exists. The hash is consumed afterwards so that a plain
+  // refresh starts at the top of the page instead of scrolling down again.
   useEffect(() => {
     if (window.location.hash !== '#demo') return;
     const target = document.getElementById('demo');
     if (!target) return;
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
   }, []);
 
   // Escape closes the mobile nav (same pattern as the dashboard drawer).
