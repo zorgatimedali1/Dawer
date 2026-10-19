@@ -46,15 +46,22 @@ function valueSuffix(type: string, fixedSuffix: string): string {
 
 const rewardsKeyOf = (campaignFilter: string): string => `rewards:${campaignFilter}`;
 
+// Chip filter: only non-archived campaigns get a button, newest first.
+function firstVisibleCampaign(list: Campaign[]): string {
+  return list.find((campaign) => campaign.status !== 'archived')?.id ?? 'all';
+}
+
 export default function RewardsPage() {
   const t = useT();
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
-  const [campaignFilter, setCampaignFilter] = useState('all');
-  const [campaigns, setCampaigns] = useState<Campaign[]>(() => readCachedResource<Campaign[]>('rewards:campaigns') ?? []);
+  const initialCampaigns = readCachedResource<Campaign[]>('rewards:campaigns') ?? [];
+  const initialCampaignFilter = firstVisibleCampaign(initialCampaigns);
+  const [pickedCampaign, setPickedCampaign] = useState(initialCampaignFilter);
+  const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns);
   // Seeded from the SWR cache so revisits paint instantly.
-  const [rewards, setRewards] = useState<RewardSummary[]>(() => readCachedResource<RewardSummary[]>(rewardsKeyOf('all')) ?? []);
-  const [loading, setLoading] = useState(() => readCachedResource(rewardsKeyOf('all')) === null);
+  const [rewards, setRewards] = useState<RewardSummary[]>(() => readCachedResource<RewardSummary[]>(rewardsKeyOf(initialCampaignFilter)) ?? []);
+  const [loading, setLoading] = useState(() => readCachedResource(rewardsKeyOf(initialCampaignFilter)) === null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -82,10 +89,20 @@ export default function RewardsPage() {
       );
   }, [t]);
 
-  const rewardsKey = rewardsKeyOf(campaignFilter);
+  const availableCampaigns = useMemo(
+    () => campaigns.filter((campaign) => campaign.status !== 'archived'),
+    [campaigns],
+  );
+
+  // Derived chip selection: the pick stays the user's; when it is 'all'
+  // (nothing picked yet) or the picked campaign got archived since, it falls
+  // back to the newest available campaign chip.
+  const selectedCampaign =
+    availableCampaigns.find((campaign) => campaign.id === pickedCampaign)?.id ?? availableCampaigns[0]?.id ?? 'all';
+  const rewardsKey = rewardsKeyOf(selectedCampaign);
 
   useEffect(() => {
-    const key = rewardsKeyOf(campaignFilter);
+    const key = rewardsKey;
     const cached = readCachedResource<RewardSummary[]>(key);
     if (cached) {
       setRewards(cached);
@@ -96,7 +113,7 @@ export default function RewardsPage() {
 
     setLoading(true);
     setError(null);
-    RewardService.list(campaignFilter === 'all' ? {} : { campaignId: campaignFilter })
+    RewardService.list(selectedCampaign === 'all' ? {} : { campaignId: selectedCampaign })
       .then((result) => {
         setCachedResource(key, result);
         setRewards(result);
@@ -105,7 +122,7 @@ export default function RewardsPage() {
         setError(msg(t, cause instanceof Error ? cause.message : t.rewards.loadError)),
       )
       .finally(() => setLoading(false));
-  }, [t, campaignFilter]);
+  }, [t, rewardsKey, selectedCampaign]);
 
   // Effective chances per the same redistribution the customer wheel uses,
   // computed campaign by campaign: sold-out rewards show 0% and their weight
@@ -342,7 +359,7 @@ export default function RewardsPage() {
       <div className="grid gap-8">
         {rewardGroups.map((group) => (
           <div key={group.campaignId} className="grid gap-4">
-            {campaignFilter === 'all' ? (
+            {selectedCampaign === 'all' ? (
               <h2 className="text-[13px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
                 {group.campaignName}
               </h2>
@@ -384,30 +401,6 @@ export default function RewardsPage() {
             <Field
               label={
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                  {t.rewards.campaignLabel}
-                </span>
-              }
-              htmlFor="reward-campaign-filter"
-              className="w-full max-w-[15rem]"
-            >
-              <Select
-                id="reward-campaign-filter"
-                inputSize="sm"
-                value={campaignFilter}
-                onChange={(e) => setCampaignFilter(e.target.value)}
-              >
-                <option value="all">{t.rewards.allCampaigns}</option>
-                {campaigns.map((campaign) => (
-                  <option key={campaign.id} value={campaign.id}>
-                    {campaign.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-
-            <Field
-              label={
-                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
                   {t.rewards.typeLabel}
                 </span>
               }
@@ -431,6 +424,22 @@ export default function RewardsPage() {
           </>
         }
       />
+
+      {availableCampaigns.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t.rewards.campaignLabel}>
+          {availableCampaigns.map((campaign) => (
+            <Button
+              key={campaign.id}
+              size="sm"
+              variant={selectedCampaign === campaign.id ? 'secondary' : 'outline'}
+              aria-pressed={selectedCampaign === campaign.id}
+              onClick={() => setPickedCampaign(campaign.id)}
+            >
+              {campaign.name}
+            </Button>
+          ))}
+        </div>
+      )}
 
       {error && (
         <div

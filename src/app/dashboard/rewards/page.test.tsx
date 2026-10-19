@@ -226,29 +226,34 @@ describe('rewards page', () => {
     expect(within(typeFilter).queryByRole('option', { name: 'Aucune récompense' })).toBeNull();
   });
 
-  it('groups rewards by campaign with headers when showing all campaigns', async () => {
+  it('shows one chip per non-archived campaign and defaults to the newest one', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes('/api/business/campaigns')) {
         return jsonResponse({
           success: true,
-          campaigns: [campaignRow(), campaignRow({ id: 'c2', name: 'Pizza Spin' })],
+          campaigns: [
+            campaignRow(),
+            campaignRow({ id: 'c2', name: 'Pizza Spin' }),
+            campaignRow({ id: 'c3', name: 'Old Spin', status: 'ARCHIVED' }),
+          ],
         });
       }
       return jsonResponse({
         success: true,
-        rewards: [
-          rewardRow({ id: 'r1', campaign_id: 'c1', campaign_name: 'Coffee Spin', name: 'Free coffee' }),
-          rewardRow({ id: 'r2', campaign_id: 'c2', campaign_name: 'Pizza Spin', name: 'Free pizza' }),
-        ],
+        rewards: [rewardRow({ id: 'r1', campaign_id: 'c1', campaign_name: 'Coffee Spin', name: 'Free coffee' })],
       });
     });
     vi.stubGlobal('fetch', fetchMock);
 
     render(<RewardsPage />);
 
+    const coffeeChip = await screen.findByRole('button', { name: 'Coffee Spin' });
+    expect(screen.getByRole('button', { name: 'Pizza Spin' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Old Spin' })).toBeNull();
+    await waitFor(() => expect(coffeeChip.getAttribute('aria-pressed')).toBe('true'));
+
     await screen.findByText('Free coffee');
-    expect(screen.getByRole('heading', { name: 'Coffee Spin' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Pizza Spin' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Coffee Spin' })).toBeNull();
   });
 
   it('filters rewards by campaign through the API when one is selected', async () => {
@@ -277,7 +282,7 @@ describe('rewards page', () => {
 
     await screen.findByText('Free coffee');
 
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: /campagne/i }), 'c2');
+    await userEvent.click(screen.getByRole('button', { name: 'Pizza Spin' }));
 
     await screen.findByText('Free pizza');
     expect(screen.queryByText('Free coffee')).toBeNull();

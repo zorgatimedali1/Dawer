@@ -483,7 +483,6 @@ export const rewards: D<typeof frDict.rewards> = {
   searchPlaceholder: 'Search by name or description...',
   typeLabel: 'Reward Type',
   allTypes: 'All Types',
-  allCampaigns: 'All campaigns',
   typePercentageDiscount: 'Percentage Discount',
   typeFixedDiscount: 'Fixed Amount Discount',
   typeFreeProduct: 'Free Product',
