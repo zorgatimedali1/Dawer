@@ -314,26 +314,27 @@ export default function Home() {
 
       <section id="pricing" className="relative border-y border-line bg-surface-2 scroll-mt-20">
         <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24">
-          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-accent-bright">
-                {t.landing.pricingEyebrow}
-              </p>
-              <h2 className="mt-3 text-balance text-[28px] font-semibold leading-[1.15] tracking-[-0.03em] text-ink sm:text-[36px]">
-                {t.landing.pricingTitle}
-              </h2>
-            </div>
-            <p className="max-w-md text-pretty text-[13.5px] leading-relaxed text-ink-muted">
+          <div className="mx-auto max-w-2xl text-center">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-accent-bright">
+              {t.landing.pricingEyebrow}
+            </p>
+            <h2 className="mt-3 text-balance text-[28px] font-semibold leading-[1.15] tracking-[-0.03em] text-ink sm:text-[36px]">
+              {t.landing.pricingTitle}
+            </h2>
+            <p className="mt-4 text-pretty text-[13.5px] leading-relaxed text-ink-muted">
               {t.landing.pricingSubtitle}
             </p>
           </div>
 
-          <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-12 flex flex-wrap justify-center gap-5">
             {mergeLiveHomepagePlans(locale, livePlans).map((plan) => {
               const featured = plan.slug === 'growth';
               const badge = plan.badge;
               return (
-                <div key={plan.slug} className="relative h-full">
+                <div
+                  key={plan.slug}
+                  className="relative h-full basis-full sm:basis-[calc(50%-10px)] xl:basis-[calc(25%-15px)]"
+                >
                   {featured ? (
                     <span
                       aria-hidden
