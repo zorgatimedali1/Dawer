@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AppProvider } from '@/contexts/app-context';
 import Home from '@/app/page';
 
 afterEach(() => {
@@ -35,9 +36,11 @@ function stubMarketingFeeds(overrides: { plans?: unknown } = {}) {
 function renderHome() {
   stubMarketingFeeds();
   return render(
-    <MemoryRouter>
-      <Home />
-    </MemoryRouter>,
+    <AppProvider>
+      <MemoryRouter>
+        <Home />
+      </MemoryRouter>
+    </AppProvider>,
   );
 }
 
@@ -73,9 +76,11 @@ describe('home pricing section', () => {
       },
     });
     render(
-      <MemoryRouter>
-        <Home />
-      </MemoryRouter>,
+      <AppProvider>
+        <MemoryRouter>
+          <Home />
+        </MemoryRouter>
+      </AppProvider>,
     );
 
     // The feed overrides the bundled catalog as soon as it answers.
@@ -99,9 +104,11 @@ describe('home pricing section', () => {
       }),
     );
     render(
-      <MemoryRouter>
-        <Home />
-      </MemoryRouter>,
+      <AppProvider>
+        <MemoryRouter>
+          <Home />
+        </MemoryRouter>
+      </AppProvider>,
     );
 
     // Still the four bundled plans, not an empty section.
@@ -120,9 +127,11 @@ describe('home pricing section', () => {
       },
     });
     render(
-      <MemoryRouter>
-        <Home />
-      </MemoryRouter>,
+      <AppProvider>
+        <MemoryRouter>
+          <Home />
+        </MemoryRouter>
+      </AppProvider>,
     );
 
     await waitFor(() => {
@@ -292,5 +301,101 @@ describe('home mobile navigation', () => {
 
     expect(screen.queryByRole('navigation', { name: 'Navigation principale' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Ouvrir le menu' })).toBeInTheDocument();
+  });
+
+  it('offers the Contact anchor link in both navigations', () => {
+    renderHome();
+
+    expect(screen.getByRole('link', { name: 'Contact' })).toHaveAttribute('href', '#contact');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ouvrir le menu' }));
+    const panel = screen.getByRole('navigation', { name: 'Navigation principale' });
+    expect(within(panel).getByRole('link', { name: 'Contact' })).toHaveAttribute('href', '#contact');
+  });
+});
+
+describe('home language switcher', () => {
+  it('exposes the FR/EN toggle in the header', () => {
+    renderHome();
+
+    const group = screen.getByRole('radiogroup', { name: 'Langue' });
+    expect(group).toBeInTheDocument();
+    expect(within(group).getByRole('radio', { name: 'FR' })).toBeInTheDocument();
+    expect(within(group).getByRole('radio', { name: 'EN' })).toBeInTheDocument();
+  });
+});
+
+describe('home FAQ section', () => {
+  it('renders the six questions with the first answer open', () => {
+    renderHome();
+
+    expect(screen.getByRole('heading', { name: 'Questions fréquentes' })).toBeInTheDocument();
+    for (const question of ['essai gratuit', 'temps', 'réclame', 'fraudés', 'suivre', 'contacter']) {
+      expect(screen.getByRole('button', { name: new RegExp(question) })).toBeInTheDocument();
+    }
+    expect(screen.getByText(/Créez votre espace marchand/)).toBeInTheDocument();
+  });
+
+  it('toggles answers on click, one open at a time', () => {
+    renderHome();
+
+    const second = screen.getByRole('button', { name: /Combien de temps/ });
+    fireEvent.click(second);
+    expect(screen.getByText(/concevez votre roue/)).toBeInTheDocument();
+    expect(screen.queryByText(/Créez votre espace marchand/)).toBeNull();
+
+    fireEvent.click(second);
+    expect(screen.queryByText(/concevez votre roue/)).toBeNull();
+  });
+});
+
+describe('home contact section', () => {
+  it('shows the four info cards', () => {
+    renderHome();
+
+    expect(screen.getByRole('heading', { name: 'Contactez-nous' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '+216 55 000 000' })).toHaveAttribute('href', 'tel:+21655000000');
+    expect(screen.getByText('Tunis, Tunisie')).toBeInTheDocument();
+    expect(screen.getByText('Lun–Ven : 9h – 18h')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'contact@dawer.com' })).toHaveAttribute(
+      'href',
+      'mailto:contact@dawer.com',
+    );
+  });
+
+  it('renders the message form with labelled required fields', () => {
+    renderHome();
+
+    expect(screen.getByRole('heading', { name: 'Envoyez-nous un message' })).toBeInTheDocument();
+    // Labels carry a visually-hidden-assist "*" span, so match by prefix.
+    expect(screen.getByLabelText(/^Nom/)).toBeRequired();
+    expect(screen.getByLabelText(/^Email/)).toBeRequired();
+    expect(screen.getByLabelText(/^Sujet/)).toBeRequired();
+    expect(screen.getByLabelText(/^Message/)).toBeRequired();
+  });
+
+  it('embeds the Google Maps location', () => {
+    renderHome();
+
+    expect(screen.getByTitle('Localisation Google Maps')).toHaveAttribute(
+      'src',
+      'https://www.google.com/maps?q=Tunis%2C%20Tunisie&z=12&output=embed',
+    );
+  });
+});
+
+describe('home social follow', () => {
+  it('links the Instagram and Facebook cards', () => {
+    renderHome();
+
+    expect(screen.getByRole('heading', { name: 'Suivez-nous' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Instagram' })).toHaveAttribute(
+      'href',
+      'https://www.instagram.com/dawer.tn',
+    );
+    expect(screen.getByRole('link', { name: 'Facebook' })).toHaveAttribute(
+      'href',
+      'https://www.facebook.com/dawer.tn',
+    );
   });
 });

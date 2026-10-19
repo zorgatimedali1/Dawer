@@ -15,6 +15,10 @@ import { DEMO_VIDEO_EMBED_URL } from '@/lib/demo-video';
 import { DawerLogo } from '@/components/brand/dawer-logo';
 import { PartnerMarquee } from '@/components/marketing/partner-marquee';
 import { WheelDemo } from '@/components/marketing/wheel-demo';
+import { FaqSection } from '@/components/marketing/faq-section';
+import { ContactSection } from '@/components/marketing/contact-section';
+import { SocialFollow } from '@/components/marketing/social-follow';
+import { LanguageSwitcher } from '@/components/language-switcher';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
@@ -107,12 +111,16 @@ export default function Home() {
             <a href="#pricing" className="text-[13.5px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink">
               {t.landing.navPricing}
             </a>
+            <a href="#contact" className="text-[13.5px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink">
+              {t.landing.navContact}
+            </a>
             <Link to="/privacy" className="text-[13.5px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink">
               {t.landing.navPrivacy}
             </Link>
           </nav>
 
           <div className="flex items-center gap-2">
+            <LanguageSwitcher className="hidden md:inline-flex" />
             <Button asChild variant="ghost" size="sm">
               <Link to="/auth/login">{t.auth.signIn}</Link>
             </Button>
@@ -161,6 +169,13 @@ export default function Home() {
               >
                 {t.landing.navPricing}
               </a>
+              <a
+                href="#contact"
+                onClick={() => setMobileNavOpen(false)}
+                className="block rounded-md px-3 py-2.5 text-[15px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:bg-ink/[0.04] hover:text-ink"
+              >
+                {t.landing.navContact}
+              </a>
               <Link
                 to="/privacy"
                 onClick={() => setMobileNavOpen(false)}
@@ -169,8 +184,9 @@ export default function Home() {
                 {t.landing.navPrivacy}
               </Link>
             </div>
-            <div className="mt-3 border-t border-line pt-3">
-              <Button asChild className="w-full">
+            <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
+              <LanguageSwitcher />
+              <Button asChild size="sm">
                 <Link to="/auth/register" onClick={() => setMobileNavOpen(false)}>
                   {t.landing.heroCta}
                 </Link>
@@ -409,6 +425,12 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <FaqSection />
+
+      <ContactSection />
+
+      <SocialFollow />
 
       <footer className="relative border-t border-line bg-surface">
         <div className="mx-auto flex max-w-7xl flex-col items-start gap-6 px-5 py-10 sm:px-8 md:flex-row md:items-center md:justify-between">
