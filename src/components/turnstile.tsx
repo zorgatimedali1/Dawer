@@ -81,9 +81,10 @@ export function TurnstileWidget({ siteKey, action, onToken, resetSignal = 0 }: T
         widgetIdRef.current = window.turnstile.render(containerRef.current, {
           sitekey: siteKey,
           action,
-          // Managed mode: invisible challenge when possible, interaction only
-          // when Cloudflare decides it is required.
-          appearance: 'interaction-only',
+          // Managed mode: widget always visible (matches the screenshot the
+          // operator wants) — Cloudflare still decides how hard each person
+          // is challenged; most requests are one-click or automatic.
+          appearance: 'always',
           callback: (token: string) => onTokenRef.current(token),
           'error-callback': () => onTokenRef.current(null),
         });
