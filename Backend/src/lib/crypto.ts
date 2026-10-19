@@ -44,6 +44,22 @@ export function timingSafeEqualString(a: string, b: string): boolean {
 }
 
 /**
+ * Fixed stand-in credential (well-formed salt + hash). Unknown-account
+ * logins run the same 100k-iteration PBKDF2 as real ones so response
+ * timing cannot be used to enumerate registered emails (P1-7b).
+ */
+export const DUMMY_PASSWORD_SALT = 'f'.repeat(64);
+export const DUMMY_PASSWORD_HASH = '0'.repeat(64);
+
+/** PKCE S256 code challenge: base64url of the SHA-256 digest (RFC 7636). */
+export async function codeChallengeS256(verifier: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  let binary = '';
+  for (const byte of new Uint8Array(digest)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
  * Cloudflare Workers' WebCrypto rejects PBKDF2 iteration counts above 100000.
  * Keep this at the ceiling the runtime allows.
  */

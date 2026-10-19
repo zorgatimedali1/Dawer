@@ -580,8 +580,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_email
   WHERE email IS NOT NULL AND email <> '';
 
 -- Single-use Google OAuth handoff states (see migrations/0026_oauth_states.sql).
+-- pkce_verifier holds the S256 code verifier minted at /api/auth/google and
+-- consumed by the token exchange in the callback (migration 0051); rows that
+-- predate the column keep the pre-PKCE empty default.
 CREATE TABLE IF NOT EXISTS oauth_states (
   state TEXT PRIMARY KEY,
+  pkce_verifier TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_states_created_at ON oauth_states(created_at);

@@ -6,6 +6,12 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
+	// Worker CPU budget: a login runs 100k-iteration PBKDF2 (~70 ms), so the
+	// cap sits well above that but far below the runtime's default allowance,
+	// starving any runaway loop of a permanent queue slot.
+	"limits": {
+		"cpu_ms": 200
+	},
 	// Custom domains (attached in the Cloudflare dashboard: Workers >
 	// campaignflow-backend > Settings > Domains & Routes):
 	//   dawer.tn               → this worker (SPA + /api, merchant app)
@@ -51,6 +57,10 @@
 		//   npx wrangler secret put BREVO_WEBHOOK_SECRET
 		//   npx wrangler secret put BREVO_API_KEY
 		//   npx wrangler secret put RESEND_API_KEY
+		// Optional: when set, /health requires the matching `x-health-token`
+		// header (the GitHub health-monitor workflow sends it from the
+		// HEALTH_CHECK_TOKEN repository secret):
+		//   npx wrangler secret put HEALTH_CHECK_TOKEN
 		// Optional email tuning knobs (defaults live in lib/email.ts —
 		// EMAIL_MARKETING_DAILY_CAP=190, EMAIL_MONTHLY_SOFT_CAP=5800,
 		// EMAIL_DAILY_LIMIT=200):

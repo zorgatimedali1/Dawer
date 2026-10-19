@@ -4,6 +4,7 @@ import { env } from 'cloudflare:workers';
 import * as Sentry from '@sentry/cloudflare';
 import { createCrossOriginGuard, createRateLimitMiddleware } from '../lib/express-middleware';
 import { createWorkerRoute } from '../lib/express-adapter';
+import { timingSafeEqualString } from '../lib/crypto';
 import { handleOperatorAuthRoute } from './routes/auth';
 import { handleSubscriptionRoute } from './routes/subscriptions';
 import { handlePlatformFeaturesRoute } from './routes/settings';
@@ -41,7 +42,14 @@ app.use((_request, response, next) => {
 app.use(createCrossOriginGuard());
 app.use(express.json({ limit: '1mb' }));
 
-app.get('/health', (_request, response) => {
+app.get('/health', (request, response) => {
+  // Same token gate as the merchant worker: operational heartbeat stays open
+  // until HEALTH_CHECK_TOKEN is registered, then requires `x-health-token`.
+  const healthToken = (env as Env).HEALTH_CHECK_TOKEN;
+  if (healthToken && !timingSafeEqualString(request.headers.get('x-health-token') ?? '', healthToken)) {
+    response.status(404).json({ success: false, error: 'Route not found.' });
+    return;
+  }
   response.set('Cache-Control', 'public, max-age=0, s-maxage=15');
   response.json({ success: true, status: 'ok' });
 });

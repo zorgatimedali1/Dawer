@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../types';
 import { handleAuthRoute } from '../routes/auth';
+import { codeChallengeS256 } from '../lib/crypto';
 import { createTestEnv, type TestEnv } from './helpers/d1';
 import { jsonRequest, seedMerchant } from './helpers/fixtures';
 
@@ -47,15 +48,18 @@ async function startFlow(): Promise<{ cookies: string[]; state: string }> {
   return { cookies, state };
 }
 
-function stubGoogleFetch() {
+function stubGoogleFetch(captured: { tokenBody?: string } = {}) {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const json = (payload: unknown) =>
         new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } });
 
-      if (url.includes('oauth2.googleapis.com/token')) return json({ access_token: 'google-access-token' });
+      if (url.includes('oauth2.googleapis.com/token')) {
+        captured.tokenBody = init?.body ? String(init.body) : '';
+        return json({ access_token: 'google-access-token' });
+      }
       if (url.includes('openidconnect.googleapis.com')) {
         return json({ sub: 'google-sub-1', email: 'ada@example.test', name: 'Ada Lovelace' });
       }
@@ -77,19 +81,29 @@ afterEach(() => {
 });
 
 describe('GET /api/auth/google', () => {
-  it('redirects to Google with a single-use HttpOnly state cookie', async () => {
+  it('redirects to Google with a single-use HttpOnly state cookie and PKCE', async () => {
     const response = await handleAuthRoute(jsonRequest('/api/auth/google', 'GET'), env);
 
     expect(response.status).toBe(302);
     const location = response.headers.get('location') ?? '';
     expect(location.startsWith('https://accounts.google.com/o/oauth2/v2/auth?')).toBe(true);
 
+    // PKCE (S256): the authorization URL carries only the challenge; the
+    // verifier is held server-side in the single-use oauth_states row.
+    const params = new URL(location).searchParams;
+    expect(params.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(params.get('code_challenge_method')).toBe('S256');
+
+    const stored = raw.DB.query<{ pkce_verifier: string }>('SELECT pkce_verifier FROM oauth_states');
+    expect(stored).toHaveLength(1);
+    expect((await codeChallengeS256(stored[0].pkce_verifier)) === params.get('code_challenge')).toBe(true);
+
     const cookies = setCookies(response);
-    const state = cookieNamed(cookies, 'cf_oauth_state');
+    const state = cookieNamed(cookies, '__Host-cf_oauth_state');
     expect(state).toBeTruthy();
-    expect(cookies.find((cookie) => cookie.startsWith('cf_oauth_state='))).toMatch(/HttpOnly/);
-    expect(new URL(location).searchParams.get('state')).toBe(state);
-    expect(raw.DB.query('SELECT state FROM oauth_states')).toHaveLength(1);
+    expect(cookies.find((cookie) => cookie.startsWith('__Host-cf_oauth_state='))).toMatch(/HttpOnly/);
+    expect(params.get('state')).toBe(state);
+    expect(stored[0].pkce_verifier).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('returns 501 when OAuth is not configured', async () => {
@@ -158,6 +172,23 @@ describe('GET /api/auth/google/callback', () => {
     // P1-1: the profile is returned without the token — the cookie is HttpOnly.
     expect(payload.token).toBeUndefined();
     expect(payload.user.email).toBe('ada@example.test');
+  });
+
+  it('redeems the authorization code with the PKCE verifier it held', async () => {
+    const captured: { tokenBody?: string } = {};
+    stubGoogleFetch(captured);
+    const { cookies, state } = await startFlow();
+    const [{ pkce_verifier: verifier }] = raw.DB.query<{ pkce_verifier: string }>(
+      'SELECT pkce_verifier FROM oauth_states',
+    );
+
+    const response = await handleAuthRoute(
+      new Request(`https://example.test${callbackUrl(state)}`, { headers: { cookie: cookieHeader(cookies) } }),
+      env,
+    );
+
+    expect(response.status).toBe(302);
+    expect(captured.tokenBody).toContain(`code_verifier=${verifier}`);
   });
 
   it('seeds a business so a fresh Google account can use the dashboard', async () => {

@@ -30,6 +30,9 @@ export type Env = Cloudflare.Env & {
   META_APP_SECRET?: string;
   /** HMAC key for server-set identities (signed spin visitor cookie). */
   COOKIE_SIGNING_KEY?: string;
+  /** When set (secret), /health requires the matching `x-health-token` header
+   *  (the GitHub health-monitor workflow sends it). Unset = probes open. */
+  HEALTH_CHECK_TOKEN?: string;
   /** Public origin of the SPA, used to build links in outbound emails. */
   APP_ORIGIN?: string;
   /** Sentry DSN (secret). Absent = error tracking stays disabled. */

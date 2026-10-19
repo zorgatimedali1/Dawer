@@ -277,22 +277,28 @@ const MAILJET_SUPPRESS_EVENTS: Record<string, string> = {
 /**
  * Delivery feedback (bounces/blocks/spam/unsubscribes) → suppression list,
  * so a dead address is dropped before the next campaign. Auth is a shared
- * token read from the `x-webhook-token` header (preferred, keeps it out of
- * logs) or the `?token=` query (fallback for providers that can only send a
- * URL), compared in constant time. Neither provider signs payloads. Payloads
+ * token read from the `x-webhook-token` header — Brevo ingests this way
+ * (its create/webhook API accepts arbitrary custom headers), so Brevo calls
+ * are header-only: a token inside a registered URL lives on in provider
+ * request logs. Mailjet offers no header configuration on event callback
+ * URLs, so the `?token=` query fallback is accepted only for that provider.
+ * Compared in constant time. Neither provider signs payloads. Payloads
  * arrive either as one event object or an array of them. Dedupe is inherent:
  * the suppression PK makes replays idempotent.
  */
 async function handleEmailEventWebhook(
   request: Request,
   env: Env,
-  options: { secret: string | undefined; suppressEvents: Record<string, string>; logLabel: string },
+  options: {
+    secret: string | undefined;
+    suppressEvents: Record<string, string>;
+    logLabel: string;
+    allowQueryToken: boolean;
+  },
 ): Promise<Response> {
   const url = new URL(request.url);
-  // M5: prefer a header so the token never has to appear in the registered
-  // URL (where it would land in request logs). Providers that can only send
-  // `?token=` keep working via the query fallback.
-  const token = request.headers.get('x-webhook-token') ?? url.searchParams.get('token') ?? '';
+  const queryToken = options.allowQueryToken ? url.searchParams.get('token') : null;
+  const token = request.headers.get('x-webhook-token') ?? queryToken ?? '';
 
   // Fail closed: without the shared token anyone could suppress addresses.
   if (!options.secret) {
@@ -332,6 +338,12 @@ async function handleBrevoEvent(request: Request, env: Env): Promise<Response> {
     secret: env.BREVO_WEBHOOK_SECRET,
     suppressEvents: BREVO_SUPPRESS_EVENTS,
     logLabel: 'Brevo',
+    // Brevo accepts custom headers on registered webhook URLs (create/update
+    // webhook API) — register the callback with the token in the header, so
+    // no secret ever appears in a logged URL. If the current Brevo callback
+    // still sends `?token=`, the webhook must be re-registered with the
+    // `x-webhook-token` header configuration.
+    allowQueryToken: false,
   });
 }
 
@@ -340,5 +352,8 @@ async function handleMailjetEvent(request: Request, env: Env): Promise<Response>
     secret: env.MAILJET_WEBHOOK_TOKEN,
     suppressEvents: MAILJET_SUPPRESS_EVENTS,
     logLabel: 'Mailjet',
+    // Mailjet event callback URLs carry no custom headers, so the registered
+    // `?token=` query is the only way to authenticate its callbacks.
+    allowQueryToken: true,
   });
 }

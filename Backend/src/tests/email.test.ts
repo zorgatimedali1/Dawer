@@ -912,13 +912,26 @@ describe('campaign attachments (photo/PDF)', () => {
 describe('POST /api/webhooks/brevo (bounce/block suppression)', () => {
   const TOKEN = 'brevo-webhook-token-test';
 
-  function webhookRequest(payload: string, overrides: { token?: string } = {}): Request {
+  function webhookRequest(
+    payload: string,
+    overrides: { token?: string; viaQuery?: boolean } = {},
+  ): Request {
+    // Brevo ingestion is header-only: register the callback with the token in
+    // a custom header (the create/update webhook API accepts arbitrary ones).
+    // viaQuery exercises the rejected legacy `?token=` shape.
     const token = overrides.token ?? TOKEN;
-    return new Request(`https://example.test/api/webhooks/brevo?token=${encodeURIComponent(token)}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: payload,
-    });
+    return new Request(
+      overrides.viaQuery
+        ? `https://example.test/api/webhooks/brevo?token=${encodeURIComponent(token)}`
+        : 'https://example.test/api/webhooks/brevo',
+      {
+        method: 'POST',
+        headers: overrides.viaQuery
+          ? { 'content-type': 'application/json' }
+          : { 'content-type': 'application/json', 'x-webhook-token': token },
+        body: payload,
+      },
+    );
   }
 
   function configureSecret() {
@@ -979,6 +992,14 @@ describe('POST /api/webhooks/brevo (bounce/block suppression)', () => {
     configureSecret();
     const payload = JSON.stringify({ event: 'hard_bounce', email: 'dead@example.test' });
     const response = await handleWebhookRoute(webhookRequest(payload, { token: 'forged' }), env);
+    expect(response.status).toBe(401);
+    expect(db.query(`SELECT email FROM email_suppression`)).toHaveLength(0);
+  });
+
+  it('rejects the legacy ?token= URL shape now that Brevo can send headers', async () => {
+    configureSecret();
+    const payload = JSON.stringify({ event: 'hard_bounce', email: 'dead@example.test' });
+    const response = await handleWebhookRoute(webhookRequest(payload, { viaQuery: true }), env);
     expect(response.status).toBe(401);
     expect(db.query(`SELECT email FROM email_suppression`)).toHaveLength(0);
   });

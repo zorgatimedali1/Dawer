@@ -6,16 +6,30 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
+	// Worker CPU budget — same rationale as wrangler.jsonc (PBKDF2 logins).
+	"limits": {
+		"cpu_ms": 200
+	},
 	"vars": {
 		"APP_ENV": "development",
 		"GEOFENCE_COUNTRIES": "TN",
+		// Local-only value for `wrangler dev` on this worker. It is NOT the
+		// production secret (`campaignflow-backend` reads COOKIE_SIGNING_KEY
+		// from `wrangler secret put`), and this config must never be deployed
+		// with bindings that share production state.
 		"COOKIE_SIGNING_KEY": "loadtest-cookie-signing-key"
 	},
 	"d1_databases": [
 		{
 			"binding": "DB",
-			"database_name": "campaignflow",
-			"database_id": "beb8dee4-de63-4ea8-815d-11120c54c44d",
+			// Isolated from production on purpose: the ids below are
+			// placeholders. Before a remote deploy create dedicated resources —
+			//   npx wrangler d1 create campaignflow-loadtest
+			//   npx wrangler kv namespace create TOKENS
+			// — and paste the returned ids here. Deploying with the
+			// placeholders fails fast instead of quietly sharing prod state.
+			"database_name": "campaignflow-loadtest",
+			"database_id": "00000000-0000-0000-0000-000000000000",
 			"migrations_dir": "Backend/migrations"
 		}
 	],
@@ -63,7 +77,9 @@
 	"kv_namespaces": [
 		{
 			"binding": "TOKENS",
-			"id": "153a28536daa4d529584f355474d27a1"
+			// Placeholder id — never shared with production (see d1 block above);
+			// replace with the real `kv namespace create TOKENS` id before use.
+			"id": "11111111111111111111111111111111"
 		}
 	],
 	"ratelimits": [

@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { hashPassword, sha256Hex, verifyPassword } from '../../lib/crypto';
+import { hashPassword, sha256Hex, verifyPassword, DUMMY_PASSWORD_HASH, DUMMY_PASSWORD_SALT } from '../../lib/crypto';
 import { errorResponse, jsonResponse } from '../../lib/http';
 import { isCrossSitePost } from '../../lib/security';
 import { loginSchema, passwordChangeSchema } from '../../lib/validation';
 import { buildCookie } from '../../lib/cookie';
+import { rotateSession } from '../../lib/sessions';
 import {
   clearedOperatorSessionCookie,
   currentOperatorToken,
@@ -12,6 +13,7 @@ import {
   mintOperatorToken,
   operatorSessionCookie,
   OPERATOR_SESSION_COOKIE,
+  OPERATOR_SESSION_MAX_AGE,
 } from '../lib/auth';
 import type { Env } from '../../types';
 
@@ -49,6 +51,10 @@ async function loginOperator(request: Request, env: Env): Promise<Response> {
       }>();
 
     if (!operator) {
+      // Equalise work with a real-password attempt (same dummy PBKDF2 as the
+      // merchant flow) so response timing cannot be used to enumerate
+      // operator addresses.
+      await verifyPassword(body.password, DUMMY_PASSWORD_SALT, DUMMY_PASSWORD_HASH);
       return errorResponse('Invalid email or password.', 401);
     }
 
@@ -143,7 +149,25 @@ async function operatorSession(request: Request, env: Env): Promise<Response> {
     return response;
   }
 
-  return jsonResponse({ success: true, operator: profile });
+  const response = jsonResponse({ success: true, operator: profile });
+
+  // Session rotation (mirrors the merchant flow): aged tokens get replaced by
+  // a fresh one on their next session check; the old row keeps working only
+  // for the two-minute grace so in-flight requests can never fail.
+  const token = await currentOperatorToken(request);
+  if (token) {
+    const rotated = await rotateSession(env, token, {
+      table: 'platform_sessions',
+      ownerColumn: 'operator_id',
+      tokenPrefix: 'op_',
+      maxAgeSeconds: OPERATOR_SESSION_MAX_AGE,
+    });
+    if (rotated) {
+      response.headers.append('set-cookie', operatorSessionCookie(request, rotated));
+    }
+  }
+
+  return response;
 }
 
 async function logoutOperator(request: Request, env: Env): Promise<Response> {

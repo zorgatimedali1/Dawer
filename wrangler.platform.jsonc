@@ -9,6 +9,12 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
+	// Same rationale as the merchant worker: operator logins pay the full
+	// 100k-iteration PBKDF2 (~70 ms), so 100 ms keeps one request under cap
+	// while bounding CPU burn from abusive traffic.
+	"limits": {
+		"cpu_ms": 100
+	},
 	"assets": {
 		"binding": "STATIC_ASSETS",
 		"not_found_handling": "single-page-application",

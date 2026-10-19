@@ -1,6 +1,23 @@
 import { z } from 'zod';
-import { hashPassword, sha256Hex, secureRandomHex, verifyPassword } from '../lib/crypto';
-import { buildCookie, readCookie, readSessionCookie, sessionCookieName, SESSION_COOKIE } from '../lib/cookie';
+import {
+  codeChallengeS256,
+  hashPassword,
+  sha256Hex,
+  secureRandomHex,
+  verifyPassword,
+  DUMMY_PASSWORD_HASH,
+  DUMMY_PASSWORD_SALT,
+} from '../lib/crypto';
+import {
+  buildCookie,
+  readSessionCookie,
+  sessionCookieName,
+  SESSION_COOKIE,
+  oauthStateCookieName,
+  readOauthStateCookie,
+  clearedOauthStateCookies,
+} from '../lib/cookie';
+import { rotateSession } from '../lib/sessions';
 import { errorResponse, jsonResponse } from '../lib/http';
 import {
   forgotPasswordSchema,
@@ -27,10 +44,9 @@ function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
-const OAUTH_STATE_COOKIE = 'cf_oauth_state';
+const OAUTH_STATE_MAX_AGE = 60 * 15;
 /** Merchant sessions last 3 days; after that the user must sign in again. */
 const SESSION_MAX_AGE = 60 * 60 * 24 * 3;
-const OAUTH_STATE_MAX_AGE = 60 * 15;
 const PASSWORD_RESET_TTL_MS = 15 * 60_000;
 const RESET_LINK_MESSAGE = 'If that email is registered, a password reset link has been sent.';
 
@@ -45,17 +61,11 @@ function oauthError(request: Request, message: string): Response {
     status: 302,
     headers: { location: `/auth/login?error=${encodeURIComponent(message)}` },
   });
-  response.headers.append('set-cookie', buildCookie(request, OAUTH_STATE_COOKIE, '', 0));
+  for (const cookie of clearedOauthStateCookies(request)) {
+    response.headers.append('set-cookie', cookie);
+  }
   return response;
 }
-
-/**
- * Fixed stand-in credential (well-formed salt + hash). Unknown-account
- * logins run the same 100k-iteration PBKDF2 as real ones so response
- * timing cannot be used to enumerate registered emails (P1-7b).
- */
-const DUMMY_PASSWORD_SALT = 'f'.repeat(64);
-const DUMMY_PASSWORD_HASH = '0'.repeat(64);
 
 /** Expires the current session cookie name and its pre-`__Host-` predecessor. */
 function clearSessionCookies(request: Request, response: Response): void {
@@ -199,6 +209,18 @@ export async function loginUser(request: Request, env: Env): Promise<Response> {
       return errorResponse('Too many failed attempts. Try again later.', 429);
     }
 
+    // The lock expired: clear the stale counter first, otherwise the very next
+    // wrong password would compute attempts = MAX + 1 and instantly re-lock
+    // the account for another full window (mirrors the operator flow).
+    if (existing.locked_until) {
+      await env.DB.prepare(
+        `UPDATE users SET failed_login_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?`,
+      )
+        .bind(now.toISOString(), existing.id)
+        .run();
+      existing.failed_login_attempts = 0;
+    }
+
     const isValidPassword = await verifyPassword(body.password, existing.salt, existing.password_hash);
 
     if (!isValidPassword) {
@@ -282,8 +304,14 @@ export async function googleAuthStart(request: Request, env: Env): Promise<Respo
   }
 
   const state = secureRandomHex(16);
-  await env.DB.prepare('INSERT INTO oauth_states (state, created_at) VALUES (?, ?)')
-    .bind(state, new Date().toISOString())
+  // PKCE (S256): the challenge goes into the authorization URL while only the
+  // server ever holds the verifier, so an intercepted or replayed
+  // authorization code cannot be redeemed at Google's token endpoint.
+  const codeVerifier = secureRandomHex(32);
+  const codeChallenge = await codeChallengeS256(codeVerifier);
+
+  await env.DB.prepare('INSERT INTO oauth_states (state, pkce_verifier, created_at) VALUES (?, ?, ?)')
+    .bind(state, codeVerifier, new Date().toISOString())
     .run();
 
   const params = new URLSearchParams({
@@ -292,6 +320,8 @@ export async function googleAuthStart(request: Request, env: Env): Promise<Respo
     response_type: 'code',
     scope: 'openid email profile',
     state,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
     access_type: 'offline',
     prompt: 'consent',
   });
@@ -300,7 +330,7 @@ export async function googleAuthStart(request: Request, env: Env): Promise<Respo
     status: 302,
     headers: { location: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` },
   });
-  response.headers.append('set-cookie', buildCookie(request, OAUTH_STATE_COOKIE, state, OAUTH_STATE_MAX_AGE));
+  response.headers.append('set-cookie', buildCookie(request, oauthStateCookieName(request), state, OAUTH_STATE_MAX_AGE));
   return response;
 }
 
@@ -314,18 +344,24 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
 
     // The state must round-trip through an HttpOnly cookie so a third party
     // cannot complete the handoff with a state value it minted itself.
-    const stateCookie = readCookie(request, OAUTH_STATE_COOKIE);
+    const stateCookie = readOauthStateCookie(request);
     if (!stateCookie || stateCookie !== payload.state) {
       return oauthError(request, 'Invalid or expired OAuth state.');
     }
 
     // Single use: only one callback can consume the row (D1 serialises the
-    // write), so a replayed callback cannot mint a second session.
+    // write), so a replayed callback cannot mint a second session. The PKCE
+    // verifier is read before the guarded delete — it must ride along in the
+    // token exchange.
+    const stateRow = await env.DB.prepare('SELECT pkce_verifier FROM oauth_states WHERE state = ?')
+      .bind(payload.state)
+      .first<{ pkce_verifier: string }>();
+
     const consumed = await env.DB.prepare('DELETE FROM oauth_states WHERE state = ?')
       .bind(payload.state)
       .run();
 
-    if (Number(consumed.meta.changes ?? 0) !== 1) {
+    if (!stateRow || Number(consumed.meta.changes ?? 0) !== 1) {
       return oauthError(request, 'Invalid or expired OAuth state.');
     }
 
@@ -340,6 +376,9 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
         client_secret: env.GOOGLE_CLIENT_SECRET,
         redirect_uri: env.GOOGLE_REDIRECT_URI,
         grant_type: 'authorization_code',
+        // Rows minted before the PKCE migration carry the empty default; for
+        // those the exchange falls back to the pre-PKCE request shape.
+        ...(stateRow.pkce_verifier ? { code_verifier: stateRow.pkce_verifier } : {}),
       }),
       signal: AbortSignal.timeout(10_000),
     });
@@ -450,7 +489,9 @@ export async function googleAuthCallback(request: Request, env: Env): Promise<Re
       headers: { location: '/auth/callback' },
     });
     response.headers.append('set-cookie', buildCookie(request, sessionCookieName(request), accessToken, SESSION_MAX_AGE));
-    response.headers.append('set-cookie', buildCookie(request, OAUTH_STATE_COOKIE, '', 0));
+    for (const cookie of clearedOauthStateCookies(request)) {
+      response.headers.append('set-cookie', cookie);
+    }
     return response;
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -482,7 +523,7 @@ export async function sessionFromCookie(request: Request, env: Env): Promise<Res
     .bind(user.id)
     .first<{ id: string; email: string; first_name: string; last_name: string }>();
 
-  return jsonResponse({
+  const response = jsonResponse({
     success: true,
     user: {
       id: user.id,
@@ -492,6 +533,23 @@ export async function sessionFromCookie(request: Request, env: Env): Promise<Res
       role: 'merchant',
     },
   });
+
+  // Session rotation: once a token has aged past the threshold it is replaced
+  // by a fresh one (full expiry again), and the old row keeps working only for
+  // the two-minute grace so in-flight requests can never fail.
+  if (token) {
+    const rotated = await rotateSession(env, token, {
+      table: 'sessions',
+      ownerColumn: 'user_id',
+      tokenPrefix: 'cf_',
+      maxAgeSeconds: SESSION_MAX_AGE,
+    });
+    if (rotated) {
+      response.headers.append('set-cookie', buildCookie(request, sessionCookieName(request), rotated, SESSION_MAX_AGE));
+    }
+  }
+
+  return response;
 }
 
 /**

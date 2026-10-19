@@ -1,5 +1,11 @@
 name: Health monitor
 
+# SECURITY: once HEALTH_CHECK_TOKEN is registered on a worker (npx wrangler
+# secret put HEALTH_CHECK_TOKEN), its /health endpoint requires the matching
+# `x-health-token` header. This workflow sends the value from the same-named
+# GitHub Actions secret. Until the secret exists on a worker, that probe is
+# answered without the header (open), so this workflow keeps working.
+
 on:
   schedule:
     # Every 10 minutes, offset by 3 so it never lands exactly on our cron.
@@ -16,9 +22,11 @@ jobs:
     steps:
       - name: Merchant API /health (body + cron heartbeat)
         id: merchant
+        env:
+          HEALTH_CHECK_TOKEN: ${{ secrets.HEALTH_CHECK_TOKEN }}
         run: |
           set -euo pipefail
-          body=$(curl -fsS --max-time 30 https://campaignflow-backend.mhoudou098.workers.dev/health)
+          body=$(curl -fsS --max-time 30 -H "x-health-token: ${HEALTH_CHECK_TOKEN}" https://campaignflow-backend.mhoudou098.workers.dev/health)
           echo "merchant: $body"
           last=$(jq -r '.lastCronAt // empty' <<<"$body")
           if [ -z "$last" ]; then
@@ -33,9 +41,11 @@ jobs:
           fi
 
       - name: Platform API /health
+        env:
+          HEALTH_CHECK_TOKEN: ${{ secrets.HEALTH_CHECK_TOKEN }}
         run: |
           set -euo pipefail
-          body=$(curl -fsS --max-time 30 https://campaignflow-platform.mhoudou098.workers.dev/health)
+          body=$(curl -fsS --max-time 30 -H "x-health-token: ${HEALTH_CHECK_TOKEN}" https://campaignflow-platform.mhoudou098.workers.dev/health)
           echo "platform: $body"
           jq -e '.success == true' <<<"$body" > /dev/null
 

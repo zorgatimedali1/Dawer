@@ -37,6 +37,33 @@ export function readSessionCookie(request: Request): string | null {
   return readCookie(request, `__Host-${SESSION_COOKIE}`) ?? readCookie(request, SESSION_COOKIE);
 }
 
+/**
+ * Single-use Google OAuth handoff state, round-tripped through a cookie and
+ * the oauth_states row. The `__Host-` prefix mandates Secure (HTTPS only),
+ * same rule as the session cookie; local HTTP dev keeps the plain name.
+ */
+export const OAUTH_STATE_COOKIE = 'cf_oauth_state';
+
+export function oauthStateCookieName(request: Request): string {
+  return new URL(request.url).protocol === 'https:' ? `__Host-${OAUTH_STATE_COOKIE}` : OAUTH_STATE_COOKIE;
+}
+
+/** Current name first, then the pre-`__Host-` name. */
+export function readOauthStateCookie(request: Request): string | null {
+  return readCookie(request, `__Host-${OAUTH_STATE_COOKIE}`) ?? readCookie(request, OAUTH_STATE_COOKIE);
+}
+
+/** Cookie strings that expire the OAuth state cookie under both names. */
+export function clearedOauthStateCookies(request: Request): string[] {
+  if (new URL(request.url).protocol !== 'https:') {
+    return [buildCookie(request, OAUTH_STATE_COOKIE, '', 0)];
+  }
+  return [
+    buildCookie(request, `__Host-${OAUTH_STATE_COOKIE}`, '', 0),
+    buildCookie(request, OAUTH_STATE_COOKIE, '', 0),
+  ];
+}
+
 export function buildCookie(request: Request, name: string, value: string, maxAgeSeconds: number): string {
   const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
   return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`;

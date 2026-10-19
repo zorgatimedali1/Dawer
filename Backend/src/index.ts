@@ -4,6 +4,7 @@ import { env } from 'cloudflare:workers';
 import * as Sentry from '@sentry/cloudflare';
 import { createCrossOriginGuard, createGeofenceMiddleware, createRateLimitMiddleware } from './lib/express-middleware';
 import { createWorkerRoute } from './lib/express-adapter';
+import { timingSafeEqualString } from './lib/crypto';
 import { runReconcile } from './lib/reconcile';
 import { CampaignParticipationLock as CampaignParticipationLockBase } from './durable/campaign-lock';
 import { EmailBroadcastSender as EmailBroadcastSenderBase } from './durable/email-sender';
@@ -89,7 +90,17 @@ app.use('/api/settings/logo', express.json({ limit: '2mb' }));
 app.use('/api/settings/wheel-logo', express.json({ limit: '2mb' }));
 app.use(express.json({ limit: '1mb' }));
 
-app.get('/health', async (_request, response) => {
+app.get('/health', async (request, response) => {
+  // The heartbeat payload is operational detail (cron/reconcile recency), so
+  // once HEALTH_CHECK_TOKEN exists probes must prove it — `.github/workflows/
+  // health-monitor.yml` sends the same value in the `x-health-token` header.
+  // Unset (local dev, or production before the secret is registered) keeps
+  // probes open so nothing breaks the moment this ships.
+  const healthToken = (env as Env).HEALTH_CHECK_TOKEN;
+  if (healthToken && !timingSafeEqualString(request.headers.get('x-health-token') ?? '', healthToken)) {
+    response.status(404).json({ success: false, error: 'Route not found.' });
+    return;
+  }
   response.set('Cache-Control', 'public, max-age=0, s-maxage=15');
   let lastCronAt: string | null = null;
   let lastReconcileAt: string | null = null;
