@@ -109,6 +109,17 @@ export function createLockRegistry() {
   const DAY_MS = 86_400_000;
   const onceClaims = new Set<string>();
   const windowedClaims = new Map<string, { claims: number[]; wins: number[] }>();
+  // Platform daily spin-cap counter, mirroring the Durable Object's storage:
+  // one seeded value per campaign per UTC day, null until seeded.
+  const dailyCaps = new Map<string, number>();
+
+  function dailyCapKey(campaignId: string): string {
+    return `${campaignId}:${new Date().toISOString().slice(0, 10)}`;
+  }
+
+  function daySuffixKey(campaignId: string): string {
+    return `${campaignId}:`;
+  }
 
   function prune(state: { claims: number[]; wins: number[] }) {
     const now = Date.now();
@@ -171,6 +182,20 @@ export function createLockRegistry() {
           if (!state) return 0;
           const now = Date.now();
           return state.wins.filter((at) => now - at < DAY_MS).length;
+        },
+        async getDailySpinCount(campaignId: string) {
+          return dailyCaps.get(dailyCapKey(campaignId)) ?? null;
+        },
+        async setDailySpinCount(campaignId: string, count: number) {
+          const key = dailyCapKey(campaignId);
+          for (const existing of dailyCaps.keys()) {
+            if (existing.endsWith(daySuffixKey(campaignId))) dailyCaps.delete(existing);
+          }
+          dailyCaps.set(key, count);
+        },
+        async bumpDailySpinCount(campaignId: string) {
+          const key = dailyCapKey(campaignId);
+          dailyCaps.set(key, (dailyCaps.get(key) ?? 0) + 1);
         },
       };
     },

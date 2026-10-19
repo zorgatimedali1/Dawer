@@ -9,6 +9,7 @@ import { distanceMetersBetween } from '../lib/geo';
 import { getCustomerLimit, customerLimitFromAccess, wheelCenterLogoAllowed, wheelDesignAllowed, wheelStepsColorAllowed } from '../lib/subscription-limits';
 import { accessFromSubscriptionRow, readStarterPlan, type BusinessAccess } from '../lib/subscription-access';
 import { markAnalyticsDirtySafe } from '../lib/analytics-cache';
+import { invalidateWheelRewardsCache, readWheelRewardsCache, writeWheelRewardsCache } from '../lib/wheel-rewards-cache';
 import { handlePublicLogoRoute, handlePublicWheelLogoRoute, businessWheelLogoPath } from './settings';
 import type { Env } from '../types';
 
@@ -132,6 +133,12 @@ function toWheelRewards(rows: unknown[]): WheelReward[] {
  * already carries the boosted weight.
  */
 async function selectWheelRewards(env: Env, campaignId: string): Promise<WheelReward[]> {
+  // The display list only changes when a merchant edits rewards or a stock
+  // unit burns (both delete the key), so a 60s-cached read serves the burst
+  // of page loads and spins a live wheel produces.
+  const cached = await readWheelRewardsCache(env, campaignId);
+  if (cached) return cached;
+
   const load = () =>
     env.DB
       .prepare(
@@ -145,8 +152,16 @@ async function selectWheelRewards(env: Env, campaignId: string): Promise<WheelRe
 
   const rows = toWheelRewards(((await load()).results) ?? []);
 
-  if (!rows.some((row) => isSoldOutReward(row))) return applySoldOutOdds(rows);
+  if (!rows.some((row) => isSoldOutReward(row))) {
+    // Nothing sold out: the payload is pure display data — cacheable.
+    const display = applySoldOutOdds(rows);
+    await writeWheelRewardsCache(env, campaignId, display);
+    return display;
+  }
 
+  // A sold-out wheel's read can also write D1 (the one-time "none"-slice
+  // switch-on below), so its result stays off the cache until the merchant
+  // restocks or edits the rewards.
   if (!(await ensureNoWinSlice(env, campaignId))) return applySoldOutOdds(rows);
 
   return applySoldOutOdds(toWheelRewards(((await load()).results) ?? []));
@@ -497,6 +512,10 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
   // recycled slot is kept even on rollback: the old customer is already gone,
   // so deleting this one too would shrink the roster for nothing.
   let slotRecycled = false;
+  // The Durable Object holding today's participation count (platform daily
+  // spin cap). Set only when the counter is live and seeded; the post-commit
+  // bump is skipped otherwise so the count cannot drift upward.
+  let dailyCapStub: LockStub | null = null;
   // Every durable `spin_claims` row this attempt wrote (browser key first,
   // then the advisory contact key) — all of them go back on any failure.
   const claimRowIds: string[] = [];
@@ -644,23 +663,53 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       }
     }
 
-    // Platform safety valve: all tenants share one D1 write budget on the
-    // free plan, so a single viral wheel could otherwise burn it and make
-    // every other merchant's spins fail for the rest of the UTC day. The cap
-    // is deliberately generous (5000/day default) — real campaigns never see
-    // it; it only exists to bound the blast radius of an outlier. Counted with
-    // the other refusals, before the durable claim, so a rejected attempt
-    // never holds a slot.
+    // Platform safety valve: all tenants share one D1 write budget, so a
+    // single viral wheel could otherwise burn it and make every other
+    // merchant's spins fail for the rest of the UTC day. The cap is
+    // deliberately generous (5000/day default) — real campaigns never see it;
+    // it only exists to bound the blast radius of an outlier.
+    //
+    // Counted on the Durable Object counter instead of a per-spin COUNT:
+    // today's number lives in the DO's storage and only re-seeds from D1 once
+    // per campaign per day (cold start or lost DO storage). Every spin then
+    // costs one ~1ms DO read instead of a scheduled-table aggregation. Spins
+    // that pass this gate bump the counter only AFTER their rows commit, so
+    // refused or rolled-back attempts never consume headroom.
     const dailySpinCap = Number(env.CAMPAIGN_DAILY_SPIN_CAP ?? 5000);
     if (Number.isFinite(dailySpinCap) && dailySpinCap > 0) {
       const dayStart = new Date().toISOString().slice(0, 10);
-      const todaySpins = await env.DB.prepare(
-        `SELECT COUNT(*) AS total FROM participations WHERE campaign_id = ? AND created_at >= ?`,
-      )
-        .bind(campaign.id, `${dayStart}T00:00:00.000Z`)
-        .first<{ total: number }>();
+      let todaySpins: number | null = null;
+      try {
+        dailyCapStub = env.CAMPAIGN_LOCK.getByName(`campaign:${campaign.id}:__daily_cap__`);
+        todaySpins = await dailyCapStub.getDailySpinCount(campaign.id);
+      } catch (error) {
+        console.error('Daily cap counter unavailable.', error);
+        dailyCapStub = null;
+      }
 
-      if ((todaySpins?.total ?? 0) >= dailySpinCap) {
+      if (todaySpins === null) {
+        // Cold start (or the counter's storage was lost): re-seed from D1 once
+        // today. A failed seed write only widens the next reads' window to the
+        // fallback below — the cap never silently disappears.
+        const seeded = await env.DB.prepare(
+          `SELECT COUNT(*) AS total FROM participations WHERE campaign_id = ? AND created_at >= ?`,
+        )
+          .bind(campaign.id, `${dayStart}T00:00:00.000Z`)
+          .first<{ total: number }>();
+        todaySpins = seeded?.total ?? 0;
+        if (dailyCapStub) {
+          try {
+            await dailyCapStub.setDailySpinCount(campaign.id, todaySpins);
+          } catch (seedError) {
+            console.error('Daily cap seed write failed.', seedError);
+            // Same D1 COUNT would then run on every spin — drop the stub so
+            // the post-commit bump does not write a counter nobody reads.
+            dailyCapStub = null;
+          }
+        }
+      }
+
+      if ((todaySpins ?? 0) >= dailySpinCap) {
         return errorResponse(
           'The wheel is at capacity today. Please come back tomorrow.',
           429,
@@ -1040,6 +1089,17 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
 
     await env.DB.batch(chain);
 
+    // The spin occupies a slot today: bump the Durable Object counter so the
+    // next spins read the updated headroom instead of re-seeding. Best-effort —
+    // a lost bump only lets a few extra spins through the safety valve.
+    if (dailyCapStub) {
+      try {
+        await dailyCapStub.bumpDailySpinCount(campaign.id);
+      } catch (bumpError) {
+        console.error('daily_cap_bump_failed', bumpError instanceof Error ? bumpError.message : String(bumpError));
+      }
+    }
+
     // The dashboard analytics caches can serve pre-spin aggregates for hours;
     // stamp the 5-minute dirty marker so the next read recomputes (best
     // effort: losing the stamp only extends the normal TTL).
@@ -1232,14 +1292,23 @@ async function handleCustomerDetails(
     let boundCustomerId = participation.customer_id;
 
     if (!boundCustomerId) {
-      const existing = await env.DB.prepare(
-        `SELECT id FROM customers
-          WHERE business_id = ?
-            AND ((? <> '' AND LOWER(COALESCE(email, '')) = ?) OR COALESCE(phone, '') = ?)
-          LIMIT 1`,
+      // Two single-column lookups instead of one OR-expression: SQLite can
+      // serve `lower(email) = ?` from the partial email index and
+      // `phone = ?` from the phone index, while a COALESCE/OR match falls
+      // back to scanning every customer of the business. Phone is always
+      // non-empty here (schema min length 6); email may be empty.
+      const emailHit = emailKey
+        ? await env.DB.prepare(
+            `SELECT id FROM customers WHERE business_id = ? AND LOWER(email) = ? LIMIT 1`,
+          )
+            .bind(participation.business_id, emailKey)
+            .first<{ id: string }>()
+        : null;
+      const existing = emailHit ?? (await env.DB.prepare(
+        `SELECT id FROM customers WHERE business_id = ? AND phone = ? LIMIT 1`,
       )
-        .bind(participation.business_id, emailKey, emailKey, phoneKey)
-        .first<{ id: string }>();
+        .bind(participation.business_id, phoneKey)
+        .first<{ id: string }>());
 
       let attachId: string;
 
@@ -1267,29 +1336,27 @@ async function handleCustomerDetails(
         attachId = candidateId;
       }
 
-      await env.DB.prepare(
-        `UPDATE participations SET customer_id = ? WHERE id = ? AND customer_id IS NULL`,
-      )
-        .bind(attachId, participation.id)
-        .run();
-      await env.DB.prepare(
-        `UPDATE coupons SET customer_id = ? WHERE participation_id = ? AND customer_id IS NULL`,
-      )
-        .bind(attachId, participation.id)
-        .run();
+      // The rows bind inside the batch below this block (same blank checks
+      // the old sequential flow used), so only the identity is remembered here.
       boundCustomerId = attachId;
     }
 
-    const duplicate = await env.DB.prepare(
-      `SELECT id FROM customers
-       WHERE business_id = ? AND id <> ?
-         AND ((? <> '' AND LOWER(COALESCE(email, '')) = ?) OR COALESCE(phone, '') = ?)
-       LIMIT 1`,
+    // Same split as the attach lookup above — one indexed probe per column.
+    // Phone is always a real value; the email probe only runs when supplied.
+    const duplicate = emailKey
+      ? await env.DB.prepare(
+          `SELECT id FROM customers WHERE business_id = ? AND id <> ? AND LOWER(email) = ? LIMIT 1`,
+        )
+          .bind(participation.business_id, boundCustomerId, emailKey)
+          .first<{ id: string }>()
+      : null;
+    const phoneDuplicate = duplicate ?? (await env.DB.prepare(
+      `SELECT id FROM customers WHERE business_id = ? AND id <> ? AND phone = ? LIMIT 1`,
     )
-      .bind(participation.business_id, boundCustomerId, emailKey, emailKey, phoneKey)
-      .first<{ id: string }>();
+      .bind(participation.business_id, boundCustomerId, phoneKey)
+      .first<{ id: string }>());
 
-    const targetId = duplicate?.id ?? boundCustomerId;
+    const targetId = phoneDuplicate?.id ?? boundCustomerId;
 
     const target = await env.DB.prepare(
       `SELECT id, first_name, last_name, email, phone FROM customers WHERE id = ? LIMIT 1`,
@@ -1301,34 +1368,58 @@ async function handleCustomerDetails(
       return errorResponse('Customer not found.', 404);
     }
 
-    if (duplicate) {
-      await env.DB.prepare(`UPDATE participations SET customer_id = ? WHERE customer_id = ?`)
-        .bind(targetId, boundCustomerId)
-        .run();
-      await env.DB.prepare(`UPDATE coupons SET customer_id = ? WHERE customer_id = ?`)
-        .bind(targetId, boundCustomerId)
-        .run();
-      await env.DB.prepare(`DELETE FROM customers WHERE id = ?`)
-        .bind(boundCustomerId)
-        .run();
+    // The row binds, the possible duplicate-merge and the profile update run
+    // as one atomic batch (details submits used to stack 3–5 round-trips on
+    // the hot path). The attach statements only fire when the spin row still
+    // binds nothing, the merge statements only when a duplicate row exists —
+    // together they replay the old sequential flow in one transaction.
+    if (!phoneDuplicate) {
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE participations SET customer_id = ? WHERE id = ? AND customer_id IS NULL`)
+          .bind(targetId, participation.id),
+        env.DB.prepare(`UPDATE coupons SET customer_id = ? WHERE participation_id = ? AND customer_id IS NULL`)
+          .bind(targetId, participation.id),
+        env.DB.prepare(
+          `UPDATE customers SET first_name = ?, last_name = ?, email = ?, phone = ?, marketing_consent = ?, updated_at = ?, last_activity_at = ? WHERE id = ?`,
+        )
+          .bind(
+            target.first_name || body.firstName,
+            target.last_name || body.lastName,
+            target.email || body.email || null,
+            target.phone || body.phone,
+            body.marketingConsent ? 1 : 0,
+            now,
+            now,
+            targetId,
+          ),
+      ]);
+    } else {
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE participations SET customer_id = ? WHERE id = ? AND customer_id IS NULL`)
+          .bind(targetId, participation.id),
+        env.DB.prepare(`UPDATE coupons SET customer_id = ? WHERE participation_id = ? AND customer_id IS NULL`)
+          .bind(targetId, participation.id),
+        env.DB.prepare(`UPDATE participations SET customer_id = ? WHERE customer_id = ?`)
+          .bind(targetId, boundCustomerId),
+        env.DB.prepare(`UPDATE coupons SET customer_id = ? WHERE customer_id = ?`)
+          .bind(targetId, boundCustomerId),
+        env.DB.prepare(`DELETE FROM customers WHERE id = ?`)
+          .bind(boundCustomerId),
+        env.DB.prepare(
+          `UPDATE customers SET first_name = ?, last_name = ?, email = ?, phone = ?, marketing_consent = ?, updated_at = ?, last_activity_at = ? WHERE id = ?`,
+        )
+          .bind(
+            target.first_name || body.firstName,
+            target.last_name || body.lastName,
+            target.email || body.email || null,
+            target.phone || body.phone,
+            body.marketingConsent ? 1 : 0,
+            now,
+            now,
+            targetId,
+          ),
+      ]);
     }
-
-    await env.DB.prepare(
-      `UPDATE customers
-       SET first_name = ?, last_name = ?, email = ?, phone = ?, marketing_consent = ?, updated_at = ?, last_activity_at = ?
-       WHERE id = ?`,
-    )
-      .bind(
-        target.first_name || body.firstName,
-        target.last_name || body.lastName,
-        target.email || body.email || null,
-        target.phone || body.phone,
-        body.marketingConsent ? 1 : 0,
-        now,
-        now,
-        targetId,
-      )
-      .run();
 
     // The coupon is issued here — and only here — so a winner who abandons
     // this form never leaves an unnamed row in the merchant's list. This is
@@ -1375,6 +1466,9 @@ async function handleCustomerDetails(
               return errorResponse('This reward is no longer available.', 409);
             }
             stockBurned = true;
+            // A unit left the shelf: the wheel display quantity is now stale
+            // wherever it is cached — drop it so the next GET recomputes.
+            void invalidateWheelRewardsCache(env, participation.campaign_id);
           }
 
           const issued = await env.DB.prepare(

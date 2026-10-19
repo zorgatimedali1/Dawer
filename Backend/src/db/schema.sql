@@ -203,7 +203,9 @@ CREATE TABLE IF NOT EXISTS spin_claims (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_spin_claims_visitor
   ON spin_claims(campaign_id, visitor_key);
 
-CREATE INDEX IF NOT EXISTS idx_spin_claims_campaign ON spin_claims(campaign_id);
+-- The standalone campaign_id index was redundant with the unique composite
+-- above (migration 0050); the drop keeps fresh local envs aligned with prod.
+DROP INDEX IF EXISTS idx_spin_claims_campaign;
 
 CREATE TABLE IF NOT EXISTS spin_events (
   id TEXT PRIMARY KEY,
@@ -527,6 +529,8 @@ CREATE INDEX IF NOT EXISTS idx_platform_operators_status ON platform_operators(s
 CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_sessions_token ON platform_sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_platform_sessions_operator ON platform_sessions(operator_id);
 CREATE INDEX IF NOT EXISTS idx_campaigns_business ON campaigns(business_id);
+-- QR dashboard lists `WHERE business_id = ? ... ORDER BY created_at DESC` (migration 0050).
+CREATE INDEX IF NOT EXISTS idx_qr_codes_business_created ON qr_codes(business_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_rewards_campaign ON rewards(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_rewards_business ON rewards(business_id);
 CREATE INDEX IF NOT EXISTS idx_coupons_customer ON coupons(customer_id);
@@ -536,11 +540,18 @@ CREATE INDEX IF NOT EXISTS idx_coupons_business_status ON coupons(business_id, s
 CREATE UNIQUE INDEX IF NOT EXISTS idx_coupons_participation_unique
   ON coupons(participation_id);
 CREATE INDEX IF NOT EXISTS idx_participations_campaign ON participations(campaign_id);
+-- Daily spin-cap count reads `WHERE campaign_id = ? AND created_at >= ?`
+-- (migration 0050): the composite keeps the count bounded by one day.
+CREATE INDEX IF NOT EXISTS idx_participations_campaign_created ON participations(campaign_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_participations_customer ON participations(customer_id);
 CREATE INDEX IF NOT EXISTS idx_participations_customer ON participations(customer_id);
 CREATE INDEX IF NOT EXISTS idx_participations_reward ON participations(reward_id);
 CREATE INDEX IF NOT EXISTS idx_customers_business ON customers(business_id);
 CREATE INDEX IF NOT EXISTS idx_customers_identity
   ON customers(business_id, LOWER(COALESCE(email, phone, id)));
+-- Phone-half of the split duplicate lookup in handleCustomerDetails
+-- (migration 0050): `WHERE business_id = ? AND phone = ?`.
+CREATE INDEX IF NOT EXISTS idx_customers_business_phone ON customers(business_id, phone);
 CREATE INDEX IF NOT EXISTS idx_analytics_business_created ON analytics_events(business_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_analytics_campaign_created ON analytics_events(campaign_id, created_at);
 -- One QR_SCANNED row per (business, campaign, visitor-day): event_data is
@@ -552,6 +563,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_business_created ON audit_logs(busines
 CREATE INDEX IF NOT EXISTS idx_subscription_requests_status ON subscription_requests(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_subscription_requests_business ON subscription_requests(business_id);
 CREATE INDEX IF NOT EXISTS idx_whatsapp_campaigns_business ON whatsapp_campaigns(business_id, created_at);
+-- Cron reconciler scans stale PENDING/PROCESSING rows each tick (migration 0050).
+CREATE INDEX IF NOT EXISTS idx_whatsapp_campaigns_status ON whatsapp_campaigns(status, updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_whatsapp_campaigns_active
   ON whatsapp_campaigns(business_id) WHERE status IN ('PENDING', 'PROCESSING');
 CREATE UNIQUE INDEX IF NOT EXISTS idx_email_campaigns_active

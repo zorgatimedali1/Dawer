@@ -22,6 +22,16 @@ type ClaimState = {
 
 export type ClaimOutcome = { allowed: true } | { allowed: false; reason: 'duplicate_spin' | 'daily_limit' | 'cooldown' };
 
+const CAP_PREFIX = '#cap:';
+
+function dailyCapPrefix(campaignId: string): string {
+  return `${CAP_PREFIX}${campaignId}:`;
+}
+
+function dailyCapKey(campaignId: string): string {
+  return `${dailyCapPrefix(campaignId)}${new Date().toISOString().slice(0, 10)}`;
+}
+
 function normalize(state: ClaimState | undefined): { claims: number[]; wins: number[] } {
   if (!state) return { claims: [], wins: [] };
 
@@ -127,5 +137,32 @@ export class CampaignParticipationLock extends DurableObject<Env> {
   async getWinCount(campaignId: string, customerKey: string): Promise<number> {
     const stored = await this.ctx.storage.get<ClaimState>(`${campaignId}:${customerKey}`);
     return normalize(stored).wins.length;
+  }
+
+  /**
+   * Today's committed participation count for one campaign (platform daily
+   * spin cap). Lives under a `#cap:` prefix this class never uses for
+   * identity claims, so a counter instance never mixes claim rows into its
+   * keys. `null` means "not seeded yet" — the caller reads D1 once and feeds
+   * `setDailySpinCount`; after that every spin costs one storage read.
+   */
+  async getDailySpinCount(campaignId: string): Promise<number | null> {
+    const stored = await this.ctx.storage.get<number>(dailyCapKey(campaignId));
+    return typeof stored === 'number' ? stored : null;
+  }
+
+  /** Stores the D1-computed seed, dropping earlier days' keys for this campaign. */
+  async setDailySpinCount(campaignId: string, count: number): Promise<void> {
+    const key = dailyCapKey(campaignId);
+    const staleKeys = await this.ctx.storage.list({ prefix: dailyCapPrefix(campaignId) });
+    await Promise.all([...staleKeys.keys()].filter((k) => k !== key).map((k) => this.ctx.storage.delete(k)));
+    await this.ctx.storage.put(key, count);
+  }
+
+  /** Post-commit bump — best-effort, skipped by the caller when unseeded. */
+  async bumpDailySpinCount(campaignId: string): Promise<void> {
+    const key = dailyCapKey(campaignId);
+    const stored = await this.ctx.storage.get<number>(key);
+    await this.ctx.storage.put(key, (typeof stored === 'number' ? stored : 0) + 1);
   }
 }

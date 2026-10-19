@@ -19,6 +19,7 @@ import {
 } from '../lib/tenant';
 import { getBusinessAccess } from '../lib/subscription-access';
 import { campaignStatsAllowed } from '../lib/subscription-limits';
+import { invalidateWheelRewardsCache } from '../lib/wheel-rewards-cache';
 import type { Env } from '../types';
 
 const CONFIG_PATH = '/api/business/campaign-config';
@@ -181,6 +182,8 @@ async function syncRewards(
   // must not leave the campaign with a half-merged reward set.
   if (statements.length) {
     await env.DB.batch(statements);
+    // The customer wheel display just changed: drop the cached payload.
+    void invalidateWheelRewardsCache(env, campaign.id);
   }
 }
 
@@ -737,6 +740,7 @@ async function handleCampaignDelete(
     )
       .bind(campaign.id, campaign.business_id)
       .run();
+    void invalidateWheelRewardsCache(env, campaign.id);
   }
 
   await writeAuditLog(env, {

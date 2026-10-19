@@ -436,7 +436,7 @@ describe('POST /api/auth/login', () => {
 describe('POST /api/auth/login (Turnstile)', () => {
   /** Stubs the siteverify endpoint without touching the network. */
   function stubSiteverify(result: unknown, status = 200) {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       new Response(JSON.stringify(result), { status, headers: { 'content-type': 'application/json' } }),
     );
     vi.stubGlobal('fetch', fetchMock);

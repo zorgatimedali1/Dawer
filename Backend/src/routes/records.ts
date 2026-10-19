@@ -7,6 +7,7 @@ import {
   transferDeactivatedWeightToNoWin,
 } from '../lib/reward';
 import { markAnalyticsDirtySafe } from '../lib/analytics-cache';
+import { invalidateWheelRewardsCache } from '../lib/wheel-rewards-cache';
 import {
   couponListQuerySchema,
   couponUpdateSchema,
@@ -572,6 +573,10 @@ async function handleRewardPatch(request: Request, env: Env, user: Authenticated
     await restoreDeactivatedWeightFromNoWin(env, reward.campaign_id, reward.id, Number(reward.stored_weight ?? 0));
   }
 
+  // The customer wheel display just changed (weight, stock or active state):
+  // drop the cached payload so the next GET recomputes from D1.
+  void invalidateWheelRewardsCache(env, reward.campaign_id);
+
   await writeAuditLog(env, {
     businessId: reward.business_id,
     userId: user.id,
@@ -600,16 +605,18 @@ async function handleRewardDelete(env: Env, user: AuthenticatedUser, rewardId: s
   if (businessIds.length === 0) return errorResponse('Reward not found.', 404);
 
   const reward = await env.DB.prepare(
-    `SELECT id, business_id FROM rewards
+    `SELECT id, business_id, campaign_id FROM rewards
      WHERE id = ? AND business_id IN (${placeholders(businessIds.length)})
      LIMIT 1`,
   )
     .bind(rewardId, ...businessIds)
-    .first<{ id: string; business_id: string }>();
+    .first<{ id: string; business_id: string; campaign_id: string }>();
 
   if (!reward) return errorResponse('Reward not found.', 404);
 
   await env.DB.prepare('DELETE FROM rewards WHERE id = ?').bind(rewardId).run();
+
+  void invalidateWheelRewardsCache(env, reward.campaign_id);
 
   await writeAuditLog(env, {
     businessId: reward.business_id,
