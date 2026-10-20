@@ -129,7 +129,7 @@ export default function AccountsPage() {
   };
 
   const toggleFeature = (
-    key: 'whatsappEnabled' | 'emailEnabled' | 'wheelDesignEnabled' | 'rewardsEnabled',
+    key: 'whatsappEnabled' | 'emailEnabled' | 'smsEnabled' | 'wheelDesignEnabled' | 'rewardsEnabled',
     value: boolean,
   ) => {
     if (!detail) return;
@@ -138,9 +138,11 @@ export default function AccountsPage() {
         ? 'WhatsApp'
         : key === 'emailEnabled'
           ? 'Email marketing'
-          : key === 'wheelDesignEnabled'
-            ? 'Wheel design'
-            : 'Rewards';
+          : key === 'smsEnabled'
+            ? 'SMS marketing'
+            : key === 'wheelDesignEnabled'
+              ? 'Wheel design'
+              : 'Rewards';
     const handOver = key === 'wheelDesignEnabled' && value;
     void run(
       () => AccountsService.setFeatureAccess(detail.account.id, { [key]: value }),
@@ -687,6 +689,23 @@ export default function AccountsPage() {
                 checked={detail.featureAccess?.emailEnabled ?? true}
                 disabled={busy}
                 onToggle={(value) => toggleFeature('emailEnabled', value)}
+              />
+            </div>
+          </DetailSection>
+
+          <DetailSection title="SMS access">
+            <p className="mb-4 text-sm text-ink-muted">
+              When off, no merchant of this account can send SMS marketing broadcasts. Existing history stays
+              visible to the merchant.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FeatureSwitchRow
+                id="account-sms"
+                label="SMS marketing"
+                description="Text message broadcasts to opted-in customers"
+                checked={detail.featureAccess?.smsEnabled ?? true}
+                disabled={busy}
+                onToggle={(value) => toggleFeature('smsEnabled', value)}
               />
             </div>
           </DetailSection>

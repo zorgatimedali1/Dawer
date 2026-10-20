@@ -21,6 +21,7 @@ import { handlePublicCampaignRoute } from './routes/public';
 import { handleSettingsRoute } from './routes/settings';
 import { handleWhatsAppRoute } from './routes/whatsapp';
 import { handleWhatsAppWebRoute } from './routes/whatsapp-web';
+import { handleSmsRoute } from './routes/sms';
 import { handleWebhookRoute } from './routes/webhooks';
 import type { Env } from './types';
 
@@ -186,6 +187,8 @@ app.use('/api/billing', createWorkerRoute(handleSettingsRoute, env));
 app.use('/api/whatsapp', createWorkerRoute(handleWhatsAppRoute, env));
 // Parallel WhatsApp Web gateway feature (whatsapp-saas-backend container).
 app.use('/api/whatsapp-web', createWorkerRoute(handleWhatsAppWebRoute, env));
+// Parallel SMS marketing feature (SMS-Gate 3rd-party API).
+app.use('/api/sms', createWorkerRoute(handleSmsRoute, env));
 app.use('/api/email', createWorkerRoute(handleEmailRoute, env));
 app.use('/api/public', createWorkerRoute(handlePublicCampaignRoute, env, { cacheTtlSeconds: 30 }));
 

@@ -41,6 +41,8 @@ type PlanForm = {
   whatsappBatch: string;
   emailMonthly: string;
   emailBatch: string;
+  smsMonthly: string;
+  smsBatch: string;
   wheelDesign: boolean;
   wheelCenterLogo: boolean;
   wheelStepsColor: boolean;
@@ -60,6 +62,8 @@ function emptyForm(): PlanForm {
     whatsappBatch: '0',
     emailMonthly: '0',
     emailBatch: '0',
+    smsMonthly: '0',
+    smsBatch: '0',
     wheelDesign: false,
     wheelCenterLogo: false,
     wheelStepsColor: false,
@@ -81,6 +85,8 @@ function formFromPlan(plan: PlatformPlan): PlanForm {
     whatsappBatch: String(limits.whatsappBatch),
     emailMonthly: String(limits.emailMonthly),
     emailBatch: String(limits.emailBatch),
+    smsMonthly: String(limits.smsMonthly),
+    smsBatch: String(limits.smsBatch),
     wheelDesign: limits.wheelDesign === 1,
     wheelCenterLogo: limits.wheelCenterLogo === 1,
     wheelStepsColor: limits.wheelStepsColor === 1,
@@ -104,6 +110,8 @@ function buildPayload(form: PlanForm): PlanPayload {
         whatsappBatch: toCount(form.whatsappBatch, 0),
         emailMonthly: toCount(form.emailMonthly, 0),
         emailBatch: toCount(form.emailBatch, 0),
+        smsMonthly: toCount(form.smsMonthly, 0),
+        smsBatch: toCount(form.smsBatch, 0),
         wheelDesign: form.wheelDesign ? 1 : 0,
         wheelCenterLogo: form.wheelCenterLogo ? 1 : 0,
         wheelStepsColor: form.wheelStepsColor ? 1 : 0,
@@ -325,6 +333,8 @@ export default function AdminPlansManager() {
                       : `${plan.features.limits.campaigns} campaigns`}
                     {' · '}
                     {plan.features.limits.whatsappMonthly} WhatsApp/mo · {plan.features.limits.emailMonthly} emails/mo
+                    {' · '}
+                    {plan.features.limits.smsMonthly} SMS/mo
                   </p>
                 </div>
 
@@ -437,6 +447,10 @@ export default function AdminPlansManager() {
               setForm((current) => ({ ...current, emailMonthly: next })))}
             {numberField('plan-email-batch', 'Emails per batch', form.emailBatch, (next) =>
               setForm((current) => ({ ...current, emailBatch: next })))}
+            {numberField('plan-sms-monthly', 'Monthly SMS', form.smsMonthly, (next) =>
+              setForm((current) => ({ ...current, smsMonthly: next })))}
+            {numberField('plan-sms-batch', 'SMS per broadcast', form.smsBatch, (next) =>
+              setForm((current) => ({ ...current, smsBatch: next })))}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">

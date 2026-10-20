@@ -36,6 +36,7 @@ export interface PlatformBusiness {
   playPolicy: AccountPlayPolicy;
   whatsappEnabled: boolean;
   emailEnabled: boolean;
+  smsEnabled: boolean;
   planSlug: string;
   createdAt: string;
 }
@@ -68,7 +69,7 @@ export type AccountPlayPolicy = { mode: 'off' } | { mode: 'once' } | { mode: 'wi
 export interface PlatformAccountDetail {
   account: PlatformAccount;
   playPolicy: AccountPlayPolicy;
-  featureAccess: { whatsappEnabled: boolean; emailEnabled: boolean; wheelDesignEnabled: boolean; rewardsEnabled: boolean };
+  featureAccess: { whatsappEnabled: boolean; emailEnabled: boolean; smsEnabled: boolean; wheelDesignEnabled: boolean; rewardsEnabled: boolean };
   /** Merchant-authored wheel theme (first non-null across the account). */
   wheelTheme: WheelTheme | null;
   /** Operator-authored override; when set it wins over `wheelTheme`. */
@@ -152,11 +153,12 @@ export class AccountsService {
   /** Turns WhatsApp / email marketing, wheel design and rewards on or off for every business of the account. */
   static async setFeatureAccess(
     accountId: string,
-    features: { whatsappEnabled?: boolean; emailEnabled?: boolean; wheelDesignEnabled?: boolean; rewardsEnabled?: boolean },
+    features: { whatsappEnabled?: boolean; emailEnabled?: boolean; smsEnabled?: boolean; wheelDesignEnabled?: boolean; rewardsEnabled?: boolean },
   ): Promise<{
     featureAccess: {
       whatsappEnabled?: boolean;
       emailEnabled?: boolean;
+      smsEnabled?: boolean;
       wheelDesignEnabled?: boolean;
       rewardsEnabled?: boolean;
     };

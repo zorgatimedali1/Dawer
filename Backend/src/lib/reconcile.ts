@@ -1,6 +1,7 @@
 import { settleInterruptedCampaign } from '../durable/whatsapp-batch';
 import { settleInterruptedEmailCampaign } from './email';
 import { settleInterruptedWebCampaign } from '../routes/whatsapp-web';
+import { settleInterruptedSmsCampaign } from '../routes/sms';
 import type { Env } from '../types';
 
 /**
@@ -46,6 +47,11 @@ const GC_RULES: Array<{ table: string; ageMs: number; sql: string }> = [
     table: 'whatsapp_web_message_log',
     ageMs: 180 * DAY_MS,
     sql: 'DELETE FROM whatsapp_web_message_log WHERE rowid IN (SELECT rowid FROM whatsapp_web_message_log WHERE created_at < ? LIMIT ?)',
+  },
+  {
+    table: 'sms_message_log',
+    ageMs: 180 * DAY_MS,
+    sql: 'DELETE FROM sms_message_log WHERE rowid IN (SELECT rowid FROM sms_message_log WHERE updated_at < ? LIMIT ?)',
   },
   {
     table: 'analytics_events',
@@ -135,6 +141,25 @@ export async function runReconcile(env: Env): Promise<void> {
       await settleInterruptedWebCampaign(env, row.id, SETTLE_ERROR);
     } catch (error) {
       console.error('Reconciler could not settle a WhatsApp Web campaign.', row.id, error);
+    }
+  }
+
+  // SMS campaigns settle unconditionally: the gateway has no retry queue, so
+  // a dispatch loop that died mid-flight will never make progress again and
+  // every still-PENDING row is refunded (reserved quota back to the merchant).
+  const sms = await env.DB.prepare(
+    `SELECT id FROM sms_campaigns
+     WHERE status IN ('QUEUED', 'PROCESSING') AND updated_at < ?
+     ORDER BY updated_at ASC LIMIT ?`,
+  )
+    .bind(cutoff, SETTLE_BATCH_LIMIT)
+    .all<{ id: string }>();
+
+  for (const row of sms.results ?? []) {
+    try {
+      await settleInterruptedSmsCampaign(env, row.id, SETTLE_ERROR);
+    } catch (error) {
+      console.error('Reconciler could not settle an SMS campaign.', row.id, error);
     }
   }
 

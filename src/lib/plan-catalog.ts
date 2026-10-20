@@ -43,15 +43,15 @@ const homepagePlans: Record<Locale, readonly HomepagePlan[]> = {
   fr: [
     {
       name: 'Starter', slug: 'starter', priceCents: 14900, interval: '3_months',
-      features: ['Jusqu’à 200 clients collectés', '200 e-mails marketing inclus (bientôt disponible)', '100 SMS inclus (bientôt disponible)', '100 WhatsApp marketing inclus (bientôt disponible)', 'Accès complet à la roue', 'Support par e-mail', 'Sans engagement'],
+      features: ['Jusqu’à 200 clients collectés', '200 e-mails marketing inclus (bientôt disponible)', '100 SMS inclus', '100 WhatsApp marketing inclus (bientôt disponible)', 'Accès complet à la roue', 'Support par e-mail', 'Sans engagement'],
     },
     {
       name: 'Pro', slug: 'growth', priceCents: 34900, interval: 'year', badge: 'Le plus populaire', featured: true,
-      features: ['Jusqu’à 1 000 clients collectés', '1 000 e-mails marketing inclus (bientôt disponible)', '200 SMS inclus (bientôt disponible)', '200 WhatsApp marketing inclus (bientôt disponible)', 'Accès complet à la roue', 'Support e-mail prioritaire', 'Vue d’ensemble et analytics de base', 'Plaque QR code incluse', 'Gestion des récompenses', 'Logo central de la roue'],
+      features: ['Jusqu’à 1 000 clients collectés', '1 000 e-mails marketing inclus (bientôt disponible)', '200 SMS inclus', '200 WhatsApp marketing inclus (bientôt disponible)', 'Accès complet à la roue', 'Support e-mail prioritaire', 'Vue d’ensemble et analytics de base', 'Plaque QR code incluse', 'Gestion des récompenses', 'Logo central de la roue'],
     },
     {
       name: 'Business', slug: 'scale', priceCents: 79900, interval: '2_years', badge: 'Offre de lancement',
-      features: ['Jusqu’à 10 000 clients collectés', '10 000 e-mails marketing inclus (bientôt disponible)', '300 SMS inclus par an (bientôt disponible)', '300 WhatsApp marketing inclus par an (bientôt disponible)', 'Accès complet à la roue', 'Analytics avancées', 'Support prioritaire', 'Gestion des récompenses', 'Configuration avancée de la roue (couleurs et animations)', 'Logo central de la roue'],
+      features: ['Jusqu’à 10 000 clients collectés', '10 000 e-mails marketing inclus (bientôt disponible)', '300 SMS inclus par an', '300 WhatsApp marketing inclus par an (bientôt disponible)', 'Accès complet à la roue', 'Analytics avancées', 'Support prioritaire', 'Gestion des récompenses', 'Configuration avancée de la roue (couleurs et animations)', 'Logo central de la roue'],
     },
     {
       name: 'Enterprise', slug: 'premium', priceCents: 149900, interval: '3_years',
@@ -61,15 +61,15 @@ const homepagePlans: Record<Locale, readonly HomepagePlan[]> = {
   en: [
     {
       name: 'Starter', slug: 'starter', priceCents: 14900, interval: '3_months',
-      features: ['Up to 200 collected customers', '200 marketing emails included (coming soon)', '100 SMS included (coming soon)', '100 WhatsApp marketing included (coming soon)', 'Full wheel access', 'Email support', 'No commitment'],
+      features: ['Up to 200 collected customers', '200 marketing emails included (coming soon)', '100 SMS included', '100 WhatsApp marketing included (coming soon)', 'Full wheel access', 'Email support', 'No commitment'],
     },
     {
       name: 'Pro', slug: 'growth', priceCents: 34900, interval: 'year', badge: 'Most popular', featured: true,
-      features: ['Up to 1,000 collected customers', '1,000 marketing emails included (coming soon)', '200 SMS included (coming soon)', '200 WhatsApp marketing included (coming soon)', 'Full wheel access', 'Priority email support', 'Overview and basic analytics', 'QR code plate included', 'Rewards management', 'Centre wheel logo'],
+      features: ['Up to 1,000 collected customers', '1,000 marketing emails included (coming soon)', '200 SMS included', '200 WhatsApp marketing included (coming soon)', 'Full wheel access', 'Priority email support', 'Overview and basic analytics', 'QR code plate included', 'Rewards management', 'Centre wheel logo'],
     },
     {
       name: 'Business', slug: 'scale', priceCents: 79900, interval: '2_years', badge: 'Launch offer',
-      features: ['Up to 10,000 collected customers', '10,000 marketing emails included (coming soon)', '300 SMS per year included (coming soon)', '300 WhatsApp per year included (coming soon)', 'Full wheel access', 'Advanced analytics', 'Priority support', 'Rewards management', 'Advanced wheel design (colours and animation)', 'Centre wheel logo'],
+      features: ['Up to 10,000 collected customers', '10,000 marketing emails included (coming soon)', '300 SMS per year included', '300 WhatsApp per year included (coming soon)', 'Full wheel access', 'Advanced analytics', 'Priority support', 'Rewards management', 'Advanced wheel design (colours and animation)', 'Centre wheel logo'],
     },
     {
       name: 'Enterprise', slug: 'premium', priceCents: 149900, interval: '3_years',

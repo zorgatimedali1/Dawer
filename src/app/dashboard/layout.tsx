@@ -9,6 +9,7 @@ import {
   Mail,
   Megaphone,
   Menu,
+  MessageSquare,
   PlayCircle,
   QrCode,
   Send,
@@ -85,6 +86,7 @@ function DashboardChrome() {
       items: [
         { name: t.nav.emailMarketing, href: '/dashboard/email', icon: Mail },
         { name: t.nav.whatsappMarketing, href: '/dashboard/whatsapp', icon: Send },
+        { name: t.nav.sms, href: '/dashboard/sms', icon: MessageSquare },
       ],
     },
     {

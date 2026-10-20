@@ -51,6 +51,20 @@ export const EMAIL_PLAN_BATCH_LIMITS: Record<string, number> = {
   premium: 1000,
 };
 
+/** Monthly SMS broadcast quota by plan slug; absent slug = no access. */
+export const SMS_PLAN_MONTHLY_LIMITS: Record<string, number> = {
+  growth: 100,
+  scale: 200,
+  premium: 300,
+};
+
+/** Max recipients per single SMS broadcast by plan slug. */
+export const SMS_PLAN_BATCH_LIMITS: Record<string, number> = {
+  growth: 50,
+  scale: 100,
+  premium: 150,
+};
+
 /** Reads a plan-stored limit override; only finite non-negative numbers count. */
 function planOverride(limits: Record<string, number> | undefined, key: string): number | undefined {
   const value = limits?.[key];
@@ -152,6 +166,22 @@ export async function getWhatsAppBroadcastMonthlyLimit(env: Env, businessId: str
 export async function getWhatsAppBroadcastLimits(env: Env, businessId: string): Promise<WhatsAppLimits> {
   const access = await getBusinessAccess(env, businessId);
   return getWhatsAppLimitsForSlug(access.plan.slug, access.plan.features.limits);
+}
+
+export type SmsLimits = { monthly: number; batch: number };
+
+/** SMS quota + per-broadcast cap for a plan slug; absent slug = no access. */
+export function getSmsLimitsForSlug(slug: string, limits?: Record<string, number>): SmsLimits {
+  return {
+    monthly: readPlanLimit(slug, limits, 'smsMonthly', SMS_PLAN_MONTHLY_LIMITS),
+    batch: readPlanLimit(slug, limits, 'smsBatch', SMS_PLAN_BATCH_LIMITS),
+  };
+}
+
+/** 0 monthly means the plan cannot use SMS broadcasts at all. */
+export async function getSmsBroadcastLimits(env: Env, businessId: string): Promise<SmsLimits> {
+  const access = await getBusinessAccess(env, businessId);
+  return getSmsLimitsForSlug(access.plan.slug, access.plan.features.limits);
 }
 
 /** 0 monthly means the plan cannot use email campaigns at all. */

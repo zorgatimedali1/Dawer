@@ -3,6 +3,7 @@ import { apiRequest, buildQuery } from '@/platform/lib/http';
 export interface PlatformFeatures {
   whatsappEnabled: boolean;
   emailEnabled: boolean;
+  smsEnabled: boolean;
   wheelDesignEnabled: boolean;
   rewardsEnabled: boolean;
 }

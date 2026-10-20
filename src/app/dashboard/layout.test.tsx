@@ -138,8 +138,8 @@ describe('dashboard plan access gate', () => {
     expect(await screen.findByText('overview page')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Marketing e-mail' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Diffusion WhatsApp' })).not.toBeInTheDocument();
-    // The group had only those two entries, so its header disappears too.
-    expect(screen.queryByText('Marketing')).not.toBeInTheDocument();
+    // SMS has no operator switch of its own, so the group keeps its header.
+    expect(screen.getByRole('link', { name: 'SMS' })).toBeInTheDocument();
   });
 
   it('brings the marketing menu entries back when the switches are on', async () => {

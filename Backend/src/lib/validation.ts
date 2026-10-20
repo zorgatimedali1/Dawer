@@ -369,6 +369,8 @@ const planLimitsSchema = z.object({
   whatsappBatch: z.number().int().min(0).max(1_000_000),
   emailMonthly: z.number().int().min(0).max(1_000_000),
   emailBatch: z.number().int().min(0).max(1_000_000),
+  smsMonthly: z.number().int().min(0).max(1_000_000).optional(),
+  smsBatch: z.number().int().min(0).max(1_000_000).optional(),
   /** Wheel design (colors/motion) as a 0/1 flag. */
   wheelDesign: z.number().int().min(0).max(1).optional(),
   /** Merchant logo at the wheel hub as a 0/1 flag. */
@@ -472,6 +474,7 @@ export const adminFeatureAccessSchema = z
   .object({
     whatsappEnabled: z.boolean().optional(),
     emailEnabled: z.boolean().optional(),
+    smsEnabled: z.boolean().optional(),
     wheelDesignEnabled: z.boolean().optional(),
     rewardsEnabled: z.boolean().optional(),
     reason: z.string().trim().min(3).max(500).optional(),
@@ -480,10 +483,12 @@ export const adminFeatureAccessSchema = z
     (value) =>
       value.whatsappEnabled !== undefined ||
       value.emailEnabled !== undefined ||
+      value.smsEnabled !== undefined ||
       value.wheelDesignEnabled !== undefined ||
       value.rewardsEnabled !== undefined,
     {
-      message: 'Provide whatsappEnabled, emailEnabled, wheelDesignEnabled and/or rewardsEnabled.',
+      message:
+        'Provide whatsappEnabled, emailEnabled, smsEnabled, wheelDesignEnabled and/or rewardsEnabled.',
     },
   );
 
@@ -494,6 +499,7 @@ export const platformFeatureSchema = z
   .object({
     whatsappEnabled: z.boolean().optional(),
     emailEnabled: z.boolean().optional(),
+    smsEnabled: z.boolean().optional(),
     wheelDesignEnabled: z.boolean().optional(),
     rewardsEnabled: z.boolean().optional(),
   })
@@ -501,10 +507,12 @@ export const platformFeatureSchema = z
     (value) =>
       value.whatsappEnabled !== undefined ||
       value.emailEnabled !== undefined ||
+      value.smsEnabled !== undefined ||
       value.wheelDesignEnabled !== undefined ||
       value.rewardsEnabled !== undefined,
     {
-      message: 'Provide whatsappEnabled, emailEnabled, wheelDesignEnabled and/or rewardsEnabled.',
+      message:
+        'Provide whatsappEnabled, emailEnabled, smsEnabled, wheelDesignEnabled and/or rewardsEnabled.',
     },
   );
 

@@ -1,12 +1,13 @@
 import type { Env } from '../types';
 
-export type FeatureName = 'whatsapp' | 'email' | 'wheel' | 'rewards';
+export type FeatureName = 'whatsapp' | 'email' | 'wheel' | 'rewards' | 'sms';
 
 export interface FeatureFlags {
   whatsappEnabled: boolean;
   emailEnabled: boolean;
   wheelDesignEnabled: boolean;
   rewardsEnabled: boolean;
+  smsEnabled: boolean;
 }
 
 const PLATFORM_KEYS: Record<FeatureName, string> = {
@@ -14,6 +15,7 @@ const PLATFORM_KEYS: Record<FeatureName, string> = {
   email: 'email_enabled',
   wheel: 'wheel_design_enabled',
   rewards: 'rewards_enabled',
+  sms: 'sms_enabled',
 };
 
 function toBool(value: string | number | null | undefined): boolean {
@@ -48,19 +50,23 @@ export async function getPlatformFeatures(env: Env): Promise<FeatureFlags> {
     rewardsEnabled: settings.has(PLATFORM_KEYS.rewards)
       ? toBool(settings.get(PLATFORM_KEYS.rewards))
       : true,
+    // SMS is a new, cost-per-message channel: like WhatsApp/email a missing
+    // row (fresh DB / failed migration) keeps it off until the operator
+    // explicitly turns it on.
+    smsEnabled: settings.has(PLATFORM_KEYS.sms) ? toBool(settings.get(PLATFORM_KEYS.sms)) : false,
   };
 }
 
 /** Per-business switches written by the operator console. */
 export async function getBusinessFeatures(env: Env, businessId: string): Promise<FeatureFlags> {
   const row = await env.DB.prepare(
-    'SELECT whatsapp_enabled, email_enabled, wheel_design_enabled, rewards_enabled FROM businesses WHERE id = ? LIMIT 1',
+    'SELECT whatsapp_enabled, email_enabled, wheel_design_enabled, rewards_enabled, sms_enabled FROM businesses WHERE id = ? LIMIT 1',
   )
     .bind(businessId)
-    .first<{ whatsapp_enabled: number; email_enabled: number; wheel_design_enabled: number; rewards_enabled: number }>();
+    .first<{ whatsapp_enabled: number; email_enabled: number; wheel_design_enabled: number; rewards_enabled: number; sms_enabled: number }>();
 
   if (!row) {
-    return { whatsappEnabled: false, emailEnabled: false, wheelDesignEnabled: false, rewardsEnabled: false };
+    return { whatsappEnabled: false, emailEnabled: false, wheelDesignEnabled: false, rewardsEnabled: false, smsEnabled: false };
   }
 
   return {
@@ -68,6 +74,7 @@ export async function getBusinessFeatures(env: Env, businessId: string): Promise
     emailEnabled: toBool(row.email_enabled),
     wheelDesignEnabled: toBool(row.wheel_design_enabled),
     rewardsEnabled: toBool(row.rewards_enabled),
+    smsEnabled: toBool(row.sms_enabled),
   };
 }
 
@@ -109,6 +116,10 @@ export async function setBusinessFeatures(env: Env, businessId: string, features
     sets.push('rewards_enabled = ?');
     binds.push(features.rewardsEnabled ? 1 : 0);
   }
+  if (features.smsEnabled !== undefined) {
+    sets.push('sms_enabled = ?');
+    binds.push(features.smsEnabled ? 1 : 0);
+  }
   if (sets.length === 0) return;
 
   sets.push('updated_at = ?');
@@ -130,7 +141,9 @@ export class FeatureDisabledError extends Error {
           ? 'Email marketing is currently disabled by the platform administrator.'
           : feature === 'rewards'
             ? 'Rewards are currently disabled by the platform administrator.'
-            : 'Wheel design is currently disabled by the platform administrator.',
+            : feature === 'sms'
+              ? 'SMS marketing is currently disabled by the platform administrator.'
+              : 'Wheel design is currently disabled by the platform administrator.',
     );
     this.name = 'FeatureDisabledError';
     this.feature = feature;
@@ -157,7 +170,9 @@ export async function assertFeatureEnabled(env: Env, businessId: string, feature
         ? features.emailEnabled
         : feature === 'rewards'
           ? features.rewardsEnabled
-          : features.wheelDesignEnabled;
+          : feature === 'sms'
+            ? features.smsEnabled
+            : features.wheelDesignEnabled;
 
   if (!enabled) throw new FeatureDisabledError(feature);
 }

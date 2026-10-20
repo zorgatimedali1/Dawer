@@ -49,6 +49,7 @@ const RewardsPage = lazyWithRecovery(() => import('./app/dashboard/rewards/page'
 const SettingsPage = lazyWithRecovery(() => import('./app/dashboard/settings/page'));
 const WheelPage = lazyWithRecovery(() => import('./app/dashboard/wheel/page'));
 const WhatsappPage = lazyWithRecovery(() => import('./app/dashboard/whatsapp/page'));
+const SmsPage = lazyWithRecovery(() => import('./app/dashboard/sms/page'));
 
 function App() {
   return (
@@ -96,6 +97,7 @@ function App() {
               <Route path="settings" element={<SettingsPage />} />
               <Route path="wheel" element={<WheelPage />} />
               <Route path="whatsapp" element={<WhatsappPage />} />
+              <Route path="sms" element={<SmsPage />} />
               <Route path="whatsapp-web" element={<Navigate to="/dashboard/whatsapp?tab=web" replace />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

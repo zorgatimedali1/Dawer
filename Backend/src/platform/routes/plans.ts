@@ -6,6 +6,8 @@ import {
   EMAIL_PLAN_MONTHLY_LIMITS,
   WHATSAPP_PLAN_BATCH_LIMITS,
   WHATSAPP_PLAN_MONTHLY_LIMITS,
+  SMS_PLAN_BATCH_LIMITS,
+  SMS_PLAN_MONTHLY_LIMITS,
   WHEEL_CENTER_LOGO_PLAN_LIMITS,
   WHEEL_DESIGN_PLAN_LIMITS,
   WHEEL_STEPS_COLOR_PLAN_LIMITS,
@@ -42,6 +44,8 @@ interface PlanDto {
       whatsappBatch: number;
       emailMonthly: number;
       emailBatch: number;
+      smsMonthly: number;
+      smsBatch: number;
       wheelDesign: number;
       wheelCenterLogo: number;
       wheelStepsColor: number;
@@ -90,6 +94,8 @@ function describePlan(row: PlanRow): PlanDto {
         whatsappBatch: pick('whatsappBatch', WHATSAPP_PLAN_BATCH_LIMITS),
         emailMonthly: pick('emailMonthly', EMAIL_PLAN_MONTHLY_LIMITS),
         emailBatch: pick('emailBatch', EMAIL_PLAN_BATCH_LIMITS),
+        smsMonthly: pick('smsMonthly', SMS_PLAN_MONTHLY_LIMITS),
+        smsBatch: pick('smsBatch', SMS_PLAN_BATCH_LIMITS),
         wheelDesign: pick('wheelDesign', WHEEL_DESIGN_PLAN_LIMITS),
         wheelCenterLogo: pick('wheelCenterLogo', WHEEL_CENTER_LOGO_PLAN_LIMITS),
         wheelStepsColor: pick('wheelStepsColor', WHEEL_STEPS_COLOR_PLAN_LIMITS),

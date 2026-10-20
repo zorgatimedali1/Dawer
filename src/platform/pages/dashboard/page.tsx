@@ -89,7 +89,7 @@ export default function DashboardPage() {
   }, [load]);
 
   const toggleFeature = async (
-    key: 'whatsappEnabled' | 'emailEnabled' | 'wheelDesignEnabled' | 'rewardsEnabled',
+    key: 'whatsappEnabled' | 'emailEnabled' | 'smsEnabled' | 'wheelDesignEnabled' | 'rewardsEnabled',
     value: boolean,
   ) => {
     setBusy(true);
@@ -104,9 +104,11 @@ export default function DashboardPage() {
           ? 'WhatsApp'
           : key === 'emailEnabled'
             ? 'Email marketing'
-            : key === 'wheelDesignEnabled'
-              ? 'Wheel design'
-              : 'Rewards';
+            : key === 'smsEnabled'
+              ? 'SMS marketing'
+              : key === 'wheelDesignEnabled'
+                ? 'Wheel design'
+                : 'Rewards';
       setNotice(`${label} is now ${value ? 'enabled' : 'disabled'} platform-wide.`);
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : 'Unable to update the switch.');
@@ -285,6 +287,13 @@ export default function DashboardPage() {
                 checked={features?.emailEnabled ?? true}
                 disabled={busy}
                 onToggle={(value) => void toggleFeature('emailEnabled', value)}
+              />
+              <FeatureSwitch
+                id="platform-sms"
+                label="SMS marketing"
+                checked={features?.smsEnabled ?? true}
+                disabled={busy}
+                onToggle={(value) => void toggleFeature('smsEnabled', value)}
               />
               <FeatureSwitch
                 id="platform-wheel-design"

@@ -139,8 +139,8 @@ async function getAccount(request: Request, env: Env, accountId: string): Promis
 
   const businesses = await env.DB.prepare(
     `SELECT bm.role, bm.created_at AS joined_at, b.id, b.name, b.slug, b.play_policy, b.created_at,
-            b.whatsapp_enabled, b.email_enabled, b.wheel_design_enabled, b.rewards_enabled,
-            b.wheel_theme, b.wheel_theme_override,
+            b.whatsapp_enabled, b.email_enabled, b.sms_enabled, b.wheel_design_enabled,
+            b.rewards_enabled, b.wheel_theme, b.wheel_theme_override,
             (SELECT p.slug FROM subscriptions s
               INNER JOIN plans p ON p.id = s.plan_id
               WHERE s.business_id = b.id
@@ -166,6 +166,7 @@ async function getAccount(request: Request, env: Env, accountId: string): Promis
       created_at: string;
       whatsapp_enabled: number;
       email_enabled: number;
+      sms_enabled: number;
       wheel_design_enabled: number;
       rewards_enabled: number;
       wheel_theme: string | null;
@@ -211,11 +212,14 @@ async function getAccount(request: Request, env: Env, accountId: string): Promis
   // the account view is only "on" when no business of the account is flagged
   // off (a business created after a toggle reads on until re-saved, so any off
   // row wins).
-  const featureAccess: FeatureFlags = {
+  // `Partial<FeatureFlags>` + the explicit sms key keeps the account view
+  // serialising the full switch set regardless of FeatureFlags' growth.
+  const featureAccess: Partial<FeatureFlags> & { smsEnabled?: boolean } = {
     whatsappEnabled: businessRows.every((business) => Number(business.whatsapp_enabled) === 1),
     emailEnabled: businessRows.every((business) => Number(business.email_enabled) === 1),
     wheelDesignEnabled: businessRows.every((business) => Number(business.wheel_design_enabled) === 1),
     rewardsEnabled: businessRows.every((business) => Number(business.rewards_enabled) === 1),
+    smsEnabled: businessRows.every((business) => Number(business.sms_enabled) === 1),
   };
 
   // Wheel design: the setter writes every business, so the account view is
@@ -251,6 +255,7 @@ async function getAccount(request: Request, env: Env, accountId: string): Promis
       playPolicy: describeStoredPlayPolicy(business.play_policy),
       whatsappEnabled: Number(business.whatsapp_enabled) === 1,
       emailEnabled: Number(business.email_enabled) === 1,
+      smsEnabled: Number(business.sms_enabled) === 1,
       wheelDesignEnabled: Number(business.wheel_design_enabled) === 1,
       rewardsEnabled: Number(business.rewards_enabled) === 1,
       planSlug: business.plan_slug ?? 'starter',
@@ -450,6 +455,7 @@ async function setFeatureAccess(
   update: {
     whatsappEnabled?: boolean;
     emailEnabled?: boolean;
+    smsEnabled?: boolean;
     wheelDesignEnabled?: boolean;
     rewardsEnabled?: boolean;
     reason?: string;
@@ -461,9 +467,10 @@ async function setFeatureAccess(
 
   if (!existing) return errorResponse('Account not found.', 404);
 
-  const flags: Partial<FeatureFlags> = {};
+  const flags: Partial<FeatureFlags> & { smsEnabled?: boolean } = {};
   if (update.whatsappEnabled !== undefined) flags.whatsappEnabled = update.whatsappEnabled;
   if (update.emailEnabled !== undefined) flags.emailEnabled = update.emailEnabled;
+  if (update.smsEnabled !== undefined) flags.smsEnabled = update.smsEnabled;
   if (update.wheelDesignEnabled !== undefined) flags.wheelDesignEnabled = update.wheelDesignEnabled;
   if (update.rewardsEnabled !== undefined) flags.rewardsEnabled = update.rewardsEnabled;
   const grantsWheelDesign = flags.wheelDesignEnabled === true;
@@ -472,6 +479,7 @@ async function setFeatureAccess(
     `UPDATE businesses SET
        whatsapp_enabled = COALESCE(?, whatsapp_enabled),
        email_enabled = COALESCE(?, email_enabled),
+       sms_enabled = COALESCE(?, sms_enabled),
        wheel_design_enabled = COALESCE(?, wheel_design_enabled),
        rewards_enabled = COALESCE(?, rewards_enabled),
        wheel_theme_override = CASE WHEN ? = 1 THEN NULL ELSE wheel_theme_override END,
@@ -481,6 +489,7 @@ async function setFeatureAccess(
     .bind(
       flags.whatsappEnabled === undefined ? null : flags.whatsappEnabled ? 1 : 0,
       flags.emailEnabled === undefined ? null : flags.emailEnabled ? 1 : 0,
+      flags.smsEnabled === undefined ? null : flags.smsEnabled ? 1 : 0,
       flags.wheelDesignEnabled === undefined ? null : flags.wheelDesignEnabled ? 1 : 0,
       flags.rewardsEnabled === undefined ? null : flags.rewardsEnabled ? 1 : 0,
       grantsWheelDesign ? 1 : 0,

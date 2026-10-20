@@ -75,6 +75,16 @@
 		//   npx wrangler secret put TURNSTILE_SECRET_KEY
 		// Enforcement only starts once the secret is set (fail-open before
 		// that). Local dev reads both from .dev.vars instead.
+		// SMS gateway (SMS-Gate 3rd-party API, https://sms-gate.app — an Android
+		// phone acts as the sending device). Credentials are secrets:
+		//   npx wrangler secret put SMS_GATEWAY_USER
+		//   npx wrangler secret put SMS_GATEWAY_PASSWORD
+		// Optional pilot allowlist (CSV of business ids) and shared secret for
+		// gateway SMS webhook callbacks:
+		//   npx wrangler secret put SMS_ALLOWLIST
+		//   npx wrangler secret put SMS_WEBHOOK_SECRET
+		// Base URL is a plain var (defaults to the cloud endpoint when unset):
+		//   "SMS_GATEWAY_URL": "https://api.sms-gate.app/3rdparty/v1"
 		"TURNSTILE_SITE_KEY": "0x4AAAAAAFZUMMR3cq_hhsp2",
 		// Server-side hostname allowlist for siteverify results — only tokens
 		// minted on these hostnames are accepted.

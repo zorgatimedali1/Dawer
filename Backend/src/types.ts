@@ -75,4 +75,14 @@ export type Env = Cloudflare.Env & {
   TURNSTILE_SITE_KEY?: string;
   /** Optional CSV of frontend hostnames Siteverify must match. */
   TURNSTILE_HOSTNAMES?: string;
+  /** SMS-Gate 3rd-party API base URL (default https://api.sms-gate.app/3rdparty/v1). */
+  SMS_GATEWAY_URL?: string;
+  /** SMS-Gate API user (secret) — paired with SMS_GATEWAY_PASSWORD for Basic auth. */
+  SMS_GATEWAY_USER?: string;
+  /** SMS-Gate API password (secret). */
+  SMS_GATEWAY_PASSWORD?: string;
+  /** Optional CSV of business ids allowed to use SMS broadcasts (pilot switch). */
+  SMS_ALLOWLIST?: string;
+  /** Shared secret for gateway-to-Worker SMS webhook callbacks. */
+  SMS_WEBHOOK_SECRET?: string;
 };

@@ -8,6 +8,8 @@ export interface PlanLimits {
   whatsappBatch: number;
   emailMonthly: number;
   emailBatch: number;
+  smsMonthly: number;
+  smsBatch: number;
   /** 1 = merchants on this plan edit wheel colors and motion. */
   wheelDesign: number;
   /** 1 = merchants on this plan use their logo at the wheel hub. */

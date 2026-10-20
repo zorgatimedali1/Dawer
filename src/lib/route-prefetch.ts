@@ -28,6 +28,7 @@ const ROUTE_CHUNKS: Record<string, () => Promise<unknown>> = {
   '/dashboard/settings': () => import('@/app/dashboard/settings/page'),
   '/dashboard/wheel': () => import('@/app/dashboard/wheel/page'),
   '/dashboard/whatsapp': () => import('@/app/dashboard/whatsapp/page'),
+  '/dashboard/sms': () => import('@/app/dashboard/sms/page'),
 };
 
 /** Most-visited tabs, warmed up right after the dashboard shell boots. */
