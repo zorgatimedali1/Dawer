@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from 'react';
-import {
+import { useEffect, useState, type FormEvent } from 'react';import {
   Copy,
   Download,
   Link2,
@@ -37,6 +36,12 @@ function fileSlug(value: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return slug || 'qr-code';
+}
+
+// Archived campaigns refuse visitors, so a new QR must not point at one —
+// their existing tiles already leave the list server-side.
+function openCampaign(list: Campaign[]): Campaign | undefined {
+  return list.find((campaign) => campaign.status !== 'archived');
 }
 
 function QrPreview({ qrCode }: { qrCode: QrCode }) {
@@ -124,7 +129,7 @@ export default function QRCodesPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
-  const [formCampaignId, setFormCampaignId] = useState(() => readCachedResource<Campaign[]>('qr:campaigns')?.[0]?.id ?? '');
+  const [formCampaignId, setFormCampaignId] = useState(() => openCampaign(readCachedResource<Campaign[]>('qr:campaigns') ?? [])?.id ?? '');
   const [formName, setFormName] = useState('');
   const [formLocation, setFormLocation] = useState('');
   const [saving, setSaving] = useState(false);
@@ -135,7 +140,7 @@ export default function QRCodesPage() {
     if (cachedQr) setQrCodes(cachedQr);
     if (cachedCampaigns) {
       setCampaigns(cachedCampaigns);
-      setFormCampaignId((current) => current || cachedCampaigns[0]?.id || '');
+      setFormCampaignId((current) => current || openCampaign(cachedCampaigns)?.id || '');
     }
     // Every piece is cached and fresh: skip the network entirely.
     if (cachedQr && cachedCampaigns) return;
@@ -148,7 +153,7 @@ export default function QRCodesPage() {
         if (!cachedQr) setCachedResource('qr:list', qrList);
         if (!cachedCampaigns) {
           setCachedResource('qr:campaigns', campaignList);
-          setFormCampaignId(campaignList[0]?.id ?? '');
+          setFormCampaignId(openCampaign(campaignList)?.id ?? '');
         }
         setQrCodes(qrList);
         setCampaigns(campaignList);
@@ -165,6 +170,8 @@ export default function QRCodesPage() {
       qrCode.campaignName.toLowerCase().includes(search.toLowerCase()) ||
       qrCode.location.toLowerCase().includes(search.toLowerCase()),
   );
+
+  const formCampaigns = campaigns.filter((campaign) => campaign.status !== 'archived');
 
   const handleCreate = async (event: FormEvent) => {
     event.preventDefault();
@@ -279,7 +286,7 @@ export default function QRCodesPage() {
                   required
                 >
                   <option value="">{t.qrcodes.selectCampaign}</option>
-                  {campaigns.map((campaign) => (
+                  {formCampaigns.map((campaign) => (
                     <option key={campaign.id} value={campaign.id}>
                       {campaign.name}
                     </option>

@@ -12,7 +12,9 @@ function jsonResponse(payload: unknown, status = 200) {
   });
 }
 
-function stubFetch({ planSlug = 'growth' }: { planSlug?: string } = {}) {
+function stubFetch(
+  { planSlug = 'growth', campaigns = [] }: { planSlug?: string; campaigns?: { id: string; name: string; status: string }[] } = {},
+) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
 
@@ -66,7 +68,7 @@ function stubFetch({ planSlug = 'growth' }: { planSlug?: string } = {}) {
     }
 
     if (url.startsWith('/api/business/campaigns')) {
-      return jsonResponse({ success: true, campaigns: [] });
+      return jsonResponse({ success: true, campaigns });
     }
 
     return jsonResponse({ success: true });
@@ -153,5 +155,28 @@ describe('QR codes page', () => {
 
     expect(await screen.findByText('12')).toBeInTheDocument();
     expect(screen.getByText('participants à la campagne')).toBeInTheDocument();
+  });
+
+  it('excludes archived campaigns from the create-form campaign list', async () => {
+    stubFetch({
+      campaigns: [
+        { id: 'campaign-archived', name: 'Old Campagne', status: 'ARCHIVED' },
+        { id: 'campaign-live', name: 'Live Campagne', status: 'ACTIVE' },
+      ],
+    });
+    render(
+      <DashboardBillingProvider>
+        <QRCodesPage />
+      </DashboardBillingProvider>,
+    );
+
+    await screen.findByText('Main Entrance');
+    await userEvent.click(screen.getByRole('button', { name: /créer un qr code/i }));
+
+    const select = (await screen.findByLabelText('Campagne')) as HTMLSelectElement;
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual([
+      'Sélectionner une campagne',
+      'Live Campagne',
+    ]);
   });
 });
