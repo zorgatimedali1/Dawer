@@ -997,7 +997,7 @@ export const wheel: D<typeof frDict.wheel> = {
   facebookPlaceholder: 'https://facebook.com/…',
   instagramLabel: 'Instagram profile URL',
   instagramPlaceholder: 'https://instagram.com/…',
-  actionLabel: 'Post-win action',
+  actionLabel: 'Pre-spin action',
   actionNoneLabel: 'No action',
   actionGoogleLabel: 'Google review',
   actionFacebookLabel: 'Follow on Facebook',

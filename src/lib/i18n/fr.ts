@@ -1000,7 +1000,7 @@ export const wheel = {
   facebookPlaceholder: 'https://facebook.com/…',
   instagramLabel: 'URL du profil Instagram',
   instagramPlaceholder: 'https://instagram.com/…',
-  actionLabel: 'Action après une victoire',
+  actionLabel: 'Action avant le jeu',
   actionNoneLabel: 'Aucune action',
   actionGoogleLabel: 'Avis Google',
   actionFacebookLabel: 'Suivre sur Facebook',
