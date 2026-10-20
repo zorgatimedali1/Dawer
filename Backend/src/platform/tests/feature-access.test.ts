@@ -167,6 +167,59 @@ describe('POST /api/admin/accounts/:id/features', () => {
     expect(detail.featureAccess).toMatchObject({ rewardsEnabled: false });
   });
 
+  it('hands wheel design control back: granting access clears the operator override but keeps the merchant theme', async () => {
+    const now = new Date().toISOString();
+    const merchantTheme = JSON.stringify({ colors: { segments: ['#111111'] } });
+    const overrideTheme = JSON.stringify({ colors: { segments: ['#222222'] } });
+    db.prepare('UPDATE businesses SET wheel_theme = ?, wheel_theme_override = ? WHERE id = ?')
+      .bind(merchantTheme, overrideTheme, merchant.businessId)
+      .run();
+
+    const toggled = await body(
+      await handleAdminRoute(
+        operatorRequest(
+          `/api/admin/accounts/${merchant.userId}/features`,
+          'POST',
+          { wheelDesignEnabled: true },
+          operator.token,
+        ),
+        env,
+      ),
+    );
+    expect(toggled).toMatchObject({ success: true });
+
+    const row = db.query<{ wheel_theme: string; wheel_theme_override: string | null }>(
+      'SELECT wheel_theme, wheel_theme_override FROM businesses WHERE id = ?',
+      merchant.businessId,
+    )[0];
+    expect(row.wheel_theme).toBe(merchantTheme);
+    expect(row.wheel_theme_override).toBeNull();
+
+    const entry = db.query<{ metadata: string }>(
+      `SELECT metadata FROM audit_logs WHERE action = 'ADMIN_FEATURE_ACCESS_UPDATED' ORDER BY created_at DESC`,
+    )[0];
+    expect(JSON.parse(entry.metadata)).toMatchObject({ clearedWheelOverride: 1 });
+
+    // Revoking access must not re-impose or clear anything by itself.
+    db.prepare('UPDATE businesses SET wheel_theme_override = ? WHERE id = ?')
+      .bind(overrideTheme, merchant.businessId)
+      .run();
+    await handleAdminRoute(
+      operatorRequest(
+        `/api/admin/accounts/${merchant.userId}/features`,
+        'POST',
+        { wheelDesignEnabled: false },
+        operator.token,
+      ),
+      env,
+    );
+    const revoked = db.query<{ wheel_theme_override: string | null }>(
+      'SELECT wheel_theme_override FROM businesses WHERE id = ?',
+      merchant.businessId,
+    )[0];
+    expect(revoked.wheel_theme_override).toBe(overrideTheme);
+  });
+
   it('404s for an unknown account', async () => {
     const response = await handleAdminRoute(
       operatorRequest('/api/admin/accounts/nope/features', 'POST', { whatsappEnabled: false, reason: 'nope' }, operator.token),

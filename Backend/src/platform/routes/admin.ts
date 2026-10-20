@@ -437,6 +437,11 @@ async function deleteAccount(
  * off for every business of the account. The per-account switch always wins
  * for that merchant — it overrides the platform-wide control in either
  * direction.
+ *
+ * Granting wheel design access is a control handover: the same update clears
+ * the operator-authored theme override so the merchant's own design is the
+ * one that renders (and the merchant regains editing). The override can
+ * always be re-imposed later from the wheel-theme card below.
  */
 async function setFeatureAccess(
   env: Env,
@@ -461,6 +466,7 @@ async function setFeatureAccess(
   if (update.emailEnabled !== undefined) flags.emailEnabled = update.emailEnabled;
   if (update.wheelDesignEnabled !== undefined) flags.wheelDesignEnabled = update.wheelDesignEnabled;
   if (update.rewardsEnabled !== undefined) flags.rewardsEnabled = update.rewardsEnabled;
+  const grantsWheelDesign = flags.wheelDesignEnabled === true;
 
   const result = await env.DB.prepare(
     `UPDATE businesses SET
@@ -468,6 +474,7 @@ async function setFeatureAccess(
        email_enabled = COALESCE(?, email_enabled),
        wheel_design_enabled = COALESCE(?, wheel_design_enabled),
        rewards_enabled = COALESCE(?, rewards_enabled),
+       wheel_theme_override = CASE WHEN ? = 1 THEN NULL ELSE wheel_theme_override END,
        updated_at = ?
      WHERE id IN (SELECT business_id FROM business_members WHERE user_id = ?)`,
   )
@@ -476,6 +483,7 @@ async function setFeatureAccess(
       flags.emailEnabled === undefined ? null : flags.emailEnabled ? 1 : 0,
       flags.wheelDesignEnabled === undefined ? null : flags.wheelDesignEnabled ? 1 : 0,
       flags.rewardsEnabled === undefined ? null : flags.rewardsEnabled ? 1 : 0,
+      grantsWheelDesign ? 1 : 0,
       new Date().toISOString(),
       accountId,
     )
@@ -494,6 +502,7 @@ async function setFeatureAccess(
       ...(update.reason ? { reason: update.reason } : {}),
       features: flags,
       businesses: updated,
+      ...(grantsWheelDesign ? { clearedWheelOverride: updated } : {}),
     },
   });
 

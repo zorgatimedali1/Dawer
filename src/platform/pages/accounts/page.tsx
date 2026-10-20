@@ -141,9 +141,10 @@ export default function AccountsPage() {
           : key === 'wheelDesignEnabled'
             ? 'Wheel design'
             : 'Rewards';
+    const handOver = key === 'wheelDesignEnabled' && value;
     void run(
       () => AccountsService.setFeatureAccess(detail.account.id, { [key]: value }),
-      `${label} ${value ? 'enabled' : 'disabled'}.`,
+      handOver ? 'Wheel design enabled and handed to the merchant (imposed design cleared).' : `${label} ${value ? 'enabled' : 'disabled'}.`,
     );
   };
 
@@ -692,8 +693,9 @@ export default function AccountsPage() {
 
           <DetailSection title="Wheel design access">
             <p className="mb-4 text-sm text-ink-muted">
-              When off, no merchant of this account can edit wheel colours, motion, hub logo or step colours,
-              regardless of plan. Existing designs keep rendering.
+              Turning this on clears any imposed design and hands wheel control to this account&apos;s merchants — their
+              own design renders and they edit it (plan permitting). You can still apply a design override at any time
+              from the Wheel design card below; it stays imposed until cleared.
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <FeatureSwitchRow
