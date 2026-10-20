@@ -11,9 +11,9 @@ export type WheelMotionPreset = (typeof WHEEL_MOTION_PRESETS)[number];
 
 /** Spin duration per preset; matches the rotor transition below. */
 export const WHEEL_MOTION_DURATION_MS: Record<WheelMotionPreset, number> = {
-  fast: 2000,
-  standard: 3800,
-  slow: 6000,
+  fast: 2600,
+  standard: 4600,
+  slow: 7200,
 };
 
 export const WHEEL_MOTION_EASING = 'cubic-bezier(0.12, 0.82, 0.16, 1)';

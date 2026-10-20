@@ -258,8 +258,8 @@ describe('home hero wheel demo', () => {
 
     expect(screen.getByRole('button', { name: 'La roue tourne…' })).toBeDisabled();
 
-    // The "fast" motion preset spins for 2s; the win/no-win chip lands just after.
-    const result = await screen.findByText(/Vous avez gagné|Presque !/, {}, { timeout: 6000 });
+    // The "fast" motion preset spins for 2.6s; the win/no-win chip lands just after.
+    const result = await screen.findByText(/Vous avez gagné|Presque !/, {}, { timeout: 8000 });
     expect(result).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Rejouer' })).toBeEnabled();
   });

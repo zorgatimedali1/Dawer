@@ -52,6 +52,8 @@ type GateStage = 'idle' | 'opened' | 'returned' | 'unlocking' | 'failed';
 export const gateTimings = {
   /** Seconds counted down after the visitor returns, before the wheel opens. */
   unlockDelaySeconds: 5,
+  /** Extra beat after the wheel stops, before the result card slides in. */
+  resultRevealDelayMs: 1200,
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -504,7 +506,7 @@ export default function CampaignCustomerPage() {
         setCouponCode(participation.couponCode);
         setSpinning(false);
         setStep('result');
-      }, wheelMotionDurationMs(wheelTheme));
+      }, wheelMotionDurationMs(wheelTheme) + gateTimings.resultRevealDelayMs);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unable to spin right now.';
       setSpinning(false);

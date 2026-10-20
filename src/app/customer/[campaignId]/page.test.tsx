@@ -105,8 +105,9 @@ describe('public campaign page', () => {
     window.sessionStorage.clear();
     window.localStorage.clear();
 
-    // Fast gate by default; individual tests tighten or restore what they need.
+    // Fast gate and reveal by default; individual tests tighten what they need.
     gateTimings.unlockDelaySeconds = 0;
+    gateTimings.resultRevealDelayMs = 0;
     Reflect.deleteProperty(document, 'visibilityState');
 
     stopLinkNavigation = (event: Event) => {
@@ -120,6 +121,7 @@ describe('public campaign page', () => {
     if (stopLinkNavigation) document.removeEventListener('click', stopLinkNavigation);
     stopLinkNavigation = null;
     gateTimings.unlockDelaySeconds = DEFAULT_GATE_TIMINGS.unlockDelaySeconds;
+    gateTimings.resultRevealDelayMs = DEFAULT_GATE_TIMINGS.resultRevealDelayMs;
     Reflect.deleteProperty(navigator, 'geolocation');
   });
 
