@@ -39,6 +39,9 @@ interface PrizeWheelProps {
 const EMOJI_RUN = /(\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?)/gu;
 const EMOJI_EXACT = /^\p{Extended_Pictographic}(?:\uFE0E|\uFE0F)?$/u;
 
+/** Arabic glyphs stay small at the base wheel sizes, so Arabic labels get a bigger scale. */
+const ARABIC_SCRIPT = /\p{Script=Arabic}/u;
+
 function renderLabelWithEmoji(label: string, emojiSize: string) {
   const parts = label.split(EMOJI_RUN);
   if (parts.length === 1) return <span>{label}</span>;
@@ -100,12 +103,17 @@ export function PrizeWheel({
           let labelRotation = segment.angle - 90;
           if (labelRotation >= 90) labelRotation -= 180;
           if (labelRotation < -90) labelRotation += 180;
+          const isArabicLabel = ARABIC_SCRIPT.test(segment.label);
           const labelWidth = Math.max(
-            14,
-            Math.min(29, 60 * Math.sin(Math.PI / Math.max(segments.length, 1)) - 2),
+            isArabicLabel ? 20 : 14,
+            Math.min(isArabicLabel ? 38 : 29, 60 * Math.sin(Math.PI / Math.max(segments.length, 1)) - 2),
           );
           const labelColor =
             activeTheme.labelInk === 'auto' ? labelInkForSlice(segment.color) : undefined;
+
+          // Arabic reads poorly at the Latin base sizes, so those labels render ~1.5× bigger.
+          const baseFontSize = segments.length > 10 ? 3.2 : segments.length > 7 ? 3.6 : 4.1;
+          const noteIsArabic = ARABIC_SCRIPT.test(segment.note ?? '');
 
           return (
             <span
@@ -116,14 +124,18 @@ export function PrizeWheel({
               className="pointer-events-none absolute left-1/2 top-1/2 z-10 flex flex-col items-center justify-center break-words text-center font-extrabold leading-[1.05] text-white drop-shadow-[0_1px_2px_rgba(15,23,42,0.95)]"
               style={{
                 width: `${labelWidth}%`,
-                fontSize: `${segments.length > 10 ? 3.2 : segments.length > 7 ? 3.6 : 4.1}cqw`,
+                fontSize: `${isArabicLabel ? baseFontSize * 1.5 : baseFontSize}cqw`,
                 transform: `translate(-50%, -50%) rotate(${segment.angle}deg) translateY(-30cqw) rotate(${labelRotation - segment.angle}deg)`,
                 color: labelColor,
               }}
             >
               {renderLabelWithEmoji(segment.label, '2em')}
               {segment.note ? (
-                <span dir="auto" className="text-[0.95em] font-extrabold">
+                <span
+                  dir="auto"
+                  className="font-extrabold"
+                  style={{ fontSize: noteIsArabic ? '1.5em' : '0.95em' }}
+                >
                   {segment.note}
                 </span>
               ) : null}

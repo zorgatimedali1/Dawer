@@ -349,6 +349,9 @@ describe('public campaign page', () => {
     expect((labels[1] as HTMLElement).textContent).toContain('المرة القادمة');
     expect((labels[0] as HTMLElement).style.width).toContain('%');
     expect((labels[0] as HTMLElement).style.fontSize).toContain('cqw');
+    // The Arabic note on the Latin "Try again" label is enlarged for readability.
+    const arabicNote = (labels[1] as HTMLElement).querySelector('span[style*="1.5em"]');
+    expect(arabicNote).not.toBeNull();
     expect(container.querySelector('.lucide-trophy')).toBeNull();
   });
 
@@ -374,6 +377,33 @@ describe('public campaign page', () => {
     const emojiSpan = (labels[0] as HTMLElement).querySelector('span[style*="2em"]');
     expect(emojiSpan).toBeTruthy();
     expect(emojiSpan?.textContent).toBe('☕');
+  });
+
+  it('prints Arabic slice labels ~1.5x bigger than Latin ones so the script stays readable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          success: true,
+          campaign: { ...campaign, require_action: 'NONE' },
+          rewards: [
+            { id: 'a1', name: 'قهوة مجانية', description: '', type: 'free_product', value: '1', weight: 60, quantity: 5 },
+            { id: 'a2', name: 'Try again', description: null, type: 'none', value: '0', weight: 40, quantity: 0 },
+          ],
+        }),
+      ),
+    );
+
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /Tourner la roue/i }));
+
+    const labels = (await screen.findByTestId('prize-wheel')).querySelectorAll('[data-wheel-segment]');
+    const latinSize = parseFloat((labels[1] as HTMLElement).style.fontSize);
+    const arabicSize = parseFloat((labels[0] as HTMLElement).style.fontSize);
+    expect(arabicSize).toBeCloseTo(latinSize * 1.5, 5);
+    expect(parseFloat((labels[0] as HTMLElement).style.width)).toBeGreaterThan(
+      parseFloat((labels[1] as HTMLElement).style.width),
+    );
   });
 
   it('keeps the normalized odds hidden with two slices on the wheel', async () => {
