@@ -369,7 +369,7 @@ describe('public campaign page', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Tourner la roue/i }));
 
     const labels = (await screen.findByTestId('prize-wheel')).querySelectorAll('[data-wheel-segment]');
-    const emojiSpan = (labels[0] as HTMLElement).querySelector('span[style*="1.55em"]');
+    const emojiSpan = (labels[0] as HTMLElement).querySelector('span[style*="2em"]');
     expect(emojiSpan).toBeTruthy();
     expect(emojiSpan?.textContent).toBe('☕');
   });

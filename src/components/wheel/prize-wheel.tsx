@@ -121,9 +121,9 @@ export function PrizeWheel({
                 color: labelColor,
               }}
             >
-              {renderLabelWithEmoji(segment.label, '1.55em')}
+              {renderLabelWithEmoji(segment.label, '2em')}
               {segment.note ? (
-                <span dir="auto" className="text-[0.72em] font-bold opacity-95">
+                <span dir="auto" className="text-[0.95em] font-extrabold">
                   {segment.note}
                 </span>
               ) : null}
