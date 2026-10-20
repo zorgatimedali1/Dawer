@@ -129,12 +129,18 @@ export default function AccountsPage() {
   };
 
   const toggleFeature = (
-    key: 'whatsappEnabled' | 'emailEnabled' | 'wheelDesignEnabled',
+    key: 'whatsappEnabled' | 'emailEnabled' | 'wheelDesignEnabled' | 'rewardsEnabled',
     value: boolean,
   ) => {
     if (!detail) return;
     const label =
-      key === 'whatsappEnabled' ? 'WhatsApp' : key === 'emailEnabled' ? 'Email marketing' : 'Wheel design';
+      key === 'whatsappEnabled'
+        ? 'WhatsApp'
+        : key === 'emailEnabled'
+          ? 'Email marketing'
+          : key === 'wheelDesignEnabled'
+            ? 'Wheel design'
+            : 'Rewards';
     void run(
       () => AccountsService.setFeatureAccess(detail.account.id, { [key]: value }),
       `${label} ${value ? 'enabled' : 'disabled'}.`,
@@ -697,6 +703,23 @@ export default function AccountsPage() {
                 checked={detail.featureAccess?.wheelDesignEnabled ?? true}
                 disabled={busy}
                 onToggle={(value) => toggleFeature('wheelDesignEnabled', value)}
+              />
+            </div>
+          </DetailSection>
+
+          <DetailSection title="Rewards access">
+            <p className="mb-4 text-sm text-ink-muted">
+              When off, no merchant of this account can manage rewards or open the Récompenses page. Existing
+              wheels keep paying out and the wheel&apos;s prize editing keeps working.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FeatureSwitchRow
+                id="account-rewards"
+                label="Rewards management"
+                description="Prizes, stock and the Récompenses page"
+                checked={detail.featureAccess?.rewardsEnabled ?? true}
+                disabled={busy}
+                onToggle={(value) => toggleFeature('rewardsEnabled', value)}
               />
             </div>
           </DetailSection>

@@ -27,7 +27,7 @@ const detail = {
   success: true,
   account,
   playPolicy: { mode: 'off', perDay: 1, cooldownMinutes: 0 },
-  featureAccess: { whatsappEnabled: true, emailEnabled: true },
+  featureAccess: { whatsappEnabled: true, emailEnabled: true, wheelDesignEnabled: true, rewardsEnabled: true },
   wheelTheme: null,
   wheelThemeOverride: null,
   planSlug: 'growth',
@@ -206,6 +206,29 @@ describe('platform accounts page', () => {
 
     expect(screen.queryByText('Disable WhatsApp marketing')).not.toBeInTheDocument();
     expect(await screen.findByRole('status')).toHaveTextContent('WhatsApp disabled.');
+  });
+
+  it('toggles the per-account rewards switch immediately', async () => {
+    const fetchMock = createFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<AccountsPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Ada Lovelace/ }));
+
+    expect(await screen.findByText('Rewards access')).toBeInTheDocument();
+    const rewardsSwitch = screen.getByRole('switch', { name: 'Rewards management' });
+    expect(rewardsSwitch).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(rewardsSwitch);
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('/u1/features'))).toBe(true),
+    );
+
+    const call = fetchMock.mock.calls.find((entry) => String(entry[0]).includes('/u1/features'));
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({ rewardsEnabled: false });
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Rewards disabled.');
   });
 
   it('reveals and submits the limits for the windowed policy', async () => {
