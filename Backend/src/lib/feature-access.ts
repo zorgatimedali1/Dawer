@@ -1,17 +1,19 @@
 import type { Env } from '../types';
 
-export type FeatureName = 'whatsapp' | 'email' | 'wheel';
+export type FeatureName = 'whatsapp' | 'email' | 'wheel' | 'rewards';
 
 export interface FeatureFlags {
   whatsappEnabled: boolean;
   emailEnabled: boolean;
   wheelDesignEnabled: boolean;
+  rewardsEnabled: boolean;
 }
 
 const PLATFORM_KEYS: Record<FeatureName, string> = {
   whatsapp: 'whatsapp_enabled',
   email: 'email_enabled',
   wheel: 'wheel_design_enabled',
+  rewards: 'rewards_enabled',
 };
 
 function toBool(value: string | number | null | undefined): boolean {
@@ -40,25 +42,32 @@ export async function getPlatformFeatures(env: Env): Promise<FeatureFlags> {
     wheelDesignEnabled: settings.has(PLATFORM_KEYS.wheel)
       ? toBool(settings.get(PLATFORM_KEYS.wheel))
       : true,
+    // Rewards are the payout mechanic of live campaigns, so like the wheel
+    // switch the missing row (fresh DB / failed migration) keeps access open
+    // rather than turning the feature off for paying merchants.
+    rewardsEnabled: settings.has(PLATFORM_KEYS.rewards)
+      ? toBool(settings.get(PLATFORM_KEYS.rewards))
+      : true,
   };
 }
 
 /** Per-business switches written by the operator console. */
 export async function getBusinessFeatures(env: Env, businessId: string): Promise<FeatureFlags> {
   const row = await env.DB.prepare(
-    'SELECT whatsapp_enabled, email_enabled, wheel_design_enabled FROM businesses WHERE id = ? LIMIT 1',
+    'SELECT whatsapp_enabled, email_enabled, wheel_design_enabled, rewards_enabled FROM businesses WHERE id = ? LIMIT 1',
   )
     .bind(businessId)
-    .first<{ whatsapp_enabled: number; email_enabled: number; wheel_design_enabled: number }>();
+    .first<{ whatsapp_enabled: number; email_enabled: number; wheel_design_enabled: number; rewards_enabled: number }>();
 
   if (!row) {
-    return { whatsappEnabled: false, emailEnabled: false, wheelDesignEnabled: false };
+    return { whatsappEnabled: false, emailEnabled: false, wheelDesignEnabled: false, rewardsEnabled: false };
   }
 
   return {
     whatsappEnabled: toBool(row.whatsapp_enabled),
     emailEnabled: toBool(row.email_enabled),
     wheelDesignEnabled: toBool(row.wheel_design_enabled),
+    rewardsEnabled: toBool(row.rewards_enabled),
   };
 }
 
@@ -96,6 +105,10 @@ export async function setBusinessFeatures(env: Env, businessId: string, features
     sets.push('wheel_design_enabled = ?');
     binds.push(features.wheelDesignEnabled ? 1 : 0);
   }
+  if (features.rewardsEnabled !== undefined) {
+    sets.push('rewards_enabled = ?');
+    binds.push(features.rewardsEnabled ? 1 : 0);
+  }
   if (sets.length === 0) return;
 
   sets.push('updated_at = ?');
@@ -115,7 +128,9 @@ export class FeatureDisabledError extends Error {
         ? 'WhatsApp marketing is currently disabled by the platform administrator.'
         : feature === 'email'
           ? 'Email marketing is currently disabled by the platform administrator.'
-          : 'Wheel design is currently disabled by the platform administrator.',
+          : feature === 'rewards'
+            ? 'Rewards are currently disabled by the platform administrator.'
+            : 'Wheel design is currently disabled by the platform administrator.',
     );
     this.name = 'FeatureDisabledError';
     this.feature = feature;
@@ -140,7 +155,9 @@ export async function assertFeatureEnabled(env: Env, businessId: string, feature
       ? features.whatsappEnabled
       : feature === 'email'
         ? features.emailEnabled
-        : features.wheelDesignEnabled;
+        : feature === 'rewards'
+          ? features.rewardsEnabled
+          : features.wheelDesignEnabled;
 
   if (!enabled) throw new FeatureDisabledError(feature);
 }

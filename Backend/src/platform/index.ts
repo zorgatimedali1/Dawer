@@ -46,7 +46,9 @@ app.get('/health', (request, response) => {
   // Same token gate as the merchant worker: operational heartbeat stays open
   // until HEALTH_CHECK_TOKEN is registered, then requires `x-health-token`.
   const healthToken = (env as Env).HEALTH_CHECK_TOKEN;
-  if (healthToken && !timingSafeEqualString(request.headers.get('x-health-token') ?? '', healthToken)) {
+  const rawHealthHeader = request.headers['x-health-token'];
+  const providedHealthToken = Array.isArray(rawHealthHeader) ? rawHealthHeader[0] : rawHealthHeader;
+  if (healthToken && !(providedHealthToken && timingSafeEqualString(providedHealthToken, healthToken))) {
     response.status(404).json({ success: false, error: 'Route not found.' });
     return;
   }

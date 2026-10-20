@@ -54,15 +54,15 @@ export async function createBusinessForUser(
   const businessId = crypto.randomUUID();
   const slug = await uniqueBusinessSlug(businessName, env);
   const now = new Date().toISOString();
-  // Seed the channel switches (and the wheel-design switch) from the
-  // platform-wide controls so a new business starts in sync with the
+  // Seed the channel switches (and the wheel-design / rewards switches) from
+  // the platform-wide controls so a new business starts in sync with the
   // operator's current intent.
   const platform = await getPlatformFeatures(env);
 
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO businesses (id, name, slug, whatsapp_enabled, email_enabled, wheel_design_enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO businesses (id, name, slug, whatsapp_enabled, email_enabled, wheel_design_enabled, rewards_enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       businessId,
       businessName,
@@ -70,6 +70,7 @@ export async function createBusinessForUser(
       platform.whatsappEnabled ? 1 : 0,
       platform.emailEnabled ? 1 : 0,
       platform.wheelDesignEnabled ? 1 : 0,
+      platform.rewardsEnabled ? 1 : 0,
       now,
       now,
     ),

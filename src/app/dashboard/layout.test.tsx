@@ -214,6 +214,30 @@ describe('dashboard plan access gate', () => {
     expect(screen.getByRole('link', { name: 'Récompenses' })).toBeInTheDocument();
   });
 
+  it('hides the Rewards nav and redirects the route while the operator rewards switch is off', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      ...billingPayload(paidAccess),
+      features: { emailEnabled: true, whatsappEnabled: true, rewardsEnabled: false },
+    })));
+
+    renderDashboard('/dashboard/rewards');
+
+    expect(await screen.findByText('overview page')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Récompenses' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the Rewards nav link visible when the operator rewards switch is on', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      ...billingPayload(paidAccess),
+      features: { emailEnabled: true, whatsappEnabled: true, rewardsEnabled: true },
+    })));
+
+    renderDashboard('/dashboard/overview');
+
+    expect(await screen.findByText('overview page')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Récompenses' })).toBeInTheDocument();
+  });
+
   it('redirects to the public demo video section after sign-out', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(billingPayload({
       state: 'active',

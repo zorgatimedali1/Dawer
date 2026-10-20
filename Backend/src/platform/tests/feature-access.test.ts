@@ -137,8 +137,34 @@ describe('POST /api/admin/accounts/:id/features', () => {
       ),
     );
 
-    expect(detail.featureAccess).toMatchObject({ whatsappEnabled: false, emailEnabled: true });
-    expect(detail.businesses[0]).toMatchObject({ whatsappEnabled: false, emailEnabled: true });
+    expect(detail.featureAccess).toMatchObject({ whatsappEnabled: false, emailEnabled: true, rewardsEnabled: true });
+    expect(detail.businesses[0]).toMatchObject({ whatsappEnabled: false, emailEnabled: true, rewardsEnabled: true });
+  });
+
+  it('switches the rewards module off per account and keeps the platform-wide switch on', async () => {
+    await handleAdminRoute(
+      operatorRequest(
+        `/api/admin/accounts/${merchant.userId}/features`,
+        'POST',
+        { rewardsEnabled: false, reason: 'temporary freeze' },
+        operator.token,
+      ),
+      env,
+    );
+
+    const row = db.query<{ rewards_enabled: number }>(
+      'SELECT rewards_enabled FROM businesses WHERE id = ?',
+      merchant.businessId,
+    )[0];
+    expect(row.rewards_enabled).toBe(0);
+
+    const detail = await body(
+      await handleAdminRoute(
+        operatorRequest(`/api/admin/accounts/${merchant.userId}`, 'GET', undefined, operator.token),
+        env,
+      ),
+    );
+    expect(detail.featureAccess).toMatchObject({ rewardsEnabled: false });
   });
 
   it('404s for an unknown account', async () => {
@@ -159,7 +185,7 @@ describe('platform-wide feature switches', () => {
     ).toBe(401);
   });
 
-  it('defaults marketing off but wheel design on, because wheel design has its own plan gate', async () => {
+  it('defaults marketing off but wheel design and rewards on (they gate live payoff features)', async () => {
     const payload = await body(
       await handlePlatformFeaturesRoute(
         operatorRequest('/api/admin/platform-features', 'GET', undefined, operator.token),
@@ -172,7 +198,39 @@ describe('platform-wide feature switches', () => {
       // No platform_settings row means the switch is on, so Pro+ keeps
       // the design access its plan already paid for.
       wheelDesignEnabled: true,
+      rewardsEnabled: true,
     });
+  });
+
+  it('turns rewards off and back on, propagating to businesses and auditing', async () => {
+    const off = await body(
+      await handlePlatformFeaturesRoute(
+        operatorRequest('/api/admin/platform-features', 'POST', { rewardsEnabled: false }, operator.token),
+        env,
+      ),
+    );
+    expect(off.features).toMatchObject({ rewardsEnabled: false, whatsappEnabled: false });
+
+    expect(
+      db.query<{ rewards_enabled: number }>(
+        'SELECT rewards_enabled FROM businesses WHERE id = ?',
+        merchant.businessId,
+      )[0]!.rewards_enabled,
+    ).toBe(0);
+
+    const on = await body(
+      await handlePlatformFeaturesRoute(
+        operatorRequest('/api/admin/platform-features', 'POST', { rewardsEnabled: true }, operator.token),
+        env,
+      ),
+    );
+    expect(on.features.rewardsEnabled).toBe(true);
+    expect(
+      db.query<{ rewards_enabled: number }>(
+        'SELECT rewards_enabled FROM businesses WHERE id = ?',
+        merchant.businessId,
+      )[0]!.rewards_enabled,
+    ).toBe(1);
   });
 
   it('turns wheel design off and back on, propagating to businesses and auditing', async () => {

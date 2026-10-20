@@ -473,15 +473,17 @@ export const adminFeatureAccessSchema = z
     whatsappEnabled: z.boolean().optional(),
     emailEnabled: z.boolean().optional(),
     wheelDesignEnabled: z.boolean().optional(),
+    rewardsEnabled: z.boolean().optional(),
     reason: z.string().trim().min(3).max(500).optional(),
   })
   .refine(
     (value) =>
       value.whatsappEnabled !== undefined ||
       value.emailEnabled !== undefined ||
-      value.wheelDesignEnabled !== undefined,
+      value.wheelDesignEnabled !== undefined ||
+      value.rewardsEnabled !== undefined,
     {
-      message: 'Provide whatsappEnabled, emailEnabled and/or wheelDesignEnabled.',
+      message: 'Provide whatsappEnabled, emailEnabled, wheelDesignEnabled and/or rewardsEnabled.',
     },
   );
 
@@ -493,14 +495,16 @@ export const platformFeatureSchema = z
     whatsappEnabled: z.boolean().optional(),
     emailEnabled: z.boolean().optional(),
     wheelDesignEnabled: z.boolean().optional(),
+    rewardsEnabled: z.boolean().optional(),
   })
   .refine(
     (value) =>
       value.whatsappEnabled !== undefined ||
       value.emailEnabled !== undefined ||
-      value.wheelDesignEnabled !== undefined,
+      value.wheelDesignEnabled !== undefined ||
+      value.rewardsEnabled !== undefined,
     {
-      message: 'Provide whatsappEnabled, emailEnabled and/or wheelDesignEnabled.',
+      message: 'Provide whatsappEnabled, emailEnabled, wheelDesignEnabled and/or rewardsEnabled.',
     },
   );
 

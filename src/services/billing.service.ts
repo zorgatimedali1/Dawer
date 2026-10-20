@@ -59,11 +59,14 @@ export interface SubscribeRequestResult {
 export interface MarketingFeatures {
   whatsappEnabled: boolean;
   emailEnabled: boolean;
+  /** Rewards module switch; the backend default is on when the payload omits it. */
+  rewardsEnabled: boolean;
 }
 
 export const DEFAULT_MARKETING_FEATURES: MarketingFeatures = {
   whatsappEnabled: false,
   emailEnabled: false,
+  rewardsEnabled: true,
 };
 
 export interface BillingState {
@@ -122,6 +125,7 @@ export class BillingService {
       features: {
         whatsappEnabled: result.features?.whatsappEnabled ?? DEFAULT_MARKETING_FEATURES.whatsappEnabled,
         emailEnabled: result.features?.emailEnabled ?? DEFAULT_MARKETING_FEATURES.emailEnabled,
+        rewardsEnabled: result.features?.rewardsEnabled ?? DEFAULT_MARKETING_FEATURES.rewardsEnabled,
       },
     };
   }

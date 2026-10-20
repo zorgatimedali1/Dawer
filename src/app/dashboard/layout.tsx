@@ -153,7 +153,7 @@ function DashboardChrome() {
             if (item.href === '/dashboard/analytics') return hasAnalytics;
             // Rewards management is a paid-tier feature; the wheel builder stays
             // available to every plan, so only this nav entry is gated.
-            if (item.href === '/dashboard/rewards') return hasRewards;
+            if (item.href === '/dashboard/rewards') return hasRewards && (features?.rewardsEnabled ?? true);
             // Operator platform switches: the menu entry disappears while off
             // and comes back when the operator re-enables the channel.
             if (item.href === '/dashboard/email') return features?.emailEnabled ?? true;
@@ -213,6 +213,10 @@ function DashboardChrome() {
   }
 
   if (pathname === '/dashboard/whatsapp' && features && !features.whatsappEnabled) {
+    return <Navigate to="/dashboard/overview" replace />;
+  }
+
+  if (pathname === '/dashboard/rewards' && features && !features.rewardsEnabled) {
     return <Navigate to="/dashboard/overview" replace />;
   }
 

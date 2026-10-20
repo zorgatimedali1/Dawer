@@ -57,12 +57,38 @@ describe('POST /api/business', () => {
     );
     expect(response.status).toBe(201);
 
-    const business = db.query<{ whatsapp_enabled: number; email_enabled: number; wheel_design_enabled: number }>(
-      'SELECT whatsapp_enabled, email_enabled, wheel_design_enabled FROM businesses',
+    const business = db.query<{ whatsapp_enabled: number; email_enabled: number; wheel_design_enabled: number; rewards_enabled: number }>(
+      'SELECT whatsapp_enabled, email_enabled, wheel_design_enabled, rewards_enabled FROM businesses',
     )[0];
     // A missing platform row now defaults to off, so email stays disabled too.
-    // Wheel design defaults to on (it has its own plan gate).
-    expect(business).toMatchObject({ whatsapp_enabled: 0, email_enabled: 0, wheel_design_enabled: 1 });
+    // Wheel design and rewards default to on (they gate payoff features of
+    // live campaigns).
+    expect(business).toMatchObject({
+      whatsapp_enabled: 0,
+      email_enabled: 0,
+      wheel_design_enabled: 1,
+      rewards_enabled: 1,
+    });
+  });
+
+  it('seeds the rewards switch off when the platform switch is off', async () => {
+    const { token } = await seedMerchant(db, { withBusiness: false });
+    db.prepare(
+      `INSERT INTO platform_settings (key, value, updated_at) VALUES ('rewards_enabled', '0', ?)`,
+    )
+      .bind(new Date().toISOString())
+      .run();
+
+    const response = await handleBusinessRoute(
+      jsonRequest('/api/business', 'POST', { name: 'Coffee Corner' }, token),
+      env,
+    );
+    expect(response.status).toBe(201);
+
+    const business = db.query<{ rewards_enabled: number }>(
+      'SELECT rewards_enabled FROM businesses',
+    )[0];
+    expect(business).toMatchObject({ rewards_enabled: 0 });
   });
 
   it('seeds wheel design off when the platform switch is off', async () => {
@@ -232,3 +258,54 @@ describe('rewards plan gate', () => {
     expect(patch.status).toBe(200);
   });
 });
+
+describe('rewards operator switch', () => {
+  it('blocks manager verbs while the platform switch is off but keeps DELETE for the wheel builder', async () => {
+    const { token, businessId } = await seedMerchant(db, { withActiveSubscription: true, planId: 'plan_growth' });
+    const { rewardId } = await seedRewardsFixture(db, businessId);
+    db.prepare('UPDATE businesses SET rewards_enabled = 0 WHERE id = ?').bind(businessId).run();
+
+    const list = await handleBusinessRoute(jsonRequest('/api/business/rewards', 'GET', undefined, token), env);
+    expect(list.status).toBe(403);
+    expect(((await list.json()) as { message: string }).message).toContain('disabled by the platform administrator');
+
+    const patch = await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'PATCH', { quantity: 3 }, token),
+      env,
+    );
+    expect(patch.status).toBe(403);
+
+    // The wheel builder deletes persisted rewards, so DELETE stays open.
+    const del = await handleBusinessRoute(
+      jsonRequest(`/api/business/rewards/${rewardId}`, 'DELETE', undefined, token),
+      env,
+    );
+    expect(del.status).toBe(200);
+  });
+
+  it('runs rewards manager verbs after the operator turns the switch back on', async () => {
+    const { token, businessId } = await seedMerchant(db, { withActiveSubscription: true, planId: 'plan_growth' });
+    const { rewardId } = await seedRewardsFixture(db, businessId);
+
+    const list = await handleBusinessRoute(jsonRequest('/api/business/rewards', 'GET', undefined, token), env);
+    expect(list.status).toBe(200);
+    const listPayload = (await list.json()) as { rewards: { id: string }[] };
+    expect(listPayload.rewards.map((reward) => reward.id)).toContain(rewardId);
+  });
+});
+
+/** Campaign + reward row a merchant owns; used by the rewards gating tests. */
+async function seedRewardsFixture(db: TestDatabase, businessId: string): Promise<{ campaignId: string; rewardId: string }> {
+  const now = new Date().toISOString();
+  const campaignId = crypto.randomUUID();
+  db.prepare(
+    `INSERT INTO campaigns (id, business_id, name, public_code, status, created_at, updated_at)
+     VALUES (?, ?, 'Wheel', 'CODE7', 'LIVE', ?, ?)`,
+  ).bind(campaignId, businessId, now, now).run();
+  const rewardId = crypto.randomUUID();
+  db.prepare(
+    `INSERT INTO rewards (id, business_id, campaign_id, name, type, active, created_at, updated_at)
+     VALUES (?, ?, ?, 'Coupon', 'coupon', 1, ?, ?)`,
+  ).bind(rewardId, businessId, campaignId, now, now).run();
+  return { campaignId, rewardId };
+}

@@ -97,7 +97,9 @@ app.get('/health', async (request, response) => {
   // Unset (local dev, or production before the secret is registered) keeps
   // probes open so nothing breaks the moment this ships.
   const healthToken = (env as Env).HEALTH_CHECK_TOKEN;
-  if (healthToken && !timingSafeEqualString(request.headers.get('x-health-token') ?? '', healthToken)) {
+  const rawHealthHeader = request.headers['x-health-token'];
+  const providedHealthToken = Array.isArray(rawHealthHeader) ? rawHealthHeader[0] : rawHealthHeader;
+  if (healthToken && !(providedHealthToken && timingSafeEqualString(providedHealthToken, healthToken))) {
     response.status(404).json({ success: false, error: 'Route not found.' });
     return;
   }

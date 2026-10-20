@@ -3,6 +3,7 @@ import { getAuthenticatedUser, getPrimaryBusinessId } from '../lib/tenant';
 import { errorResponse, jsonResponse } from '../lib/http';
 import { businessCreateSchema } from '../lib/validation';
 import { createBusinessForUser, userHasBusiness } from '../lib/business';
+import { getEffectiveFeatures } from '../lib/feature-access';
 import { getBusinessAccess, type BusinessAccess } from '../lib/subscription-access';
 import { handleCampaignRoute } from './campaigns';
 import { handleRecordRoute } from './records';
@@ -75,7 +76,9 @@ export async function handleBusinessRoute(request: Request, env: Env): Promise<R
 
     const isRewardsPath = path === '/api/business/rewards' || path.startsWith('/api/business/rewards/');
     // The wheel builder shares the rewards DELETE endpoint (removing a persisted
-    // reward), so only the page-only read/update verbs are plan-gated.
+    // reward), so only the page-only read/update verbs are plan-gated — and the
+    // same for the operator's rewards kill-switch: tokens issued by the public
+    // wheel keep paying out, only the management page locks up.
     const isRewardsGatedVerb = isRewardsPath && (request.method === 'GET' || request.method === 'PATCH');
 
     if (request.method !== 'GET' || isRewardsGatedVerb) {
@@ -84,6 +87,13 @@ export async function handleBusinessRoute(request: Request, env: Env): Promise<R
 
       if (request.method !== 'GET' && businessId && !access?.canManage) {
         return errorResponse('This account is read-only. Activate a plan from Billing to manage your business.', 403);
+      }
+
+      if (isRewardsPath && businessId && request.method !== 'DELETE') {
+        const features = await getEffectiveFeatures(env, businessId);
+        if (!features.rewardsEnabled) {
+          return errorResponse('Rewards are currently disabled by the platform administrator.', 403);
+        }
       }
 
       if (isRewardsGatedVerb) {

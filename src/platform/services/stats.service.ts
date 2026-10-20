@@ -4,6 +4,7 @@ export interface PlatformFeatures {
   whatsappEnabled: boolean;
   emailEnabled: boolean;
   wheelDesignEnabled: boolean;
+  rewardsEnabled: boolean;
 }
 
 export interface RevenueOverview {

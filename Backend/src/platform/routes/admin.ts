@@ -139,7 +139,7 @@ async function getAccount(request: Request, env: Env, accountId: string): Promis
 
   const businesses = await env.DB.prepare(
     `SELECT bm.role, bm.created_at AS joined_at, b.id, b.name, b.slug, b.play_policy, b.created_at,
-            b.whatsapp_enabled, b.email_enabled, b.wheel_design_enabled,
+            b.whatsapp_enabled, b.email_enabled, b.wheel_design_enabled, b.rewards_enabled,
             b.wheel_theme, b.wheel_theme_override,
             (SELECT p.slug FROM subscriptions s
               INNER JOIN plans p ON p.id = s.plan_id
@@ -167,6 +167,7 @@ async function getAccount(request: Request, env: Env, accountId: string): Promis
       whatsapp_enabled: number;
       email_enabled: number;
       wheel_design_enabled: number;
+      rewards_enabled: number;
       wheel_theme: string | null;
       wheel_theme_override: string | null;
       plan_slug: string | null;
@@ -214,6 +215,7 @@ async function getAccount(request: Request, env: Env, accountId: string): Promis
     whatsappEnabled: businessRows.every((business) => Number(business.whatsapp_enabled) === 1),
     emailEnabled: businessRows.every((business) => Number(business.email_enabled) === 1),
     wheelDesignEnabled: businessRows.every((business) => Number(business.wheel_design_enabled) === 1),
+    rewardsEnabled: businessRows.every((business) => Number(business.rewards_enabled) === 1),
   };
 
   // Wheel design: the setter writes every business, so the account view is
@@ -250,6 +252,7 @@ async function getAccount(request: Request, env: Env, accountId: string): Promis
       whatsappEnabled: Number(business.whatsapp_enabled) === 1,
       emailEnabled: Number(business.email_enabled) === 1,
       wheelDesignEnabled: Number(business.wheel_design_enabled) === 1,
+      rewardsEnabled: Number(business.rewards_enabled) === 1,
       planSlug: business.plan_slug ?? 'starter',
       createdAt: business.created_at,
     })),
@@ -430,9 +433,10 @@ async function deleteAccount(
 }
 
 /**
- * Turns WhatsApp / email marketing on or off for every business of the
- * account. The per-account switch always wins for that merchant — it
- * overrides the platform-wide control in either direction.
+ * Turns WhatsApp / email marketing, wheel design or the rewards module on or
+ * off for every business of the account. The per-account switch always wins
+ * for that merchant — it overrides the platform-wide control in either
+ * direction.
  */
 async function setFeatureAccess(
   env: Env,
@@ -442,6 +446,7 @@ async function setFeatureAccess(
     whatsappEnabled?: boolean;
     emailEnabled?: boolean;
     wheelDesignEnabled?: boolean;
+    rewardsEnabled?: boolean;
     reason?: string;
   },
 ): Promise<Response> {
@@ -455,12 +460,14 @@ async function setFeatureAccess(
   if (update.whatsappEnabled !== undefined) flags.whatsappEnabled = update.whatsappEnabled;
   if (update.emailEnabled !== undefined) flags.emailEnabled = update.emailEnabled;
   if (update.wheelDesignEnabled !== undefined) flags.wheelDesignEnabled = update.wheelDesignEnabled;
+  if (update.rewardsEnabled !== undefined) flags.rewardsEnabled = update.rewardsEnabled;
 
   const result = await env.DB.prepare(
     `UPDATE businesses SET
        whatsapp_enabled = COALESCE(?, whatsapp_enabled),
        email_enabled = COALESCE(?, email_enabled),
        wheel_design_enabled = COALESCE(?, wheel_design_enabled),
+       rewards_enabled = COALESCE(?, rewards_enabled),
        updated_at = ?
      WHERE id IN (SELECT business_id FROM business_members WHERE user_id = ?)`,
   )
@@ -468,6 +475,7 @@ async function setFeatureAccess(
       flags.whatsappEnabled === undefined ? null : flags.whatsappEnabled ? 1 : 0,
       flags.emailEnabled === undefined ? null : flags.emailEnabled ? 1 : 0,
       flags.wheelDesignEnabled === undefined ? null : flags.wheelDesignEnabled ? 1 : 0,
+      flags.rewardsEnabled === undefined ? null : flags.rewardsEnabled ? 1 : 0,
       new Date().toISOString(),
       accountId,
     )

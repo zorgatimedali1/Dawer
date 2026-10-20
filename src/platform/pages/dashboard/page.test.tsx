@@ -92,13 +92,12 @@ function createFetch() {
     if (url.includes('/api/admin/stats/plans')) return jsonResponse(plans);
     if (url.includes('/api/admin/stats/growth')) return jsonResponse(growth);
     if (url.includes('/api/admin/platform-features')) {
+      const base = { whatsappEnabled: true, emailEnabled: true, wheelDesignEnabled: true, rewardsEnabled: true };
       if (init?.method === 'POST') {
         const sent = JSON.parse(String(init.body)) as Record<string, boolean>;
-        return jsonResponse({
-          features: { whatsappEnabled: true, emailEnabled: true, ...sent },
-        });
+        return jsonResponse({ features: { ...base, ...sent } });
       }
-      return jsonResponse({ features: { whatsappEnabled: true, emailEnabled: true } });
+      return jsonResponse({ features: base });
     }
 
     return jsonResponse({ success: false, message: 'Route not found.' }, 404);
@@ -169,6 +168,31 @@ describe('platform dashboard page', () => {
     );
   });
 
+  it('renders and toggles the rewards platform master switch', async () => {
+    const fetchMock = createFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    renderPage();
+
+    const rewards = await screen.findByRole('switch', { name: 'Rewards' });
+    expect(rewards).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(rewards);
+
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(
+        (call) =>
+          String(call[0]).includes('/api/admin/platform-features') &&
+          (call[1] as RequestInit | undefined)?.method === 'POST',
+      );
+      expect(post).toBeTruthy();
+      expect(JSON.parse(String(post![1]?.body))).toEqual({ rewardsEnabled: false });
+    });
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Rewards is now disabled platform-wide.',
+    );
+  });
+
   it('surfaces an error banner when a stats call fails', async () => {
     vi.stubGlobal(
       'fetch',
@@ -181,7 +205,9 @@ describe('platform dashboard page', () => {
         if (url.includes('/api/admin/stats/plans')) return jsonResponse(plans);
         if (url.includes('/api/admin/stats/growth')) return jsonResponse(growth);
         if (url.includes('/api/admin/platform-features')) {
-          return jsonResponse({ features: { whatsappEnabled: true, emailEnabled: true } });
+          return jsonResponse({
+            features: { whatsappEnabled: true, emailEnabled: true, wheelDesignEnabled: true, rewardsEnabled: true },
+          });
         }
         return jsonResponse({ success: false, message: 'Route not found.' }, 404);
       }),

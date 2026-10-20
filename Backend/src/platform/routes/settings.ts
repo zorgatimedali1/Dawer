@@ -30,6 +30,9 @@ async function updateFeatures(request: Request, env: Env): Promise<Response> {
   if (input.wheelDesignEnabled !== undefined) {
     await setPlatformFeature(env, 'wheel', input.wheelDesignEnabled);
   }
+  if (input.rewardsEnabled !== undefined) {
+    await setPlatformFeature(env, 'rewards', input.rewardsEnabled);
+  }
 
   await writeAuditLog(env, {
     businessId: null,

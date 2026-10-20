@@ -105,15 +105,15 @@ export async function registerUser(request: Request, env: Env): Promise<Response
     if (body.businessName) {
       const businessId = crypto.randomUUID();
       const slug = await uniqueBusinessSlug(body.businessName, env);
-      // Seed the channel switches (and the wheel-design switch) from the
-      // platform-wide controls so a new business starts in sync with the
-      // operator's current intent.
+      // Seed the channel switches (and the wheel-design / rewards switches)
+      // from the platform-wide controls so a new business starts in sync with
+      // the operator's current intent.
       const platform = await getPlatformFeatures(env);
 
       statements.push(
         env.DB.prepare(
-          `INSERT INTO businesses (id, name, slug, whatsapp_enabled, email_enabled, wheel_design_enabled, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO businesses (id, name, slug, whatsapp_enabled, email_enabled, wheel_design_enabled, rewards_enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).bind(
           businessId,
           body.businessName,
@@ -121,6 +121,7 @@ export async function registerUser(request: Request, env: Env): Promise<Response
           platform.whatsappEnabled ? 1 : 0,
           platform.emailEnabled ? 1 : 0,
           platform.wheelDesignEnabled ? 1 : 0,
+          platform.rewardsEnabled ? 1 : 0,
           now,
           now,
         ),

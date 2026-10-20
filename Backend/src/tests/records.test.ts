@@ -736,6 +736,30 @@ describe('QR codes', () => {
     expect(list.qrCodes[0]).toMatchObject({ name: 'Counter', active: 1, campaign_name: 'Owned campaign' });
   });
 
+  it('hides QR codes once their campaign is archived', async () => {
+    await handleBusinessRoute(
+      jsonRequest('/api/business/qr-codes', 'POST', { campaignId: aliceCampaign, name: 'Counter' }, alice.token),
+      env,
+    );
+    db.prepare(`UPDATE campaigns SET status = 'ARCHIVED', updated_at = ? WHERE id = ?`)
+      .bind(new Date().toISOString(), aliceCampaign)
+      .run();
+
+    const list = await body(
+      await handleBusinessRoute(jsonRequest('/api/business/qr-codes', 'GET', undefined, alice.token), env),
+    );
+    expect(list.qrCodes).toHaveLength(0);
+
+    // Only archiving hides: a live campaign's QR stays visible.
+    db.prepare(`UPDATE campaigns SET status = 'ACTIVE', updated_at = ? WHERE id = ?`)
+      .bind(new Date().toISOString(), aliceCampaign)
+      .run();
+    const restored = await body(
+      await handleBusinessRoute(jsonRequest('/api/business/qr-codes', 'GET', undefined, alice.token), env),
+    );
+    expect(restored.qrCodes).toHaveLength(1);
+  });
+
   it('refuses to create a QR code on a foreign campaign', async () => {
     const response = await handleBusinessRoute(
       jsonRequest('/api/business/qr-codes', 'POST', { campaignId: bobCampaign, name: 'Nope' }, alice.token),

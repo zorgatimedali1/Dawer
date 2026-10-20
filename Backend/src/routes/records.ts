@@ -644,12 +644,15 @@ async function handleQrList(request: Request, env: Env, user: AuthenticatedUser)
     params.push(campaignId);
   }
 
+  // Archived campaigns are soft-deleted: their public landing refuses visitors,
+  // so their QR tiles leave the QR codes interface. Same for orphaned rows
+  // after a hard delete — the INNER JOIN drops both.
   const rows = await env.DB.prepare(
     `SELECT q.id, q.campaign_id, ca.name AS campaign_name, ca.public_code AS campaign_public_code,
             q.public_code, q.name, q.location, q.active, q.created_at,
             (SELECT COUNT(*) FROM participations p WHERE p.campaign_id = q.campaign_id) AS campaign_participations
      FROM qr_codes q
-     LEFT JOIN campaigns ca ON ca.id = q.campaign_id
+     JOIN campaigns ca ON ca.id = q.campaign_id AND ca.status <> 'ARCHIVED'
      WHERE ${clauses.join(' AND ')}
      ORDER BY q.created_at DESC
      LIMIT 500`,
