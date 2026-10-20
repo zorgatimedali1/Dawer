@@ -76,11 +76,6 @@ type SettingsRow = {
   notifications: string | null;
 };
 
-type BrandingRow = {
-  primary_color: string | null;
-  secondary_color: string | null;
-};
-
 const DEFAULT_NOTIFICATIONS = { email: true, sms: false, push: false };
 
 function parseJson<T>(value: string | null, fallback: T): T {
@@ -242,12 +237,6 @@ async function loadBusinessSettings(env: Env, userId: string): Promise<Response>
       .run();
   }
 
-  const branding = await env.DB.prepare(
-    'SELECT primary_color, secondary_color FROM business_branding WHERE business_id = ? LIMIT 1',
-  )
-    .bind(businessId)
-    .first<BrandingRow>();
-
   return jsonResponse({
     success: true,
     settings: {
@@ -268,8 +257,6 @@ async function loadBusinessSettings(env: Env, userId: string): Promise<Response>
       linkedinUrl: settingsRow?.linkedin_url ?? '',
       tiktokUrl: settingsRow?.tiktok_url ?? '',
       youtubeUrl: settingsRow?.youtube_url ?? '',
-      primaryColor: branding?.primary_color ?? '#4f46e5',
-      secondaryColor: branding?.secondary_color ?? '#10b981',
       notifications: parseJson(settingsRow?.notifications ?? null, DEFAULT_NOTIFICATIONS),
     },
   });
@@ -368,57 +355,6 @@ async function handleSettingsUpdate(request: Request, env: Env, user: Authentica
   if (settingUpdates.length > 0) {
     await env.DB.prepare(`UPDATE business_settings SET ${settingUpdates.join(', ')} WHERE business_id = ?`)
       .bind(...settingParams, businessId)
-      .run();
-  }
-
-  const brandingUpdates: string[] = [];
-  const brandingParams: unknown[] = [];
-
-  if (input.primaryColor !== undefined) {
-    brandingUpdates.push('primary_color = ?');
-    brandingParams.push(input.primaryColor);
-  }
-  if (input.secondaryColor !== undefined) {
-    brandingUpdates.push('secondary_color = ?');
-    brandingParams.push(input.secondaryColor);
-  }
-
-  const branding = await env.DB.prepare('SELECT id FROM business_branding WHERE business_id = ? LIMIT 1')
-    .bind(businessId)
-    .first<{ id: string }>();
-
-  if (brandingUpdates.length > 0) {
-    brandingUpdates.push('updated_at = ?');
-    brandingParams.push(new Date().toISOString());
-
-    if (!branding) {
-      await env.DB.prepare(
-        `INSERT INTO business_branding (id, business_id, primary_color, secondary_color, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(business_id) DO NOTHING`,
-      )
-        .bind(
-          crypto.randomUUID(),
-          businessId,
-          input.primaryColor ?? '#4f46e5',
-          input.secondaryColor ?? '#10b981',
-          new Date().toISOString(),
-          new Date().toISOString(),
-        )
-        .run();
-    } else {
-      await env.DB.prepare(`UPDATE business_branding SET ${brandingUpdates.join(', ')} WHERE business_id = ?`)
-        .bind(...brandingParams, businessId)
-        .run();
-    }
-  } else if (!branding) {
-    const now = new Date().toISOString();
-    await env.DB.prepare(
-      `INSERT INTO business_branding (id, business_id, primary_color, secondary_color, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(business_id) DO NOTHING`,
-    )
-      .bind(crypto.randomUUID(), businessId, '#4f46e5', '#10b981', now, now)
       .run();
   }
 

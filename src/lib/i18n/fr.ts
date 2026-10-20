@@ -653,12 +653,6 @@ export const settings = {
   changePassword: 'Modifier le mot de passe',
   passwordUpdated: 'Mot de passe mis à jour.',
   brandingTitle: 'Image de marque et apparence',
-  primaryColor: 'Couleur principale',
-  primaryColorPicker: 'Sélecteur de couleur principale',
-  primaryColorValue: 'Valeur de la couleur principale',
-  secondaryColor: 'Couleur secondaire',
-  secondaryColorPicker: 'Sélecteur de couleur secondaire',
-  secondaryColorValue: 'Valeur de la couleur secondaire',
   companyLogo: 'Logo de l’entreprise',
   removeLogoConfirm:
     'Êtes-vous sûr de vouloir retirer le logo de l’entreprise ? Cette action le supprimera.',

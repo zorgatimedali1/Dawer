@@ -141,7 +141,6 @@ describe('settings', () => {
     expect(payload.settings.googleMapsUrl).toBe('');
     expect(payload.settings.facebookUrl).toBe('');
     expect(payload.settings.instagramUrl).toBe('');
-    expect(payload.settings.primaryColor).toBe('#4f46e5');
     expect(payload.settings.notifications).toEqual({ email: true, sms: false, push: false });
   });
 
@@ -155,7 +154,6 @@ describe('settings', () => {
           googleMapsName: 'Beachside Cafe',
           facebookUrl: 'https://facebook.com/beachside',
           instagramUrl: 'https://instagram.com/beachside',
-          primaryColor: '#10b981',
           notifications: { email: true, sms: true, push: false },
         },
         alice.token,
@@ -169,7 +167,6 @@ describe('settings', () => {
     expect(payload.settings.googleMapsName).toBe('Beachside Cafe');
     expect(payload.settings.facebookUrl).toBe('https://facebook.com/beachside');
     expect(payload.settings.instagramUrl).toBe('https://instagram.com/beachside');
-    expect(payload.settings.primaryColor).toBe('#10b981');
     expect(payload.settings.notifications).toEqual({ email: true, sms: true, push: false });
 
     const stored = db.query<{ google_maps_url: string; facebook_url: string; instagram_url: string }>(

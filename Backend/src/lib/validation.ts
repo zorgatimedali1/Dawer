@@ -297,8 +297,6 @@ export const passwordChangeSchema = z.object({
   newPassword: z.string().min(8).max(128),
 });
 
-const hexColor = z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Enter a hex color such as #4f46e5.');
-
 export const businessSettingsSchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(1000),
@@ -332,8 +330,6 @@ export const businessSettingsSchema = z.object({
       },
       'Enter a valid image URL.',
     ),
-  primaryColor: hexColor,
-  secondaryColor: hexColor,
   notifications: z.object({
     email: z.boolean(),
     sms: z.boolean(),

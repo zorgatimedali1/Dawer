@@ -36,8 +36,6 @@ export interface BusinessSettings {
   tiktokUrl: string;
   youtubeUrl: string;
   xUrl?: string;
-  primaryColor: string;
-  secondaryColor: string;
   notifications: NotificationPreferences;
 }
 
@@ -60,8 +58,6 @@ export interface SettingsPatch {
   tiktokUrl?: string;
   youtubeUrl?: string;
   xUrl?: string;
-  primaryColor?: string;
-  secondaryColor?: string;
   notifications?: Partial<NotificationPreferences>;
 }
 

@@ -78,8 +78,6 @@ describe('settings service', () => {
           googlePlaceId: '',
           facebookUrl: '',
           instagramUrl: '',
-          primaryColor: '#4f46e5',
-          secondaryColor: '#10b981',
           notifications: { email: true, sms: false, push: false },
         },
       }),

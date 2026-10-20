@@ -507,47 +507,6 @@ export default function SettingsPage() {
             <CardTitle className="text-lg">{t.settings.brandingTitle}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-5">
-            <div className={FIELD_GRID}>
-              <Field label={t.settings.primaryColor} htmlFor="branding-primary-picker">
-                <div className="flex items-center gap-3">
-                  <input
-                    id="branding-primary-picker"
-                    type="color"
-                    aria-label={t.settings.primaryColorPicker}
-                    className="h-10 w-14 shrink-0 cursor-pointer rounded-md border border-line bg-elevated p-1"
-                    value={settings.primaryColor}
-                    onChange={(event) => setSettings({ ...settings, primaryColor: event.target.value })}
-                  />
-                  <Input
-                    id="branding-primary-value"
-                    aria-label={t.settings.primaryColorValue}
-                    className="numeric flex-1"
-                    value={settings.primaryColor}
-                    onChange={(event) => setSettings({ ...settings, primaryColor: event.target.value })}
-                  />
-                </div>
-              </Field>
-              <Field label={t.settings.secondaryColor} htmlFor="branding-secondary-picker">
-                <div className="flex items-center gap-3">
-                  <input
-                    id="branding-secondary-picker"
-                    type="color"
-                    aria-label={t.settings.secondaryColorPicker}
-                    className="h-10 w-14 shrink-0 cursor-pointer rounded-md border border-line bg-elevated p-1"
-                    value={settings.secondaryColor}
-                    onChange={(event) => setSettings({ ...settings, secondaryColor: event.target.value })}
-                  />
-                  <Input
-                    id="branding-secondary-value"
-                    aria-label={t.settings.secondaryColorValue}
-                    className="numeric flex-1"
-                    value={settings.secondaryColor}
-                    onChange={(event) => setSettings({ ...settings, secondaryColor: event.target.value })}
-                  />
-                </div>
-              </Field>
-            </div>
-
             <div className="flex flex-col gap-3 border-t border-line pt-5">
               <p className={SECTION_LABEL}>{t.settings.companyLogo}</p>
               {settings.logo ? (
@@ -604,14 +563,10 @@ export default function SettingsPage() {
           </CardContent>
           <CardFooter>
             <Button
-              disabled={pending || !/^#[\da-f]{6}$/i.test(settings.primaryColor) || !/^#[\da-f]{6}$/i.test(settings.secondaryColor)}
+              disabled={pending}
               onClick={() =>
                 void patchSettings(
-                  {
-                    primaryColor: settings.primaryColor,
-                    secondaryColor: settings.secondaryColor,
-                    logo: settings.logo,
-                  },
+                  { logo: settings.logo },
                   t.settings.brandingSaved,
                 )
               }

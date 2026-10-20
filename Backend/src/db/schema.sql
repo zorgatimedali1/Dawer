@@ -114,18 +114,6 @@ CREATE TABLE IF NOT EXISTS business_settings (
   updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS business_branding (
-  id TEXT PRIMARY KEY,
-  business_id TEXT NOT NULL,
-  logo TEXT,
-  primary_color TEXT,
-  secondary_color TEXT,
-  background_color TEXT,
-  font_family TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS business_logos (
   id TEXT PRIMARY KEY,
   business_id TEXT NOT NULL UNIQUE,
@@ -574,7 +562,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_email_campaigns_active
 DROP INDEX IF EXISTS idx_subscriptions_business;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_business ON subscriptions(business_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_business_settings_business ON business_settings(business_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_business_branding_business ON business_branding(business_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_email
   ON customers(business_id, LOWER(email))
   WHERE email IS NOT NULL AND email <> '';

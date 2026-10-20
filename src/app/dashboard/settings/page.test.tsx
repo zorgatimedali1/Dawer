@@ -39,8 +39,6 @@ const initialSettings = {
   googlePlaceId: 'place-123',
   facebookUrl: 'https://facebook.com/shop',
   instagramUrl: 'https://instagram.com/shop',
-  primaryColor: '#4f46e5',
-  secondaryColor: '#10b981',
   notifications: { email: true, sms: false, push: false },
 };
 
@@ -116,8 +114,6 @@ describe('settings page', () => {
     await screen.findByText('Informations de l’entreprise enregistrées.');
 
     await userEvent.click(screen.getByRole('tab', { name: 'Image de marque' }));
-    await userEvent.clear(screen.getByLabelText('Valeur de la couleur principale'));
-    await userEvent.type(screen.getByLabelText('Valeur de la couleur principale'), '#112233');
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer l’image de marque' }));
     await screen.findByText('Image de marque enregistrée.');
 
@@ -140,9 +136,6 @@ describe('settings page', () => {
     ))).toBe(true);
     expect(fetchMock.mock.calls.some(([url, init]) => (
       String(url) === '/api/settings' && init?.method === 'PUT' && JSON.parse(String(init.body)).name === 'New Shop'
-    ))).toBe(true);
-    expect(fetchMock.mock.calls.some(([url, init]) => (
-      String(url) === '/api/settings' && init?.method === 'PUT' && JSON.parse(String(init.body)).primaryColor === '#112233'
     ))).toBe(true);
 
     const integrationPut = fetchMock.mock.calls.find(([url, init]) => (
