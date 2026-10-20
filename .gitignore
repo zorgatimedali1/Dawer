@@ -11,6 +11,7 @@ src/.next/
 hallmark/
 .hallmark-cache/
 *.local
+.env
 .DS_Store
 
 # D1 nightly backups (scripts/backup-d1.ps1)
