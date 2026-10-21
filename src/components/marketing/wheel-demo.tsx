@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PrizeWheel, type WheelSegment } from '@/components/wheel/prize-wheel';
-import { Button } from '@/components/ui/button';
-import { wheelMotionDurationMs, type WheelTheme } from '@/lib/wheel-theme';
+import { type WheelTheme } from '@/lib/wheel-theme';
 import { useT } from '@/hooks/use-t';
 
 /**
@@ -33,8 +31,6 @@ const DEMO_SEGMENTS: readonly {
   { key: 'wheelSegRetry', weight: 14, color: '#ffffff' },
 ];
 
-const RETRY_INDEX = DEMO_SEGMENTS.length - 1;
-
 const DEMO_THEME: WheelTheme = {
   colors: {
     segments: DEMO_SEGMENTS.map((segment) => segment.color),
@@ -48,16 +44,21 @@ const DEMO_THEME: WheelTheme = {
 };
 
 /**
+ * Idle pace of the hero wheel: 1 "vitesse" = 60°/s, and 0.5 vitesse keeps the
+ * showcase turning noticeably slower (one full revolution every 12s).
+ */
+const DEMO_SPEED = 0.5;
+const DEMO_BASE_DPS = 60;
+
+/**
  * The landing hero centerpiece: the actual `PrizeWheel` renderer used on the
- * public play page, wired to a client-only simulator so visitors can spin the
- * real product experience (QR scan → wheel → coupon) without any backend.
+ * public play page, drifting on its own at a slow steady pace so visitors see
+ * the product experience (QR scan → wheel → coupon) without touching it.
  */
 export function WheelDemo() {
   const t = useT();
   const [rotation, setRotation] = useState(0);
-  const [spinning, setSpinning] = useState(false);
-  const [resultIndex, setResultIndex] = useState<number | null>(null);
-  const timerRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   const labels = useMemo(
     () => DEMO_SEGMENTS.map((segment) => t.landing[segment.key]),
@@ -79,52 +80,35 @@ export function WheelDemo() {
     [labels],
   );
 
-  useEffect(
-    () => () => {
-      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    },
-    [],
-  );
-
-  const spin = useCallback(() => {
-    if (spinning) return;
-    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    setSpinning(true);
-    setResultIndex(null);
-
-    // Weighted draw across the six slices, then the exact landing math of the
-    // public play page so the winning slice truly centres under the pointer.
-    const total = DEMO_SEGMENTS.reduce((sum, entry) => sum + entry.weight, 0);
-    let roll = Math.random() * total;
-    let index = 0;
-    for (let i = 0; i < DEMO_SEGMENTS.length; i += 1) {
-      roll -= DEMO_SEGMENTS[i]?.weight ?? 0;
-      if (roll <= 0) {
-        index = i;
-        break;
-      }
-    }
-
-    const segmentAngle = 360 / DEMO_SEGMENTS.length;
-    const target = index * segmentAngle + segmentAngle / 2;
-    const desired = ((-target % 360) + 360) % 360;
-    const current = ((rotation % 360) + 360) % 360;
-    const delta = ((desired - current) % 360 + 360) % 360;
-    setRotation(rotation + 2160 + delta);
-
-    // Reduced-motion users see the rotor land instantly (globals.css) and get
-    // the result right away instead of waiting out the travel time.
-    const reduced =
+  // Continuous slow roll driven by a delta-time RAF loop (frame-rate
+  // independent). The rotor transition is severed so the transform tracks the
+  // requested angle every frame instead of easing after it.
+  useEffect(() => {
+    if (
       typeof window.matchMedia === 'function' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const delay = reduced ? 100 : wheelMotionDurationMs(DEMO_THEME) + 250;
-    timerRef.current = window.setTimeout(() => {
-      setResultIndex(index);
-      setSpinning(false);
-    }, delay);
-  }, [spinning, rotation]);
-
-  const result = resultIndex === null ? null : { index: resultIndex, label: labels[resultIndex] ?? '' };
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return;
+    }
+    let previous: number | null = null;
+    let cancelled = false;
+    const tick = (now: number) => {
+      if (cancelled) return;
+      if (previous !== null) {
+        const seconds = (now - previous) / 1000;
+        if (seconds > 0) {
+          setRotation((current) => current + DEMO_BASE_DPS * DEMO_SPEED * seconds);
+        }
+      }
+      previous = now;
+      rafRef.current = window.requestAnimationFrame(tick);
+    };
+    rafRef.current = window.requestAnimationFrame(tick);
+    return () => {
+      cancelled = true;
+      if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
 
   return (
     <div className="flex flex-col items-center">
@@ -132,7 +116,8 @@ export function WheelDemo() {
         <PrizeWheel
           segments={segments}
           rotation={rotation}
-          spinning={spinning}
+          spinning={false}
+          transitionMs={0}
           testId="landing-wheel-demo"
           theme={DEMO_THEME}
           wrapperClassName="cf-wheel-float"
@@ -153,29 +138,6 @@ export function WheelDemo() {
         >
           {t.landing.wheelSegCoffee}
         </span>
-      </div>
-
-      <div className="mt-8 flex w-full max-w-[400px] flex-col items-center gap-3">
-        <Button onClick={spin} disabled={spinning} className="w-full">
-          {spinning ? t.landing.wheelDemoSpinning : result ? t.landing.wheelDemoAgain : t.landing.wheelDemoSpin}
-        </Button>
-
-        <div aria-live="polite" className="flex min-h-[34px] items-center justify-center text-center">
-          {result ? (
-            result.index !== RETRY_INDEX ? (
-              <p className="animate-pop-in inline-flex items-center gap-2 rounded-full bg-accent-soft px-4 py-2 text-[13.5px] font-semibold text-brand-800 dark:text-accent-bright motion-reduce:animate-none">
-                <Sparkles aria-hidden className="h-4 w-4" />
-                <span>
-                  {t.landing.wheelDemoWin} <strong>{result.label}</strong>
-                </span>
-              </p>
-            ) : (
-              <p className="animate-pop-in text-[13.5px] font-medium text-ink-muted motion-reduce:animate-none">
-                {t.landing.wheelDemoRetry}
-              </p>
-            )
-          ) : null}
-        </div>
       </div>
     </div>
   );

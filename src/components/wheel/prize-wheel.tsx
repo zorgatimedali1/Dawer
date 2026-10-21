@@ -33,6 +33,8 @@ interface PrizeWheelProps {
   shadowClassName?: string;
   /** Show each slice's winning odds. The public wheel hides them; the dashboard keeps them. */
   showPercent?: boolean;
+  /** Transition length for the rotor; pass 0 for frame-driven continuous rotation. */
+  transitionMs?: number;
 }
 
 /** Splits a label into plain text and emoji runs so the emoji can render larger. */
@@ -76,9 +78,10 @@ export function PrizeWheel({
   wrapperClassName,
   shadowClassName,
   showPercent = true,
+  transitionMs,
 }: PrizeWheelProps) {
   const activeTheme = theme ?? DEFAULT_WHEEL_THEME;
-  const durationMs = wheelMotionDurationMs(activeTheme);
+  const durationMs = transitionMs ?? wheelMotionDurationMs(activeTheme);
   const showCenterLogo = Boolean(activeTheme.centerLogo && centerLogoSrc);
 
   return (

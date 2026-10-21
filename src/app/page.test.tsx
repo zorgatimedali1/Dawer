@@ -240,28 +240,15 @@ describe('home footer', () => {
 });
 
 describe('home hero wheel demo', () => {
-  it('renders the interactive prize wheel with its spin button', () => {
+  it('renders the auto-rotating prize wheel without a spin button', () => {
     renderHome();
 
     expect(screen.getByTestId('landing-wheel-demo')).toBeInTheDocument();
     // The six sample slices are visible, including the retry slice.
     expect(screen.getAllByText('Café offert').length).toBeGreaterThan(0);
     expect(screen.getByText('Réessayez')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Tourner la roue' })).toBeInTheDocument();
-  });
-
-  it('spins the wheel and reveals the result', async () => {
-    renderHome();
-
-    const spinButton = screen.getByRole('button', { name: 'Tourner la roue' });
-    fireEvent.click(spinButton);
-
-    expect(screen.getByRole('button', { name: 'La roue tourne…' })).toBeDisabled();
-
-    // The "fast" motion preset spins for 2.6s; the win/no-win chip lands just after.
-    const result = await screen.findByText(/Vous avez gagné|Presque !/, {}, { timeout: 8000 });
-    expect(result).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Rejouer' })).toBeEnabled();
+    // The hero wheel rolls on its own now: no click-to-spin affordance.
+    expect(screen.queryByRole('button', { name: 'Tourner la roue' })).not.toBeInTheDocument();
   });
 });
 
