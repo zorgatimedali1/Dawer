@@ -393,8 +393,7 @@ async function activity(env: Env, request: Request): Promise<Response> {
   });
 }
 
-/** WhatsApp / email volume and delivery health across the platform. */
-async function marketing(env: Env): Promise<Response> {
+/** WhatsApp / email volume and delivery health across the platform. */async function marketing(env: Env): Promise<Response> {
   const thirtyDaysAgo = isoDaysAgo(30);
 
   const [whatsapp, whatsappWeb, email, emailRecent, suppression] = await Promise.all([
@@ -462,6 +461,116 @@ async function marketing(env: Env): Promise<Response> {
 }
 
 /**
+ * Website traffic beaconed by the SPA (site_visits table): the operator
+ * console's "full detail" report — headline totals, daily home vs dashboard
+ * trend, top paths, referrers, devices and a recent-visit log.
+ */
+async function visits(env: Env, request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const days = daysParam(url, 30);
+  const since = isoDaysAgo(days);
+
+  const [dailyRows, totalsRow, pathRows, deviceRows, referrerRows, recentRows] = await Promise.all([
+    env.DB.prepare(
+      `SELECT substr(created_at, 1, 10) AS bucket,
+              SUM(CASE WHEN path = '/' THEN 1 ELSE 0 END) AS home,
+              SUM(CASE WHEN path LIKE '/dashboard%' THEN 1 ELSE 0 END) AS dashboard,
+              COUNT(*) AS visits
+       FROM site_visits
+       WHERE created_at >= ?
+       GROUP BY bucket`,
+    )
+      .bind(since)
+      .all<{ bucket: string; home: number | null; dashboard: number | null; visits: number }>(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS total,
+              COALESCE(SUM(CASE WHEN path = '/' THEN 1 ELSE 0 END), 0) AS home,
+              COALESCE(SUM(CASE WHEN path LIKE '/dashboard%' THEN 1 ELSE 0 END), 0) AS dashboard,
+              COUNT(DISTINCT visitor) AS unique_visitors
+       FROM site_visits
+       WHERE created_at >= ?`,
+    )
+      .bind(since)
+      .first<{ total: number; home: number; dashboard: number; unique_visitors: number }>(),
+    env.DB.prepare(
+      `SELECT path, COUNT(*) AS total
+       FROM site_visits
+       WHERE created_at >= ?
+       GROUP BY path ORDER BY total DESC LIMIT 8`,
+    )
+      .bind(since)
+      .all<{ path: string; total: number }>(),
+    env.DB.prepare(
+      `SELECT device, COUNT(*) AS total
+       FROM site_visits
+       WHERE created_at >= ?
+       GROUP BY device ORDER BY total DESC`,
+    )
+      .bind(since)
+      .all<{ device: string; total: number }>(),
+    env.DB.prepare(
+      `SELECT COALESCE(NULLIF(referrer, ''), '(direct)') AS referrer, COUNT(*) AS total
+       FROM site_visits
+       WHERE created_at >= ?
+       GROUP BY referrer ORDER BY total DESC LIMIT 8`,
+    )
+      .bind(since)
+      .all<{ referrer: string; total: number }>(),
+    env.DB.prepare(
+      `SELECT path, referrer, device, created_at
+       FROM site_visits
+       WHERE created_at >= ?
+       ORDER BY created_at DESC LIMIT 50`,
+    )
+      .bind(since)
+      .all<{ path: string; referrer: string | null; device: string; created_at: string }>(),
+  ]);
+
+  const buckets = dayBuckets(days);
+  const daily = fillSeries(buckets, dailyRows.results ?? [], {
+    home: 0,
+    dashboard: 0,
+    visits: 0,
+  }).map((row) => {
+    const home = Number(row.home ?? 0);
+    const dashboard = Number(row.dashboard ?? 0);
+    const total = Number(row.visits ?? 0);
+    return {
+      day: row.bucket,
+      home,
+      dashboard,
+      other: Math.max(total - home - dashboard, 0),
+    };
+  });
+
+  const total = Number(totalsRow?.total ?? 0);
+  const home = Number(totalsRow?.home ?? 0);
+  const dashboard = Number(totalsRow?.dashboard ?? 0);
+
+  return jsonResponse({
+    success: true,
+    days,
+    totals: {
+      total,
+      home,
+      dashboard,
+      other: Math.max(total - home - dashboard, 0),
+      unique: Number(totalsRow?.unique_visitors ?? 0),
+    },
+    series: daily,
+    topPaths: (pathRows.results ?? []).map((row) => ({ path: row.path, total: Number(row.total ?? 0) })),
+    devices: (deviceRows.results ?? []).map((row) => ({ device: row.device, total: Number(row.total ?? 0) })),
+    referrers: (referrerRows.results ?? []).map((row) => ({ referrer: row.referrer, total: Number(row.total ?? 0) })),
+    recent: (recentRows.results ?? []).map((row) => ({
+      path: row.path,
+      referrer: row.referrer || '(direct)',
+      device: row.device,
+      createdAt: row.created_at,
+    })),
+  });
+}
+
+/**
  * Mounted before the `/api/admin` catch-all in index.ts — the account prefix
  * guard there answers 404 for anything that is not `/api/admin/accounts`.
  */
@@ -480,6 +589,7 @@ export async function handleStatsRoute(request: Request, env: Env): Promise<Resp
     if (path === `${STATS_PATH}/users`) return await users(env, request);
     if (path === `${STATS_PATH}/activity`) return await activity(env, request);
     if (path === `${STATS_PATH}/marketing`) return await marketing(env);
+    if (path === `${STATS_PATH}/visits`) return await visits(env, request);
 
     return errorResponse('Route not found.', 404);
   } catch (error) {

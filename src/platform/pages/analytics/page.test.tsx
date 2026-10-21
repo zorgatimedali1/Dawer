@@ -78,6 +78,36 @@ const marketing = {
   },
 };
 
+function visitsPayload(days: number) {
+  const series = Array.from({ length: days }, (_, index) => ({
+    day: `2026-09-${String((index % 28) + 1).padStart(2, '0')}`,
+    home: 3,
+    dashboard: 2,
+    other: 1,
+  }));
+  return {
+    days,
+    totals: { total: 60, home: 30, dashboard: 20, other: 10, unique: 35 },
+    series,
+    topPaths: [
+      { path: '/', total: 30 },
+      { path: '/dashboard/overview', total: 20 },
+    ],
+    devices: [
+      { device: 'mobile', total: 40 },
+      { device: 'desktop', total: 20 },
+    ],
+    referrers: [
+      { referrer: '(direct)', total: 45 },
+      { referrer: 'www.google.com', total: 15 },
+    ],
+    recent: [
+      { path: '/', referrer: 'www.google.com', device: 'mobile', createdAt: '2026-10-02T09:30:00.000Z' },
+      { path: '/dashboard/overview', referrer: '(direct)', device: 'desktop', createdAt: '2026-10-01T18:00:00.000Z' },
+    ],
+  };
+}
+
 function growthPayload(days: number) {
   const series = Array.from({ length: days }, (_, index) => ({
     day: `2026-09-${String((index % 28) + 1).padStart(2, '0')}`,
@@ -106,6 +136,9 @@ function createFetch() {
     if (url.includes('/api/admin/stats/growth')) {
       return jsonResponse(growthPayload(daysParam(url)));
     }
+    if (url.includes('/api/admin/stats/visits')) {
+      return jsonResponse(visitsPayload(daysParam(url)));
+    }
 
     return jsonResponse({ success: false, message: 'Route not found.' }, 404);
   });
@@ -131,6 +164,14 @@ describe('platform analytics page', () => {
     expect(screen.getByText('WhatsApp (Cloud API)')).toBeInTheDocument();
     expect(screen.getByLabelText('Platform growth over time')).toBeInTheDocument();
     expect(screen.getByLabelText('Daily participations')).toBeInTheDocument();
+
+    // Website traffic: totals + trend + recent log all come from the beacon.
+    expect(screen.getByText('Website traffic')).toBeInTheDocument();
+    expect(screen.getByText('Unique visitors')).toBeInTheDocument();
+    expect(screen.getByText('35')).toBeInTheDocument();
+    expect(screen.getByLabelText('Website visits over time')).toBeInTheDocument();
+    expect(screen.getAllByText('/dashboard/overview').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('www.google.com').length).toBeGreaterThan(0);
 
     // Account health: 40 active out of 42.
     expect(screen.getByText('Active accounts')).toBeInTheDocument();
@@ -169,8 +210,9 @@ describe('platform analytics page', () => {
         }
         if (url.includes('/api/admin/stats/activity')) return jsonResponse(activityPayload(30));
         if (url.includes('/api/admin/stats/marketing')) return jsonResponse(marketing);
-        if (url.includes('/api/admin/stats/growth')) return jsonResponse(growthPayload(30));
-        return jsonResponse({ success: false, message: 'Route not found.' }, 404);
+    if (url.includes('/api/admin/stats/growth')) return jsonResponse(growthPayload(30));
+    if (url.includes('/api/admin/stats/visits')) return jsonResponse(visitsPayload(30));
+    return jsonResponse({ success: false, message: 'Route not found.' }, 404);
       }),
     );
 

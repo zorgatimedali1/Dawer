@@ -44,10 +44,10 @@ const DEMO_THEME: WheelTheme = {
 };
 
 /**
- * Idle pace of the hero wheel: 1 "vitesse" = 60°/s, and 0.5 vitesse keeps the
- * showcase turning noticeably slower (one full revolution every 12s).
+ * Idle pace of the hero wheel: 1 "vitesse" = 60°/s, and 0.25 vitesse keeps the
+ * showcase turning extra slow (one full revolution every 24s).
  */
-const DEMO_SPEED = 0.5;
+const DEMO_SPEED = 0.25;
 const DEMO_BASE_DPS = 60;
 
 /**

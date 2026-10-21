@@ -118,6 +118,16 @@ export interface MarketingStats {
   };
 }
 
+export interface SiteVisitStats {
+  days: number;
+  totals: { total: number; home: number; dashboard: number; other: number; unique: number };
+  series: Array<{ day: string; home: number; dashboard: number; other: number }>;
+  topPaths: Array<{ path: string; total: number }>;
+  devices: Array<{ device: string; total: number }>;
+  referrers: Array<{ referrer: string; total: number }>;
+  recent: Array<{ path: string; referrer: string; device: string; createdAt: string }>;
+}
+
 export class StatsService {
   static async overview(): Promise<PlatformOverview> {
     return apiRequest<PlatformOverview>('GET', '/api/admin/stats/overview', undefined, 'Unable to load the overview.');
@@ -144,7 +154,11 @@ export class StatsService {
   }
 
   static async marketing(): Promise<MarketingStats> {
-    return apiRequest('GET', '/api/admin/stats/marketing', undefined, 'Unable to load marketing stats.');
+    return apiRequest<MarketingStats>('GET', '/api/admin/stats/marketing', undefined, 'Unable to load marketing stats.');
+  }
+
+  static async visits(days = 30): Promise<SiteVisitStats> {
+    return apiRequest('GET', `/api/admin/stats/visits${buildQuery({ days })}`, undefined, 'Unable to load website visits.');
   }
 
   static async platformFeatures(): Promise<{ features: PlatformFeatures }> {

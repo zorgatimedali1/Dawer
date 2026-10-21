@@ -670,3 +670,16 @@ CREATE TABLE IF NOT EXISTS partners (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_partners_created_at ON partners(created_at);
+
+-- Website visits beaconed by the SPA (see migrations/0055_site_visits.sql):
+-- visitor = truncated SHA-256 of IP + UA + day (no reversible identity).
+CREATE TABLE IF NOT EXISTS site_visits (
+  id TEXT PRIMARY KEY,
+  path TEXT NOT NULL,
+  referrer TEXT,
+  visitor TEXT NOT NULL,
+  device TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_site_visits_day ON site_visits(created_at);
+CREATE INDEX IF NOT EXISTS idx_site_visits_path_day ON site_visits(path, created_at);

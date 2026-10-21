@@ -18,6 +18,7 @@ import { handlePlacesAutocomplete } from './routes/places';
 import { handlePublicPartnerRoute } from './routes/partners';
 import { handlePublicPlansRoute } from './routes/public-plans';
 import { handlePublicCampaignRoute } from './routes/public';
+import { handleVisitRoute } from './routes/visits';
 import { handleSettingsRoute } from './routes/settings';
 import { handleWhatsAppRoute } from './routes/whatsapp';
 import { handleWhatsAppWebRoute } from './routes/whatsapp-web';
@@ -170,6 +171,14 @@ app.use(
   '/api/email-assets',
   createRateLimitMiddleware(env.PUBLIC_RATE_LIMITER),
   createWorkerRoute(handleEmailAssetRoute, env, { cacheTtlSeconds: 3600 }),
+);
+// Website visit beacon from the SPA: mounted with the public bucket ahead of
+// the TN geofence so page views from anywhere are counted for the operator
+// analytics (one lightweight insert per SPA route change).
+app.use(
+  '/api/public/visit',
+  createRateLimitMiddleware(env.PUBLIC_RATE_LIMITER),
+  createWorkerRoute(handleVisitRoute, env),
 );
 app.use('/api/public', createGeofenceMiddleware(geofenceCountries, { strict: geofenceStrict }));
 app.use('/api/public', createRateLimitMiddleware(env.PUBLIC_RATE_LIMITER));

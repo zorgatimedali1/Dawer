@@ -8,6 +8,7 @@ import CustomerRedirect from './app/customer/customer-redirect';
 import DashboardLayout from './app/dashboard/layout';
 import { LandingGate, RedirectIfAuthenticated, RequireAuth } from './components/route-guards';
 import { RouteBoundary } from './components/route-error-boundary';
+import { VisitBeacon } from './components/visit-beacon';
 import { BrandLoader } from './components/brand/brand-loader';
 import { lazyWithRecovery } from './lib/lazy-recovery';
 import './app/globals.css';
@@ -56,6 +57,7 @@ function App() {
     <RootLayout>
       <BrowserRouter>
         <RouteBoundary>
+          <VisitBeacon />
           <Suspense fallback={<BrandLoader />}>
           <Routes>
             <Route path="/" element={<LandingGate><LandingPage /></LandingGate>} />

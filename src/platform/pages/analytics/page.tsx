@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, Gift, Mail, MessageCircle, Percent, UserPlus } from 'lucide-react';
+import { Activity, Gift, Globe, Mail, MessageCircle, Percent, UserPlus } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,7 @@ import {
   StatsService,
   type ActivityStats,
   type MarketingStats,
+  type SiteVisitStats,
   type UsersStats,
 } from '@/platform/services/stats.service';
 
@@ -30,6 +31,7 @@ export default function AnalyticsPage() {
   const [users, setUsers] = useState<UsersStats | null>(null);
   const [activity, setActivity] = useState<ActivityStats | null>(null);
   const [marketing, setMarketing] = useState<MarketingStats | null>(null);
+  const [visits, setVisits] = useState<SiteVisitStats | null>(null);
   const [growth, setGrowth] = useState<{
     signups: Array<{ day: string; total: number }>;
     businesses: Array<{ day: string; total: number }>;
@@ -43,16 +45,18 @@ export default function AnalyticsPage() {
     setError(null);
 
     try {
-      const [usersResult, activityResult, marketingResult, growthResult] = await Promise.all([
+      const [usersResult, activityResult, marketingResult, growthResult, visitsResult] = await Promise.all([
         StatsService.users(10),
         StatsService.activity(window),
         StatsService.marketing(),
         StatsService.growth(window),
+        StatsService.visits(window),
       ]);
       setUsers(usersResult);
       setActivity(activityResult);
       setMarketing(marketingResult);
       setGrowth(growthResult.series);
+      setVisits(visitsResult);
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : 'Unable to load analytics.');
     } finally {
@@ -102,6 +106,15 @@ export default function AnalyticsPage() {
   const waWeb = marketing?.whatsapp.web;
   const emailStats = marketing?.email;
   const maxVolume = Math.max(waCloud?.sent ?? 0, waWeb?.sent ?? 0, emailStats?.sent ?? 0, 1);
+
+  const visitPoints = (visits?.series ?? []).map((point) => ({
+    label: point.day.slice(5),
+    values: [point.home, point.dashboard, point.other],
+  }));
+  const maxPathVisits = Math.max(...(visits?.topPaths ?? []).map((row) => row.total), 1);
+  const maxDeviceVisits = Math.max(...(visits?.devices ?? []).map((row) => row.total), 1);
+  const maxReferrerVisits = Math.max(...(visits?.referrers ?? []).map((row) => row.total), 1);
+  const visitTotals = visits?.totals;
 
   return (
     <div className="flex flex-col gap-8">
@@ -290,6 +303,99 @@ export default function AnalyticsPage() {
             <div className="p-5 sm:p-6">
               <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
                 <div>
+                  <h3 className="flex items-center gap-2 text-base font-medium text-ink">
+                    <Globe className="h-4 w-4 text-brand-500" aria-hidden />
+                    Website traffic
+                  </h3>
+                  <p className="text-sm text-ink-muted">Page views beaconed by the site: home page, merchant dashboard and the rest</p>
+                </div>
+                <Badge size="sm">{days}d</Badge>
+              </div>
+
+              <div className="mb-5 grid grid-cols-2 gap-3 border-b border-line pb-5 sm:grid-cols-4">
+                <VisitStat label="Home page" value={visitTotals?.home ?? 0} icon={Globe} />
+                <VisitStat label="Dashboard" value={visitTotals?.dashboard ?? 0} icon={Globe} />
+                <VisitStat label="Other pages" value={visitTotals?.other ?? 0} icon={Globe} />
+                <VisitStat label="Unique visitors" value={visitTotals?.unique ?? 0} icon={Globe} />
+              </div>
+
+              <LineChart
+                points={visitPoints}
+                series={[
+                  { key: 'home', label: 'Home page', variable: '--series-1' },
+                  { key: 'dashboard', label: 'Dashboard', variable: '--series-2' },
+                  { key: 'other', label: 'Other pages', variable: '--series-3' },
+                ]}
+                ariaLabel="Website visits over time"
+              />
+
+              <div className="mt-6 grid gap-6 border-t border-line pt-5 lg:grid-cols-3">
+                <div>
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">Top paths</p>
+                  <div className="flex flex-col gap-3">
+                    {(visits?.topPaths ?? []).slice(0, 5).map((row) => (
+                      <MetricBar key={row.path} label={row.path} value={row.total} max={maxPathVisits} />
+                    ))}
+                    {(visits?.topPaths.length ?? 0) === 0 ? <p className="text-sm text-ink-subtle">No visits recorded yet.</p> : null}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">Devices</p>
+                  <div className="flex flex-col gap-3">
+                    {(visits?.devices ?? []).slice(0, 4).map((row) => (
+                      <MetricBar key={row.device} label={row.device} value={row.total} max={maxDeviceVisits} />
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">Traffic sources</p>
+                  <div className="flex flex-col gap-3">
+                    {(visits?.referrers ?? []).slice(0, 4).map((row) => (
+                      <MetricBar key={row.referrer} label={row.referrer} value={row.total} max={maxReferrerVisits} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 overflow-x-auto border-t border-line pt-4">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">Recent visits</div>
+                <table className="w-full min-w-[560px] text-sm">
+                  <thead>
+                    <tr className="text-left text-[11px] uppercase tracking-[0.08em] text-ink-subtle">
+                      <th className="py-2 pr-4 font-semibold">When</th>
+                      <th className="py-2 pr-4 font-semibold">Path</th>
+                      <th className="py-2 pr-4 font-semibold">Device</th>
+                      <th className="py-2 font-semibold">Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(visits?.recent ?? []).slice(0, 15).map((row) => (
+                      <tr key={`${row.createdAt}-${row.path}-${row.device}`} className="border-b border-line/60 last:border-0">
+                        <td className="py-2 pr-4 whitespace-nowrap text-ink-muted">
+                          {new Date(row.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="py-2 pr-4 font-medium text-ink">{row.path}</td>
+                        <td className="py-2 pr-4 capitalize text-ink-muted">{row.device}</td>
+                        <td className="py-2 text-ink-muted">{row.referrer}</td>
+                      </tr>
+                    ))}
+                    {(visits?.recent.length ?? 0) === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-3 text-sm text-ink-subtle">
+                          No visits recorded in this range yet.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="p-5 sm:p-6">
+              <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
+                <div>
                   <h3 className="text-base font-medium text-ink">Top businesses</h3>
                   <p className="text-sm text-ink-muted">Ranked by participations</p>
                 </div>
@@ -354,6 +460,20 @@ export default function AnalyticsPage() {
           </Card>
         </>
       )}
+    </div>
+  );
+}
+
+function VisitStat({ label, value, icon: Icon }: { label: string; value: number; icon: typeof Globe }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-900/40 dark:text-brand-200">
+        <Icon className="h-4 w-4" aria-hidden />
+      </span>
+      <div className="min-w-0">
+        <span className="block text-[11.5px] text-ink-subtle">{label}</span>
+        <span className="numeric block text-lg font-semibold text-ink">{value.toLocaleString()}</span>
+      </div>
     </div>
   );
 }
