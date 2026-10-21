@@ -211,10 +211,10 @@ export const landing = {
   navContact: 'Contact',
   navPrivacy: 'Confidentialité',
   navCta: 'Commencer',
-  heroBadge: 'Plateforme multi-tenant d’engagement client',
-  heroTitle: 'Transformez chaque interaction client en moteur de croissance mesurable.',
+  heroBadge: 'Plateforme d’acquisition client gamifiée pour commerçants tunisiens',
+  heroTitle: 'Dawer — roue de la fortune pour augmenter vos clients en boutique.',
   heroSubtitle:
-    'Lancez des campagnes de marque, des expériences de jeu, des offres de fidélité et des parcours QR code qui transforment les visites en clients fidèles.',
+    'Dawer installe une roue de la fortune interactive dans votre boutique : le client scanne le QR code, tourne la roue et repart avec un coupon vérifié, chaque participation est tracée dans votre tableau de bord, et vous relancez vos clients par WhatsApp ou e-mail — les commerçants tunisiens démarrent avec un essai gratuit.',
   heroCta: 'Commencer gratuitement',
   viewDemo: 'Voir la démo',
   heroFact1: 'QR → Roue → Coupon',
@@ -246,6 +246,18 @@ export const landing = {
   faqA5: 'Oui. Analytics en direct : scans, tours de roue, lots remis et taux de conversion, campagne par campagne.',
   faqQ6: 'Comment vous contacter en cas de problème ?',
   faqA6: 'Écrivez-nous à contact@dawer.com ou via le formulaire ci-dessous, du lundi au vendredi de 9h à 18h.',
+  faqQ7: 'Dawer est-il gratuit ?',
+  faqA7:
+    'L’essai est gratuit : à l’inscription, vous disposez de 7 jours sur le plan Starter pour découvrir la plateforme. Au-delà, l’accès passe par un plan payant, à partir de 149 DT pour 3 mois (Starter), sans engagement. Le règlement se fait sur WhatsApp.',
+  faqQ8: 'Comment fonctionne la roue de la fortune ?',
+  faqA8:
+    'Vous configurez la roue avec vos récompenses et leurs probabilités ; en boutique, le client scanne le QR code, tourne la roue et repart avec un coupon s’il gagne. Vous devez être sur place pour jouer, et chaque tour est enregistré dans votre tableau de bord.',
+  faqQ9: 'Dawer se connecte-t-il à ma fiche Google Business ?',
+  faqA9:
+    'Oui. Renseignez votre fiche Google Business — ou votre page Facebook, ou votre profil Instagram — dans les paramètres : après un gain, votre client peut être invité à laisser un avis Google ou à suivre votre page avant de récupérer son lot.',
+  faqQ10: 'Où sont stockées les données de mes clients ?',
+  faqA10:
+    'Les données de participation — nom, e-mail, téléphone, lots gagnés — sont hébergées par la plateforme Dawer et conservées au maximum 3 ans après la dernière interaction. Dawer ne vend pas ces données : elles ne servent qu’au fonctionnement de vos campagnes et de vos relances.',
   contactEyebrow: 'CONTACT',
   contactTitle: 'Contactez-nous',
   contactSubtitle: 'Une question sur vos campagnes ? Notre équipe vous répond rapidement.',

@@ -3,12 +3,12 @@ import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useT } from '@/hooks/use-t';
 
-const FAQ_INDICES = [1, 2, 3, 4, 5, 6] as const;
+const FAQ_INDICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 
 /**
  * Landing FAQ: a single elevated card of expandable rows — one answer open at
  * a time, chevron rotation signalling the state. Questions/answers live in
- * the FR/EN landing dictionaries (faqQ1..faqQ6 / faqA1..faqA6).
+ * the FR/EN landing dictionaries (faqQ1..faqQ10 / faqA1..faqA10).
  */
 export function FaqSection() {
   const t = useT();

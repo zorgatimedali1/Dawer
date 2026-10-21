@@ -214,10 +214,10 @@ export const landing: D<typeof frDict.landing> = {
   navContact: 'Contact',
   navPrivacy: 'Privacy',
   navCta: 'Get started',
-  heroBadge: 'Multi-tenant customer engagement platform',
-  heroTitle: 'Turn every customer touchpoint into a measurable growth engine.',
+  heroBadge: 'Gamified customer acquisition platform for Tunisian merchants',
+  heroTitle: 'Dawer — the fortune wheel that brings more customers to your store.',
   heroSubtitle:
-    'Launch branded campaigns, game experiences, loyalty offers, and QR-code journeys that convert visits into repeat customers.',
+    'Dawer adds an interactive fortune wheel to your store: the customer scans the QR code, spins the wheel and leaves with a verified coupon, every participation is traced in your dashboard, and you follow up by WhatsApp or email — merchants in Tunisia start with a free trial.',
   heroCta: 'Start for free',
   viewDemo: 'View product demo',
   heroFact1: 'QR → Wheel → Coupon',
@@ -249,6 +249,18 @@ export const landing: D<typeof frDict.landing> = {
   faqA5: 'Yes. Live analytics: scans, spins, rewards issued and conversion rates, per campaign.',
   faqQ6: 'How can I reach you if something goes wrong?',
   faqA6: 'Email us at contact@dawer.com or use the form below, Monday to Friday 9am – 6pm.',
+  faqQ7: 'Is Dawer free?',
+  faqA7:
+    'The trial is free: you get 7 days on the Starter plan when you sign up, to explore the platform. Beyond that, access requires a paid plan, starting from 149 DT for 3 months (Starter), with no commitment. Payment is settled over WhatsApp.',
+  faqQ8: 'How does the fortune wheel work?',
+  faqA8:
+    'You configure the wheel with your rewards and their probabilities; in your venue, the customer scans the QR code, spins the wheel and leaves with a coupon when they win. You must be at the venue to play, and every spin is recorded in your dashboard.',
+  faqQ9: 'Does Dawer connect to my Google Business listing?',
+  faqA9:
+    'Yes. Add your Google Business listing — or your Facebook page, or your Instagram profile — in the settings: after a win, your customer can be invited to leave a Google review or follow your page before claiming their prize.',
+  faqQ10: 'Where is my customer data stored?',
+  faqA10:
+    'Participation data — name, email, phone, prizes won — is hosted by the Dawer platform and kept for a maximum of 3 years after the last interaction. Dawer never sells this data: it is used only to run your campaigns and follow-ups.',
   contactEyebrow: 'CONTACT',
   contactTitle: 'Get in touch',
   contactSubtitle: 'A question about your campaigns? Our team replies fast.',
