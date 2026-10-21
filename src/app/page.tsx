@@ -16,7 +16,7 @@ import { DawerLogo } from '@/components/brand/dawer-logo';
 import { PartnerMarquee } from '@/components/marketing/partner-marquee';
 import { WheelDemo } from '@/components/marketing/wheel-demo';
 import { FaqSection } from '@/components/marketing/faq-section';
-import { ContactSection } from '@/components/marketing/contact-section';
+import { ContactSection, CONTACT_EMAIL } from '@/components/marketing/contact-section';
 import { SocialFollow } from '@/components/marketing/social-follow';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { Badge } from '@/components/ui/badge';
@@ -452,7 +452,7 @@ export default function Home() {
               {t.landing.viewDemo}
             </a>
             <a
-              href="mailto:contact@dawer.com"
+              href={`mailto:${CONTACT_EMAIL}`}
               className="text-[13px] font-medium text-ink-muted transition-colors duration-180 ease-swift hover:text-ink"
             >
               {t.landing.footerContact}

@@ -8,10 +8,10 @@ import { useT } from '@/hooks/use-t';
  * dawer's public contact coordinates — EDIT THESE VALUES here in one place
  * (they are deliberately NOT translated or stored in the database).
  */
-const CONTACT_PHONE = '+216 55 000 000';
-const CONTACT_ADDRESS = 'Tunis, Tunisie';
-const CONTACT_EMAIL = 'contact@dawer.com';
-const MAP_EMBED_SRC = 'https://www.google.com/maps?q=Tunis%2C%20Tunisie&z=12&output=embed';
+const CONTACT_PHONE = '+216 26 788 255';
+const CONTACT_ADDRESS = 'Sousse, Tunisie';
+export const CONTACT_EMAIL = 'mhoudou78@gmail.com';
+const MAP_EMBED_SRC = 'https://www.google.com/maps?q=Sousse%20Centre%2C%20Tunisie&z=13&output=embed';
 
 /**
  * Contact block: four info cards, a message form (mailto pre-fill for the v1:

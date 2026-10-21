@@ -160,7 +160,7 @@ describe('home demo section', () => {
     expect(screen.getByRole('heading', { name: 'Voyez la plateforme en action' })).toBeInTheDocument();
 
     const frame = screen.getByTitle('Vidéo de démonstration de la plateforme');
-    expect(frame).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/UDaMIqEyDh4');
+    expect(frame).toHaveAttribute('src', 'https://www.youtube-nocookie.com/embed/xF74za7OJ24');
     expect(frame.closest('.aspect-video')).not.toBeNull();
     expect(frame.closest('.rounded-2xl')).not.toBeNull();
   });
@@ -230,7 +230,7 @@ describe('home footer', () => {
 
     expect(screen.getByRole('link', { name: 'Nous contacter' })).toHaveAttribute(
       'href',
-      'mailto:contact@dawer.com',
+      'mailto:mhoudou78@gmail.com',
     );
     expect(screen.getByRole('link', { name: 'Politique de confidentialité' })).toHaveAttribute(
       'href',
@@ -341,12 +341,12 @@ describe('home contact section', () => {
     renderHome();
 
     expect(screen.getByRole('heading', { name: 'Contactez-nous' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '+216 55 000 000' })).toHaveAttribute('href', 'tel:+21655000000');
-    expect(screen.getByText('Tunis, Tunisie')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '+216 26 788 255' })).toHaveAttribute('href', 'tel:+21626788255');
+    expect(screen.getByText('Sousse, Tunisie')).toBeInTheDocument();
     expect(screen.getByText('Lun–Ven : 9h – 18h')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'contact@dawer.com' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'mhoudou78@gmail.com' })).toHaveAttribute(
       'href',
-      'mailto:contact@dawer.com',
+      'mailto:mhoudou78@gmail.com',
     );
   });
 
@@ -366,7 +366,7 @@ describe('home contact section', () => {
 
     expect(screen.getByTitle('Localisation Google Maps')).toHaveAttribute(
       'src',
-      'https://www.google.com/maps?q=Tunis%2C%20Tunisie&z=12&output=embed',
+      'https://www.google.com/maps?q=Sousse%20Centre%2C%20Tunisie&z=13&output=embed',
     );
   });
 });
