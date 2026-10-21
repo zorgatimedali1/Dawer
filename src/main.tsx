@@ -8,6 +8,7 @@ import CustomerRedirect from './app/customer/customer-redirect';
 import DashboardLayout from './app/dashboard/layout';
 import { LandingGate, RedirectIfAuthenticated, RequireAuth } from './components/route-guards';
 import { RouteBoundary } from './components/route-error-boundary';
+import { LocaleSync } from './contexts/app-context';
 import { VisitBeacon } from './components/visit-beacon';
 import { BrandLoader } from './components/brand/brand-loader';
 import { lazyWithRecovery } from './lib/lazy-recovery';
@@ -30,6 +31,8 @@ if (import.meta.env.VITE_SENTRY_DSN) {
 // click, the page reloads once and picks up the current build.
 const LandingPage = lazyWithRecovery(() => import('./app/page'));
 const PrivacyPage = lazyWithRecovery(() => import('./app/privacy/page'));
+const BlogListPage = lazyWithRecovery(() => import('./app/blog/page'));
+const BlogArticlePage = lazyWithRecovery(() => import('./app/blog/[slug]/page'));
 const LoginPage = lazyWithRecovery(() => import('./app/auth/login/page'));
 const RegisterPage = lazyWithRecovery(() => import('./app/auth/register/page'));
 const AuthCallbackPage = lazyWithRecovery(() => import('./app/auth/callback/page'));
@@ -55,13 +58,20 @@ const SmsPage = lazyWithRecovery(() => import('./app/dashboard/sms/page'));
 function App() {
   return (
     <RootLayout>
-      <BrowserRouter>
+        <BrowserRouter>
         <RouteBoundary>
+          <LocaleSync />
           <VisitBeacon />
           <Suspense fallback={<BrandLoader />}>
           <Routes>
             <Route path="/" element={<LandingGate><LandingPage /></LandingGate>} />
             <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/blog" element={<BlogListPage />} />
+            <Route path="/blog/:slug" element={<BlogArticlePage />} />
+            <Route path="/en" element={<LandingGate><LandingPage /></LandingGate>} />
+            <Route path="/en/privacy" element={<PrivacyPage />} />
+            <Route path="/en/blog" element={<BlogListPage />} />
+            <Route path="/en/blog/:slug" element={<BlogArticlePage />} />
             <Route path="/auth" element={<RedirectIfAuthenticated><AuthLayout /></RedirectIfAuthenticated>}>
               <Route path="login" element={<LoginPage />} />
               <Route path="register" element={<RegisterPage />} />

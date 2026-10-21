@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Locale } from '@/lib/i18n';
+import { isPublicPathname, localeFromPathname } from '@/lib/locale-url';
+import { useLocation } from 'react-router-dom';
 import { AuthService, type AuthResponse } from '@/services/auth.service';
 
 type ThemeMode = 'light' | 'dark';
@@ -158,6 +160,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
 export function useOptionalAppContext(): AppContextValue | undefined {
   return useContext(AppContext);
+}
+
+// Mounted inside the router: on public marketing pages the URL prefix wins
+// over the stored locale, so /en/* always renders (and persists) EN while
+// / and /privacy resolve FR. Dashboard/auth pages keep localStorage control.
+export function LocaleSync() {
+  const { locale, setLocale } = useAppContext();
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    if (!isPublicPathname(pathname)) return undefined;
+    const urlLocale = localeFromPathname(pathname);
+    if (urlLocale === locale) return undefined;
+    setLocale(urlLocale);
+    return undefined;
+  }, [pathname, locale, setLocale]);
+
+  return null;
 }
 
 export function useAppContext() {
