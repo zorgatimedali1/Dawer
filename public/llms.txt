@@ -1,0 +1,30 @@
+# Dawer
+
+Dawer est une plateforme d'acquisition et de fidélisation client gamifiée pour les commerces, restaurants et cafés de Tunisie. Le commerçant installe une roue de la fortune interactive dans son point de vente : le client scanne, fait tourner la roue, laisse ses coordonnées et remporte une récompense distribuée sur place, puis notifiée par WhatsApp ou e-mail. Dawer transforme ainsi le passage en magasin en base de données clients qualifiée, avec un essai gratuit et des offres payantes sans engagement.
+
+## English
+
+Dawer is a gamified customer-acquisition platform for shops, restaurants and cafés in Tunisia. Merchants place an interactive fortune wheel in their venue: customers play, share their contact details and win a reward delivered by WhatsApp or email. Free trial, paid plans, no commitment.
+
+## Contact
+
+- Téléphone : +216 55 000 000
+- E-mail : contact@dawer.com
+- Adresse : Tunis, Tunisie
+- Instagram : https://www.instagram.com/dawer.tn
+- Facebook : https://www.facebook.com/dawer.tn
+
+## Produits
+
+- Publicité et récompenses par roue de la fortune interactive sur le lieu de vente
+- Notifications de récompenses et marketing via WhatsApp et e-mail
+- Essai gratuit, offres payantes (Starter 149 DT / 3 mois, Pro 349 DT / an, Business 799 DT / 2 ans, Enterprise 1499 DT / 3 ans)
+
+## Pages
+
+- Accueil (FR) : https://dawer.tn/
+- Home (EN) : https://dawer.tn/en
+- Confidentialité (FR) : https://dawer.tn/privacy
+- Privacy (EN) : https://dawer.tn/en/privacy
+- Blog (FR) : https://dawer.tn/blog
+- Blog (EN) : https://dawer.tn/en/blog
