@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "dev:platform": "vite -c vite.platform.config.ts",
-    "build": "vite build && tsx scripts/seo-artifacts.mts",
+    "build": "vite build && tsx scripts/prerender.mts && tsx scripts/seo-artifacts.mts",
     "build:platform": "vite build -c vite.platform.config.ts",
     "preview": "vite preview",
     "deploy": "npm run build && wrangler deploy -c dist/campaignflow_backend/wrangler.json",
