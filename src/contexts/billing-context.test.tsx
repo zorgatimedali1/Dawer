@@ -23,7 +23,7 @@ const updatedAccess: BillingAccess = {
   plan: { ...access.plan, id: 'plan_scale', name: 'Scale', slug: 'scale' },
 };
 
-const features: MarketingFeatures = { whatsappEnabled: true, emailEnabled: true, rewardsEnabled: true };
+const features: MarketingFeatures = { whatsappEnabled: true, emailEnabled: true, rewardsEnabled: true, smsEnabled: true };
 
 function Probe() {
   const { access: current, features: currentFeatures, loading } = useDashboardBilling();

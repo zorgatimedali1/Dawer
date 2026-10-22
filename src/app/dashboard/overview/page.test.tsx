@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import OverviewPage from '@/app/dashboard/overview/page';
 import { DashboardBillingProvider } from '@/contexts/billing-context';
 import { invalidateCachedResource } from '@/hooks/useCachedResource';
+import { DEMO_VIDEO_EMBED_URL } from '@/lib/demo-video';
 
 const AUTH_KEY = 'campaign-engage-auth';
 
@@ -66,5 +67,60 @@ describe('overview plan features', () => {
     expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith('/api/analytics'))).toBe(false);
     // The shell owns the single /api/billing read; the page must not repeat it.
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === '/api/billing')).toHaveLength(1);
+    // The trial accessories (duration badge + demo video) only show during an
+    // active trial.
+    expect(screen.queryByText(/jour\(s\) restant/)).toBeNull();
+    expect(screen.queryByTitle(/Dawer/)).toBeNull();
+  });
+
+  it('shows the trial countdown and the demo video during the 7-day trial', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/business/campaigns')) {
+        return new Response(JSON.stringify({ success: true, campaigns: [] }), { status: 200 });
+      }
+      if (url.startsWith('/api/business/rewards')) {
+        return new Response(JSON.stringify({ success: true, rewards: [] }), { status: 200 });
+      }
+      if (url === '/api/billing') {
+        return new Response(JSON.stringify({
+          success: true,
+          plans: [],
+          subscription: null,
+          pendingRequest: null,
+          usage: { campaigns: 0, customers: 0 },
+          access: {
+            state: 'trial',
+            canManage: true,
+            startsAt: '2026-10-22T00:00:00.000Z',
+            endsAt: '2026-10-29T00:00:00.000Z',
+            plan: {
+              id: 'plan_starter',
+              name: 'Starter',
+              slug: 'starter',
+              priceCents: 14900,
+              interval: '3_months',
+              features: { limits: { campaigns: -1, customers: 200 }, features: ['Accès complet à la roue'] },
+            },
+          },
+        }), { status: 200 });
+      }
+      throw new Error(`Unexpected analytics request: ${url}`);
+    }));
+
+    render(
+      <MemoryRouter>
+        <DashboardBillingProvider>
+          <OverviewPage />
+        </DashboardBillingProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: /Starter · Essai gratuit 7 jours/ })).toBeInTheDocument();
+    expect(screen.getByText(/Essai : \d+ jour/)).toBeInTheDocument();
+    const frame = document.querySelector('iframe');
+    expect(frame).not.toBeNull();
+    expect(frame).toHaveAttribute('src', DEMO_VIDEO_EMBED_URL);
+    expect(screen.getByRole('link', { name: 'Ouvrir la démonstration' })).toBeInTheDocument();
   });
 });

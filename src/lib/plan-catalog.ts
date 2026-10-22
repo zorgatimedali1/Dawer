@@ -139,3 +139,14 @@ export const CAMPAIGN_STATS_PLAN_SLUGS = ['growth', 'scale', 'premium'] as const
 export function campaignStatsAllowedForPlan(slug: string | null | undefined): boolean {
   return Boolean(slug && (CAMPAIGN_STATS_PLAN_SLUGS as readonly string[]).includes(slug));
 }
+
+/**
+ * SMS ships to the Pro tier and up — mirrors the backend SMS limit maps in
+ * `Backend/src/lib/subscription-limits.ts` (starter = no quota at all). Hidden
+ * from the trial/Starter dashboards until the operator turns the channel on.
+ */
+export const SMS_PLAN_SLUGS = ['growth', 'scale', 'premium'] as const;
+
+export function smsAllowedForPlan(slug: string | null | undefined): boolean {
+  return Boolean(slug && (SMS_PLAN_SLUGS as readonly string[]).includes(slug));
+}

@@ -17,6 +17,7 @@ import { CampaignService, type Campaign, type CampaignStatusKey } from '@/servic
 import { RewardService, type RewardSummary } from '@/services/reward.service';
 import type { BillingAccess } from '@/services/billing.service';
 import { useDashboardBilling } from '@/contexts/billing-context';
+import { DEMO_VIDEO_EMBED_URL } from '@/lib/demo-video';
 import { Badge, type BadgeTone } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -300,6 +301,11 @@ export default function OverviewPage() {
               <CardTitle id="current-plan-title" className="text-lg">
                 {access.plan.name} · {planState}
               </CardTitle>
+              {access.state === 'trial' && (
+                <Badge tone="warning" dot size="sm">
+                  {interpolate(t.overview.trialDaysLeft, { days: daysLeft ?? 0 })}
+                </Badge>
+              )}
             </div>
             <Badge tone={access.state === 'active' ? 'success' : 'warning'} dot size="sm">
               {planState}
@@ -360,6 +366,30 @@ export default function OverviewPage() {
             </div>
           </CardContent>
         </Card>
+
+        {access.state === 'trial' && (
+          <Card className="p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-[14px] font-semibold tracking-[-0.01em] text-ink">{t.overview.trialVideoTitle}</p>
+              <Button asChild size="sm" variant="outline">
+                <Link to="/dashboard/demo">
+                  {t.overview.trialVideoOpen}
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                </Link>
+              </Button>
+            </div>
+            <div className="relative mt-3 aspect-video w-full overflow-hidden rounded-xl border border-line bg-elevated shadow-card">
+              <iframe
+                className="absolute inset-0 h-full w-full border-0"
+                src={DEMO_VIDEO_EMBED_URL}
+                title={t.landing.demoVideoTitle}
+                loading="lazy"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+          </Card>
+        )}
       </Section>
 
       {hasAnalytics && summary ? (

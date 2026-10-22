@@ -32,6 +32,7 @@ import { DashboardBillingProvider, useDashboardBilling } from '@/contexts/billin
 import { useT } from '@/hooks/use-t';
 import { goToPublicDemo } from '@/lib/public-demo';
 import { prefetchCommonRoutes, prefetchRoute } from '@/lib/route-prefetch';
+import { smsAllowedForPlan } from '@/lib/plan-catalog';
 
 type NavItem = { name: string; href: string; icon: typeof LayoutDashboard };
 type NavGroup = { label: string; items: NavItem[] };
@@ -137,6 +138,9 @@ function DashboardChrome() {
   const isDemoPage = pathname === '/dashboard/demo';
   const hasAnalytics = access?.plan.features.features.some((feature) => /analytics/i.test(feature)) ?? false;
   const hasRewards = access?.plan.features.features.some((feature) => /récompenses?|rewards?/i.test(feature)) ?? false;
+  // SMS page = plan tier (Pro+) AND the operator switch; while billing loads the
+  // slug is unknown and SMS stays hidden, the starter-safe default.
+  const smsPageAllowed = smsAllowedForPlan(access?.plan.slug ?? null) && (features?.smsEnabled ?? true);
   const readOnlyNav: NavGroup[] = [
     {
       label: t.nav.account,
@@ -160,6 +164,12 @@ function DashboardChrome() {
             // and comes back when the operator re-enables the channel.
             if (item.href === '/dashboard/email') return features?.emailEnabled ?? true;
             if (item.href === '/dashboard/whatsapp') return features?.whatsappEnabled ?? true;
+            // SMS additionally stays Pro-tier and up: the trial/Starter plans
+            // have no SMS quota at all, and the channel stays hidden until the
+            // operator enables it from the platform console.
+            if (item.href === '/dashboard/sms') {
+              return smsAllowedForPlan(access?.plan.slug ?? null) && (features?.smsEnabled ?? true);
+            }
             return true;
           }),
         }))
@@ -221,6 +231,10 @@ function DashboardChrome() {
   }
 
   if (pathname === '/dashboard/whatsapp' && features && !features.whatsappEnabled) {
+    return <Navigate to="/dashboard/overview" replace />;
+  }
+
+  if (pathname === '/dashboard/sms' && !smsPageAllowed) {
     return <Navigate to="/dashboard/overview" replace />;
   }
 

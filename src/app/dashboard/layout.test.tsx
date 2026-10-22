@@ -43,6 +43,7 @@ function renderDashboard(path: string) {
             <Route path="analytics" element={<div>analytics page</div>} />
             <Route path="email" element={<div>email page</div>} />
             <Route path="rewards" element={<div>rewards page</div>} />
+            <Route path="sms" element={<div>sms page</div>} />
             <Route path="billing" element={<div>billing page</div>} />
             <Route path="demo" element={<div>demo page</div>} />
           </Route>
@@ -148,7 +149,7 @@ describe('dashboard plan access gate', () => {
   it('hides the marketing menu entries while the operator switches are off', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       ...billingPayload(paidAccess),
-      features: { emailEnabled: false, whatsappEnabled: false },
+      features: { emailEnabled: false, whatsappEnabled: false, smsEnabled: true },
     })));
 
     renderDashboard('/dashboard/overview');
@@ -156,8 +157,30 @@ describe('dashboard plan access gate', () => {
     expect(await screen.findByText('overview page')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Marketing e-mail' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Diffusion WhatsApp' })).not.toBeInTheDocument();
-    // SMS has no operator switch of its own, so the group keeps its header.
+    // SMS comes back as soon as its operator switch is on (Pro tier here).
     expect(screen.getByRole('link', { name: 'SMS' })).toBeInTheDocument();
+  });
+
+  it('hides the SMS entry for the trial and Starter plans even when the switch is on', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      ...billingPayload({
+        state: 'trial',
+        canManage: true,
+        startsAt: '2026-10-01T00:00:00.000Z',
+        endsAt: '2026-10-08T00:00:00.000Z',
+        plan: {
+          id: 'plan_starter', name: 'Starter', slug: 'starter', priceCents: 14900, interval: '3_months',
+          features: { limits: { campaigns: -1, customers: 100 }, features: ['Accès complet à la roue'] },
+        },
+      }),
+      features: { emailEnabled: true, whatsappEnabled: true, smsEnabled: true },
+    })));
+
+    renderDashboard('/dashboard/sms');
+
+    expect(await screen.findByText('overview page')).toBeInTheDocument();
+    expect(screen.queryByText('sms page')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'SMS' })).not.toBeInTheDocument();
   });
 
   it('brings the marketing menu entries back when the switches are on', async () => {

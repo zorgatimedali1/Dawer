@@ -61,12 +61,15 @@ export interface MarketingFeatures {
   emailEnabled: boolean;
   /** Rewards module switch; the backend default is on when the payload omits it. */
   rewardsEnabled: boolean;
+  /** SMS module switch — Pro-tier only and stays off until the operator enables it. */
+  smsEnabled: boolean;
 }
 
 export const DEFAULT_MARKETING_FEATURES: MarketingFeatures = {
   whatsappEnabled: false,
   emailEnabled: false,
   rewardsEnabled: true,
+  smsEnabled: false,
 };
 
 export interface BillingState {
@@ -126,6 +129,7 @@ export class BillingService {
         whatsappEnabled: result.features?.whatsappEnabled ?? DEFAULT_MARKETING_FEATURES.whatsappEnabled,
         emailEnabled: result.features?.emailEnabled ?? DEFAULT_MARKETING_FEATURES.emailEnabled,
         rewardsEnabled: result.features?.rewardsEnabled ?? DEFAULT_MARKETING_FEATURES.rewardsEnabled,
+        smsEnabled: result.features?.smsEnabled ?? DEFAULT_MARKETING_FEATURES.smsEnabled,
       },
     };
   }
