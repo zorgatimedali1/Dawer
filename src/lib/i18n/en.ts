@@ -570,6 +570,9 @@ export const coupons: D<typeof frDict.coupons> = {
   expiresLabel: 'Expires:',
   redeemedLabel: 'Redeemed:',
   statsEyebrow: 'Overview',
+  statTotal: 'Total coupons',
+  statRedeemed: 'Redeemed coupons',
+  statRedemptionRate: 'Redemption rate',
 };
 export const poster: D<typeof frDict.poster> = {
   eyebrow: 'Workspace',

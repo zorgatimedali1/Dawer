@@ -567,6 +567,9 @@ export const coupons = {
   expiresLabel: 'Expire le :',
   redeemedLabel: 'Encaissé le :',
   statsEyebrow: 'Aperçu',
+  statTotal: 'Coupons émis',
+  statRedeemed: 'Coupons encaissés',
+  statRedemptionRate: 'Taux d’encaissement',
 } as const;
 export const poster = {
   eyebrow: 'Espace de travail',
