@@ -963,7 +963,7 @@ export default function CampaignCustomerPage() {
                     <p className="text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-subtle">
                       {t.customer.yourCode}
                     </p>
-                    <p className="numeric mt-2 text-center text-2xl font-bold tracking-[0.2em]">{couponCode}</p>
+                    <p className="numeric mt-2 break-all px-1 text-center text-lg font-bold tracking-[0.12em] sm:text-2xl sm:tracking-[0.2em]">{couponCode}</p>
                     <Button variant="outline" className="mt-3 w-full" onClick={() => void copyCode()}>
                       <Copy className="h-4 w-4" aria-hidden />
                       {t.customer.copyCode}
