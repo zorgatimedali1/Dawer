@@ -1,6 +1,6 @@
 import type { Env } from '../types';
 
-export type SubscriptionAccessState = 'trial' | 'active' | 'expired' | 'inactive' | 'none';
+export type SubscriptionAccessState = 'trial' | 'trial_expired' | 'active' | 'expired' | 'inactive' | 'none';
 
 export interface EffectivePlan {
   id: string;
@@ -113,12 +113,15 @@ export function accessFromSubscriptionRow(
   const state: SubscriptionAccessState =
     status === 'active' && periodValid ? 'active'
       : status === 'trialing' && periodValid ? 'trial'
-        : status === 'active' || status === 'trialing' ? 'expired'
-          : 'inactive';
+        : status === 'trialing' ? 'trial_expired'
+          : status === 'active' ? 'expired'
+            : 'inactive';
 
   return {
     state,
-    canManage: state === 'active',
+    // A running 7-day Starter trial grants the full Starter permission set;
+    // once it ends the business is locked read-only again ("trial_expired").
+    canManage: state === 'active' || state === 'trial',
     startsAt: subscription.current_period_start ?? null,
     endsAt: subscription.current_period_end,
     plan,

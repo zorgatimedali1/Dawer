@@ -32,7 +32,7 @@ export interface Subscription {
 }
 
 export interface BillingAccess {
-  state: 'trial' | 'active' | 'expired' | 'inactive' | 'none';
+  state: 'trial' | 'trial_expired' | 'active' | 'expired' | 'inactive' | 'none';
   canManage: boolean;
   startsAt: string | null;
   endsAt: string | null;

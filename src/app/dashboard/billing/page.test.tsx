@@ -120,7 +120,7 @@ describe('billing page', () => {
     expect(await within(await cardOf('Enterprise')).findByRole('button', { name: 'Demande envoyée' })).toBeDisabled();
   });
 
-  it('explains the read-only Starter trial and its end date', async () => {
+  it('explains the full-access Starter trial and its end date', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(billingPayload({
       subscription: {
         id: 'trial-1',
@@ -131,7 +131,7 @@ describe('billing page', () => {
       },
       access: {
         state: 'trial',
-        canManage: false,
+        canManage: true,
         startsAt: '2026-10-02T00:00:00.000Z',
         endsAt: '2026-10-09T00:00:00.000Z',
         plan: plans[0],
@@ -140,11 +140,40 @@ describe('billing page', () => {
 
     render(<BillingPage />);
 
-    expect(await screen.findByText(/Essai de 7 jours en lecture seule/)).toBeInTheDocument();
-    expect(screen.getByText(/Essai Starter en lecture seule/)).toBeInTheDocument();
+    expect(await screen.findByText(/Essai Starter de 7 jours/)).toBeInTheDocument();
+    expect(screen.getByText(/toutes les permissions du plan Starter/)).toBeInTheDocument();
+    expect(screen.queryByText(/Mode lecture seule/)).not.toBeInTheDocument();
     expect(screen.getByText(/200 e-mails marketing inclus/)).toBeInTheDocument();
     expect(screen.getByText(/Sans engagement/)).toBeInTheDocument();
     expect(document.body).toHaveTextContent('Clients : 30/100');
+  });
+
+  it('tells the merchant his free trial ended and to contact support', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(billingPayload({
+      subscription: {
+        id: 'trial-1',
+        status: 'trialing',
+        currentPeriodStart: '2026-09-02T00:00:00.000Z',
+        currentPeriodEnd: '2026-09-09T00:00:00.000Z',
+        plan: { id: 'plan_starter', name: 'Starter', slug: 'starter', priceCents: 14900, interval: '3_months' },
+      },
+      access: {
+        state: 'trial_expired',
+        canManage: false,
+        startsAt: '2026-09-02T00:00:00.000Z',
+        endsAt: '2026-09-09T00:00:00.000Z',
+        plan: plans[0],
+      },
+    }))));
+
+    render(<BillingPage />);
+
+    expect(await screen.findByText(/Essai terminé · lecture seule/)).toBeInTheDocument();
+    expect(screen.getByText(/Votre essai gratuit de 7 jours est terminé\. Contactez le support/)).toBeInTheDocument();
+    expect(screen.getByText(/Essai terminé$/)).toBeInTheDocument();
+    expect(screen.getByText(/Contactez le support WhatsApp pour acheter un plan/)).toBeInTheDocument();
+    expect(screen.getByText(/Fin\s*:/)).toBeInTheDocument();
+    expect(await within(await cardOf('Starter')).findByRole('button', { name: 'Acheter' })).toBeEnabled();
   });
 
   it('asks for a plan and opens WhatsApp with the owner number', async () => {

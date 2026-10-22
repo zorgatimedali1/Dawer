@@ -352,7 +352,8 @@ export const overview = {
   statCouponsRedeemed: 'Coupons utilisés',
   yourSubscription: 'Votre abonnement',
   planActive: 'Actif',
-  planTrial: 'Essai en lecture seule',
+  planTrial: 'Essai gratuit 7 jours',
+  planTrialEnded: 'Essai terminé · contactez le support',
   planReadOnly: 'Lecture seule',
   unlimited: 'Illimité',
   customersLabel: 'clients',
@@ -695,11 +696,14 @@ export const billing = {
   requestSentFor: 'Demande envoyée pour le plan {plan}.',
   currentAccess: 'Votre accès actuel',
   stateActive: 'Abonnement actif',
-  stateTrial: 'Essai de 7 jours en lecture seule',
+  stateTrial: 'Essai Starter de 7 jours',
   stateNone: 'Aucun plan actif',
   stateExpired: 'Expiré · lecture seule',
+  stateTrialExpired: 'Essai terminé · lecture seule',
   accessTrial:
-    'Essai Starter en lecture seule. Activez un plan payant pour créer des campagnes et utiliser la plateforme.',
+    'Essai gratuit avec toutes les permissions du plan Starter. Profitez-en pendant 7 jours, ensuite choisissez un plan pour conserver l’accès.',
+  accessTrialEnded:
+    'Votre essai gratuit de 7 jours est terminé. Contactez le support pour acheter un plan et retrouver l’accès.',
   accessExpired: 'Ce plan a expiré. Activez un plan payant pour retrouver l’accès.',
   accessNone: 'Choisissez un plan pour débloquer la gestion des campagnes.',
   accessActive: 'Votre plan payant est actif.',
@@ -707,6 +711,9 @@ export const billing = {
   endsLabel: 'Fin :',
   trialEndsLabel: 'Fin de l’essai :',
   readOnlyTitle: 'Mode lecture seule',
+  trialEndedTitle: 'Essai terminé',
+  trialEndedBody:
+    'Votre essai gratuit de 7 jours est terminé et vos permissions Starter sont retirées. Contactez le support WhatsApp pour acheter un plan et réactiver votre compte.',
   trialPreviewUntil:
     'Vous consultez Dawer sur un aperçu gratuit. La création de campagnes reste désactivée jusqu’au',
   trialPreviewAfter: ', lorsque cet aperçu se termine.',
@@ -732,7 +739,7 @@ export const demoPage = {
   title: 'Voyez la plateforme en action',
   description:
     'Regardez comment créer une campagne, collecter des clients et suivre vos résultats, puis activez votre plan quand vous êtes prêt.',
-  hint: 'Votre essai de 7 jours est en lecture seule pour le moment. Activez un plan pour créer des campagnes.',
+  hint: 'Votre essai de 7 jours vous donne toutes les permissions du plan Starter. Activez un plan quand vous êtes prêt.',
   openPlans: 'Voir les plans',
 } as const;
 

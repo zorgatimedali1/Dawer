@@ -404,7 +404,9 @@ async function handleBillingGet(request: Request, env: Env, user: AuthenticatedU
   const access = await getBusinessAccess(env, businessId, subscription);
 
   const subscriptionStatus = subscription
-    ? access.state === 'expired' ? 'expired' : access.state === 'trial' ? 'trialing' : describeSubscriptionStatus(subscription)
+    ? access.state === 'expired' || access.state === 'trial_expired'
+      ? 'expired'
+      : access.state === 'trial' ? 'trialing' : describeSubscriptionStatus(subscription)
     : null;
 
   return jsonResponse({

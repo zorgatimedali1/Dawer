@@ -197,8 +197,8 @@ function DashboardChrome() {
   }
 
   if (!isBillingPage && !isDemoPage && !access?.canManage) {
-    // First-time (trial) users start on the demo video instead of Billing;
-    // expired/inactive/none still land on Billing to pick a plan.
+    // Trial users now manage freely (canManage is true while the trial runs);
+    // expired/none land on Billing to contact support and pick a plan.
     return <Navigate to={access?.state === 'trial' ? '/dashboard/demo' : '/dashboard/billing'} replace />;
   }
 

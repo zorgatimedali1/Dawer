@@ -198,7 +198,7 @@ describe('settings', () => {
 });
 
 describe('billing', () => {
-  it('returns the effective read-only Starter trial and its end date', async () => {
+  it('returns the effective full-access Starter trial and its end date', async () => {
     await db.prepare('DELETE FROM subscriptions WHERE business_id = ?').bind(alice.businessId).run();
     const trialEnd = new Date(Date.now() + 7 * 86_400_000).toISOString();
     await db.prepare(
@@ -212,7 +212,7 @@ describe('billing', () => {
 
     expect(payload.access).toMatchObject({
       state: 'trial',
-      canManage: false,
+      canManage: true,
       plan: { slug: 'starter', name: 'Starter' },
     });
     expect(payload.access.endsAt).toBe(trialEnd);

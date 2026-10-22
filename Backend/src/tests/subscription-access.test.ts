@@ -38,7 +38,7 @@ describe('effective business plan access', () => {
     expect(access).toMatchObject({ state: 'none', canManage: false, plan: { slug: 'starter' } });
   });
 
-  it('keeps an unexpired Starter trial read-only', async () => {
+  it('grants the full Starter permission set to an unexpired 7-day trial', async () => {
     await seedSubscription({
       status: 'trialing',
       endAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
@@ -46,7 +46,7 @@ describe('effective business plan access', () => {
 
     const access = await getBusinessAccess(env, businessId);
 
-    expect(access).toMatchObject({ state: 'trial', canManage: false, plan: { slug: 'starter' } });
+    expect(access).toMatchObject({ state: 'trial', canManage: true, plan: { slug: 'starter' } });
   });
 
   it('unlocks plan features for an unexpired paid Pro subscription', async () => {
@@ -64,9 +64,9 @@ describe('effective business plan access', () => {
     expect(access.plan.features.features).toContain('Vue d’ensemble et analytics de base');
   });
 
-  it('locks an expired trial and an expired paid subscription', async () => {
+  it('locks an ended trial (contact support to buy) and an expired paid subscription', async () => {
     await seedSubscription({ status: 'trialing', endAt: new Date(Date.now() - 86_400_000).toISOString() });
-    expect(await getBusinessAccess(env, businessId)).toMatchObject({ state: 'expired', canManage: false });
+    expect(await getBusinessAccess(env, businessId)).toMatchObject({ state: 'trial_expired', canManage: false });
 
     await db.prepare('DELETE FROM subscriptions WHERE business_id = ?').bind(businessId).run();
     await seedSubscription({

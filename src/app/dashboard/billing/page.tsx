@@ -95,23 +95,27 @@ export default function BillingPage() {
   const pendingSlug = billing.pendingRequest?.plan.slug ?? null;
   const accessMessage = billing.access.state === 'trial'
     ? t.billing.accessTrial
-    : billing.access.state === 'expired' || billing.access.state === 'inactive'
-      ? t.billing.accessExpired
-      : billing.access.state === 'none'
-        ? t.billing.accessNone
-        : '';
+    : billing.access.state === 'trial_expired'
+      ? t.billing.accessTrialEnded
+      : billing.access.state === 'expired' || billing.access.state === 'inactive'
+        ? t.billing.accessExpired
+        : billing.access.state === 'none'
+          ? t.billing.accessNone
+          : '';
 
   const stateLabel =
     billing.access.state === 'active'
       ? t.billing.stateActive
       : billing.access.state === 'trial'
         ? t.billing.stateTrial
-        : billing.access.state === 'none'
-          ? t.billing.stateNone
-          : t.billing.stateExpired;
+        : billing.access.state === 'trial_expired'
+          ? t.billing.stateTrialExpired
+          : billing.access.state === 'none'
+            ? t.billing.stateNone
+            : t.billing.stateExpired;
 
   const isReadOnly =
-    billing.access.state === 'trial' ||
+    billing.access.state === 'trial_expired' ||
     billing.access.state === 'expired' ||
     billing.access.state === 'inactive';
 
@@ -186,7 +190,7 @@ export default function BillingPage() {
           </span>
           <div className="min-w-0 space-y-1">
             <p className="text-[14px] font-semibold text-warning-900 dark:text-warning-100">
-              {t.billing.readOnlyTitle}
+              {billing.access.state === 'trial_expired' ? t.billing.trialEndedTitle : t.billing.readOnlyTitle}
             </p>
             <p className="text-[13.5px] leading-relaxed text-warning-900/85 dark:text-warning-100/80">
               {billing.access.state === 'trial' && billing.access.endsAt ? (
@@ -197,6 +201,8 @@ export default function BillingPage() {
                   </time>
                   {t.billing.trialPreviewAfter}
                 </>
+              ) : billing.access.state === 'trial_expired' ? (
+                <>{t.billing.trialEndedBody}</>
               ) : (
                 <>{t.billing.readOnlyBody}</>
               )}

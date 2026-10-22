@@ -226,7 +226,9 @@ export default function OverviewPage() {
       ? t.overview.planActive
       : access.state === 'trial'
         ? t.overview.planTrial
-        : t.overview.planReadOnly;
+        : access.state === 'trial_expired'
+          ? t.overview.planTrialEnded
+          : t.overview.planReadOnly;
 
   const formatSubDate = (value: string | null): string =>
     value

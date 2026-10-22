@@ -355,7 +355,8 @@ export const overview: D<typeof frDict.overview> = {
   statCouponsRedeemed: 'Coupons redeemed',
   yourSubscription: 'Your subscription',
   planActive: 'Active',
-  planTrial: 'Read-only trial',
+  planTrial: '7-day free trial',
+  planTrialEnded: 'Trial ended · contact support',
   planReadOnly: 'Read-only',
   unlimited: 'Unlimited',
   customersLabel: 'customers',
@@ -694,11 +695,14 @@ export const billing: D<typeof frDict.billing> = {
   requestSentFor: 'Request sent for the {plan} plan.',
   currentAccess: 'Your current access',
   stateActive: 'Active subscription',
-  stateTrial: '7-day read-only trial',
+  stateTrial: '7-day Starter trial',
   stateNone: 'No active plan',
   stateExpired: 'Expired · read-only',
+  stateTrialExpired: 'Trial ended · read-only',
   accessTrial:
-    'Read-only Starter trial. Activate a paid plan to create campaigns and use the platform.',
+    'Free trial with the full Starter permission set. Enjoy it for 7 days, then pick a plan to keep your access.',
+  accessTrialEnded:
+    'Your 7-day free trial has ended. Contact support to buy a plan and restore your access.',
   accessExpired: 'This plan has expired. Activate a paid plan to restore access.',
   accessNone: 'Choose a plan to unlock campaign management.',
   accessActive: 'Your paid plan is active.',
@@ -706,6 +710,9 @@ export const billing: D<typeof frDict.billing> = {
   endsLabel: 'Ends:',
   trialEndsLabel: 'Trial ends:',
   readOnlyTitle: 'Read-only mode',
+  trialEndedTitle: 'Trial ended',
+  trialEndedBody:
+    'Your 7-day free trial has ended and your Starter permissions were removed. Contact us on WhatsApp to buy a plan and reactivate your account.',
   trialPreviewUntil:
     'You are browsing Dawer on a free preview. Campaign creation stays disabled until',
   trialPreviewAfter: ', when this preview ends.',
@@ -731,7 +738,7 @@ export const demoPage: D<typeof frDict.demoPage> = {
   title: 'See the platform in action',
   description:
     'Watch how to create a campaign, collect customers and track results — then activate your plan when you are ready.',
-  hint: 'Your 7-day trial is read-only for now. Activate a plan to start creating campaigns.',
+  hint: 'Your 7-day trial gives you the full Starter permission set. Activate a plan when you are ready.',
   openPlans: 'View plans',
 };
 
