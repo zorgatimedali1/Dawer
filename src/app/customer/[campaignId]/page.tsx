@@ -627,14 +627,14 @@ export default function CampaignCustomerPage() {
               <img
                 src={campaign.business_logo}
                 alt={merchantName}
-                className="h-48 w-48 rounded-2xl bg-elevated object-contain p-3 shadow-soft ring-1 ring-line"
+                className="h-28 w-28 sm:h-36 sm:w-36 md:h-48 md:w-48 rounded-2xl bg-elevated object-contain p-3 shadow-soft ring-1 ring-line"
               />
             ) : (
-              <div className="flex h-48 w-48 items-center justify-center rounded-2xl bg-brand-500 text-5xl font-bold text-accent-ink shadow-soft">
+              <div className="flex h-28 w-28 sm:h-36 sm:w-36 md:h-48 md:w-48 items-center justify-center rounded-2xl bg-brand-500 font-bold text-accent-ink shadow-soft text-3xl sm:text-4xl md:text-5xl">
                 {merchantName.charAt(0).toUpperCase()}
               </div>
             )}
-            <h1 className="mt-4 text-center text-xl font-semibold tracking-[-0.02em] text-ink">
+            <h1 className="mt-2 text-center text-xl font-semibold tracking-[-0.02em] text-ink sm:mt-3">
               {campaign.name}
             </h1>
           </div>
@@ -794,7 +794,7 @@ export default function CampaignCustomerPage() {
           )}
 
           {step === 'game' && (
-            <div className="mt-6">
+            <div className="mt-4 sm:mt-6">
               <h2 className="text-center text-[32px] font-semibold leading-tight tracking-[-0.03em] text-brand-700 dark:text-accent-bright">
                 {t.customer.spinHeading} <span aria-hidden="true">🎉</span>
               </h2>
@@ -808,7 +808,7 @@ export default function CampaignCustomerPage() {
                 </p>
               )}
 
-              <div className="mt-6 flex justify-center">
+              <div className="mt-4 flex justify-center">
                 <PrizeWheel
                   segments={segments}
                   rotation={rotation}
