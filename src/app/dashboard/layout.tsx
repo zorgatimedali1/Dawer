@@ -202,6 +202,12 @@ function DashboardChrome() {
     return <Navigate to={access?.state === 'trial' ? '/dashboard/demo' : '/dashboard/billing'} replace />;
   }
 
+  if (isDemoPage && access && !access.canManage && access.state !== 'trial') {
+    // An ended trial must not live on the demo screen: send it to Billing to
+    // contact support and buy a plan.
+    return <Navigate to="/dashboard/billing" replace />;
+  }
+
   if (pathname === '/dashboard/analytics' && !hasAnalytics) {
     return <Navigate to="/dashboard/billing" replace />;
   }

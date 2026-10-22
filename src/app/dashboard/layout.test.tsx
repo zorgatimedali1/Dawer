@@ -98,6 +98,24 @@ describe('dashboard plan access gate', () => {
     expect(screen.queryByText('demo page')).toBeNull();
   });
 
+  it('does not let an ended trial stay on the Demo page, sends it to Billing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(billingPayload({
+      state: 'trial_expired',
+      canManage: false,
+      startsAt: '2026-09-02T00:00:00.000Z',
+      endsAt: '2026-09-09T00:00:00.000Z',
+      plan: {
+        id: 'plan_starter', name: 'Starter', slug: 'starter', priceCents: 14900, interval: '3_months',
+        features: { limits: { campaigns: -1, customers: 100 }, features: ['Accès complet à la roue'] },
+      },
+    }))));
+
+    renderDashboard('/dashboard/demo');
+
+    expect(await screen.findByText('billing page')).toBeInTheDocument();
+    expect(screen.queryByText('demo page')).toBeNull();
+  });
+
   it('allows a paid Pro customer to enter Overview and see Analytics navigation', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(billingPayload({
       state: 'active',
