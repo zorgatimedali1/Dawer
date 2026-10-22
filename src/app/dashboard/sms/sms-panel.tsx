@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { TabPanel, Tabs } from '@/components/ui/tabs';
 import { interpolate, msg } from '@/lib/i18n';
 import { useT } from '@/hooks/use-t';
+import { selectWithinBatch } from '@/lib/recipients';
 import {
   SmsService,
   type SmsCampaign,
@@ -66,6 +67,7 @@ export default function SmsBroadcastPanel({ reloadKey }: { reloadKey: number }) 
   const [error, setError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [batchNotice, setBatchNotice] = useState('');
 
   const load = useCallback(async () => {
     setError('');
@@ -203,6 +205,17 @@ export default function SmsBroadcastPanel({ reloadKey }: { reloadKey: number }) 
   const toggleWinner = (winnerId: string) => {
     setSelectedIds((current) =>
       current.includes(winnerId) ? current.filter((id) => id !== winnerId) : [...current, winnerId],
+    );
+    setBatchNotice('');
+  };
+
+  const toggleAllWinners = () => {
+    const pick = selectWithinBatch(winners, status?.batchLimit ?? 0);
+    setSelectedIds(pick.ids);
+    setBatchNotice(
+      pick.capped
+        ? interpolate(t.sms.randomCap, { picked: pick.ids.length, limit: status?.batchLimit ?? 0 })
+        : '',
     );
   };
 
@@ -469,7 +482,7 @@ export default function SmsBroadcastPanel({ reloadKey }: { reloadKey: number }) 
                     variant="outline"
                     size="xs"
                     disabled={sourceTab !== 'winners' || winners.length === 0 || selectedIds.length === winners.length}
-                    onClick={() => setSelectedIds(winners.map((winner) => winner.id))}
+                    onClick={toggleAllWinners}
                   >
                     {t.sms.selectAll}
                   </Button>
@@ -480,6 +493,7 @@ export default function SmsBroadcastPanel({ reloadKey }: { reloadKey: number }) 
                       onClick={() => {
                         setSelectedIds([]);
                         setPaste('');
+                        setBatchNotice('');
                       }}
                     >
                       <X className="h-3.5 w-3.5" aria-hidden />
@@ -553,6 +567,15 @@ export default function SmsBroadcastPanel({ reloadKey }: { reloadKey: number }) 
                   </TabPanel>
                 </div>
               </div>
+
+              {batchNotice ? (
+                <p
+                  role="status"
+                  className="rounded-xl border border-info-300/60 bg-info-50 px-4 py-3 text-[13px] font-medium text-info-900 dark:border-info-900/60 dark:bg-info-900/25 dark:text-info-100"
+                >
+                  {batchNotice}
+                </p>
+              ) : null}
             </CardContent>
           </Card>
 

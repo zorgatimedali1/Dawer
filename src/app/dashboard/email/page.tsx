@@ -22,6 +22,7 @@ import {
   type EmailStatus,
 } from '@/services/email.service';
 import { readCachedResource, setCachedResource } from '@/hooks/useCachedResource';
+import { selectWithinBatch } from '@/lib/recipients';
 
 const STATUS_TONE = {
   PENDING: 'info',
@@ -241,13 +242,27 @@ export default function EmailPage() {
     setSelectedCustomerIds((current) =>
       current.includes(customerId) ? current.filter((id) => id !== customerId) : [...current, customerId],
     );
+    setBatchNotice('');
   };
 
   const allSelected =
     customersWithEmail.length > 0 && selectedCustomerIds.length >= customersWithEmail.length;
 
+  const [batchNotice, setBatchNotice] = useState('');
+
   const toggleAllCustomers = () => {
-    setSelectedCustomerIds(allSelected ? [] : customersWithEmail.map((customer) => customer.id));
+    if (allSelected) {
+      setSelectedCustomerIds([]);
+      setBatchNotice('');
+      return;
+    }
+    const pick = selectWithinBatch(customersWithEmail, status?.batchLimit ?? 0);
+    setSelectedCustomerIds(pick.ids);
+    setBatchNotice(
+      pick.capped
+        ? interpolate(t.email.randomCap, { picked: pick.ids.length, limit: status?.batchLimit ?? 0 })
+        : '',
+    );
   };
 
   const startBroadcast = async () => {
@@ -274,6 +289,7 @@ export default function EmailPage() {
       setConfirmOpen(false);
       clearAsset();
       setSelectedCustomerIds([]);
+      setBatchNotice('');
       void load({ force: true });
     } catch (caught) {
       setError(msg(t, caught instanceof Error ? caught.message : t.email.startError));
@@ -427,6 +443,15 @@ export default function EmailPage() {
             )}
             <p className="mt-2.5 text-[12.5px] text-ink-subtle">{t.email.customersHint}</p>
           </div>
+
+          {batchNotice ? (
+            <p
+              role="status"
+              className="rounded-xl border border-info-300/60 bg-info-50 px-4 py-3 text-[13px] font-medium text-info-900 dark:border-info-900/60 dark:bg-info-900/25 dark:text-info-100"
+            >
+              {batchNotice}
+            </p>
+          ) : null}
 
           {overBatch ? (
             <p

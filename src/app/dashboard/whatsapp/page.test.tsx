@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WhatsAppPage from '@/app/dashboard/whatsapp/page';
-import { seededShuffle } from '@/app/dashboard/whatsapp/shuffle';
+import { seededShuffle } from '@/lib/shuffle';
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -348,6 +348,25 @@ describe('WhatsApp broadcast page', () => {
     });
   });
 
+  it('caps the customer select-all at the per-broadcast batch limit', async () => {
+    stubFetch({
+      batchLimit: 2,
+      customers: [
+        { id: 'cust-1', first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.test', phone: '22345671', birthday: null, marketing_consent: 1, created_at: '2026-10-01T10:00:00.000Z', last_activity_at: null },
+        { id: 'cust-2', first_name: 'Bob', last_name: 'Bobert', email: 'bob@example.test', phone: '22345672', birthday: null, marketing_consent: 1, created_at: '2026-10-01T10:00:00.000Z', last_activity_at: null },
+        { id: 'cust-3', first_name: 'Cid', last_name: 'Cassia', email: 'cid@example.test', phone: '22345673', birthday: null, marketing_consent: 1, created_at: '2026-10-01T10:00:00.000Z', last_activity_at: null },
+      ],
+    });
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Tout sélectionner' }));
+
+    // 3 customers, batch limit 2 → a random pair is picked and can be sent.
+    expect(await screen.findByText('2 sélectionnés au hasard — votre plan autorise 2 destinataires par diffusion.')).toBeTruthy();
+    await userEvent.selectOptions(screen.getByLabelText('Modèle approuvé'), 'promo_announcement');
+    expect(screen.getByRole('button', { name: 'Envoyer à 2 contacts' }).hasAttribute('disabled')).toBe(false);
+  });
+
   it('blocks sending above the per-broadcast batch limit', async () => {
     stubFetch({ batchLimit: 100 });
     renderPage();
@@ -356,7 +375,6 @@ describe('WhatsApp broadcast page', () => {
     fireEvent.change(textarea, { target: { value: Array.from({ length: 101 }, (_, i) => `2234${String(5600 + i)}`).join('\n') } });
     await userEvent.selectOptions(screen.getByLabelText('Modèle approuvé'), 'promo_announcement');
 
-    expect(await screen.findByText('Le plan PRO autorise 100 destinataires par diffusion.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Envoyer à 101 contacts' }).hasAttribute('disabled')).toBe(true);
+    expect(await screen.findByText('Le plan PRO autorise 100 destinataires par diffusion.')).toBeTruthy();    expect(screen.getByRole('button', { name: 'Envoyer à 101 contacts' }).hasAttribute('disabled')).toBe(true);
   });
 });

@@ -11,6 +11,7 @@ import { Progress } from '@/components/ui/toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { interpolate, msg } from '@/lib/i18n';
 import { useT } from '@/hooks/use-t';
+import { selectWithinBatch } from '@/lib/recipients';
 import { CustomerService, type Customer } from '@/services/customer.service';
 import {
   WhatsAppService,
@@ -19,7 +20,7 @@ import {
   type WhatsAppStatus,
   type WhatsAppTemplate,
 } from '@/services/whatsapp.service';
-import { seededShuffle } from './shuffle';
+import { seededShuffle } from '@/lib/shuffle';
 
 type Recipient = { name?: string; phone: string };
 
@@ -66,6 +67,7 @@ export default function CloudBroadcastPanel({ reloadKey }: { reloadKey: number }
   const [error, setError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [batchNotice, setBatchNotice] = useState('');
 
   const load = useCallback(async () => {
     setError('');
@@ -187,6 +189,17 @@ export default function CloudBroadcastPanel({ reloadKey }: { reloadKey: number }
     setSelectedIds((current) =>
       current.includes(customerId) ? current.filter((id) => id !== customerId) : [...current, customerId],
     );
+    setBatchNotice('');
+  };
+
+  const toggleAllCustomers = () => {
+    const pick = selectWithinBatch(customersWithPhone, status?.batchLimit ?? 0);
+    setSelectedIds(pick.ids);
+    setBatchNotice(
+      pick.capped
+        ? interpolate(t.whatsapp.randomCap, { picked: pick.ids.length, limit: status?.batchLimit ?? 0 })
+        : '',
+    );
   };
 
   const startBroadcast = async () => {
@@ -205,6 +218,7 @@ export default function CloudBroadcastPanel({ reloadKey }: { reloadKey: number }
       setPaste('');
       setSelectedIds([]);
       setShuffleSeed(null);
+      setBatchNotice('');
     } catch (caught) {
       setError(msg(t, caught instanceof Error ? caught.message : t.whatsapp.startError));
       setConfirmOpen(false);
@@ -350,6 +364,14 @@ export default function CloudBroadcastPanel({ reloadKey }: { reloadKey: number }
                   <Button
                     variant="outline"
                     size="xs"
+                    disabled={customersWithPhone.length === 0 || (selectedIds.length === customersWithPhone.length && pastedRecipients.length === 0)}
+                    onClick={toggleAllCustomers}
+                  >
+                    {t.whatsapp.selectAll}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="xs"
                     disabled={count < 2}
                     title={t.whatsapp.randomizeHint}
                     onClick={() => setShuffleSeed(Date.now())}
@@ -365,6 +387,7 @@ export default function CloudBroadcastPanel({ reloadKey }: { reloadKey: number }
                         setSelectedIds([]);
                         setPaste('');
                         setShuffleSeed(null);
+                        setBatchNotice('');
                       }}
                     >
                       <X className="h-3.5 w-3.5" aria-hidden />
@@ -406,6 +429,15 @@ export default function CloudBroadcastPanel({ reloadKey }: { reloadKey: number }
                 )}
                 <p className="mt-2.5 text-[12.5px] text-ink-subtle">{t.whatsapp.customersHint}</p>
               </div>
+
+              {batchNotice ? (
+                <p
+                  role="status"
+                  className="rounded-xl border border-info-300/60 bg-info-50 px-4 py-3 text-[13px] font-medium text-info-900 dark:border-info-900/60 dark:bg-info-900/25 dark:text-info-100"
+                >
+                  {batchNotice}
+                </p>
+              ) : null}
 
               <Field label={t.whatsapp.recipientsLabel} htmlFor="wa-paste" hint={t.whatsapp.recipientsHint}>
                 <Textarea

@@ -137,11 +137,17 @@ function stubFetch(options: StubOptions = {}) {
 }
 
 function renderPage() {
-  render(
+  return render(
     <MemoryRouter initialEntries={['/dashboard/whatsapp?tab=web']}>
       <WhatsAppPage />
     </MemoryRouter>,
   );
+}
+
+/** The WhatsApp page renders both channel panels; the web one is the second. */
+async function webPanelSelectAll(screenState: typeof screen) {
+  const buttons = await screenState.findAllByRole('button', { name: 'Tout sélectionner' });
+  return buttons[buttons.length - 1] as HTMLElement;
 }
 
 describe('WhatsApp Web broadcast panel', () => {
@@ -273,7 +279,7 @@ describe('WhatsApp Web broadcast panel', () => {
     expect(await screen.findByRole('button', { name: 'Envoyer à 1 contacts' })).toBeTruthy();
   });
 
-  it('blocks sending above the per-broadcast batch limit', async () => {
+  it('caps select-all at the per-broadcast batch limit with a random-pick notice', async () => {
     const manyWinners = Array.from({ length: 101 }, (_, index) => ({
       id: `coupon-${index}`,
       name: `Winner ${index}`,
@@ -285,10 +291,40 @@ describe('WhatsApp Web broadcast panel', () => {
     stubFetch({ batchLimit: 100, winners: manyWinners });
     renderPage();
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Tout sélectionner' }));
+    await userEvent.click(await webPanelSelectAll(screen));
 
-    expect(await screen.findByText('Le plan PRO autorise 100 destinataires par diffusion.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Envoyer à 101 contacts' }).hasAttribute('disabled')).toBe(true);
+    expect(await screen.findByText('100 sélectionnés au hasard — 100 destinataires par diffusion.')).toBeTruthy();
+    const send = screen.getAllByRole('button', { name: 'Envoyer à 100 contacts' })[0];
+    expect(send?.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('still blocks sending once the selection exceeds the per-broadcast batch limit', async () => {
+    const manyCustomers = Array.from({ length: 102 }, (_, index) => ({
+      id: `customer-${index}`,
+      first_name: `Client`,
+      last_name: String(index),
+      email: `client${index}@example.test`,
+      phone: `2211${String(1000 + index)}`,
+      birthday: null,
+      marketing_consent: 1,
+      created_at: '2026-10-01T10:00:00.000Z',
+      last_activity_at: null,
+    }));
+    stubFetch({ batchLimit: 100, customers: manyCustomers });
+    renderPage();
+
+    await userEvent.click(await webPanelSelectAll(screen));
+
+    // Exactly two chips were left out of the random pick — clicking them
+    // pushes the merged selection over the ceiling (102 > 100).
+    const untouched = screen
+      .getAllByRole('button', { name: /^Client/ })
+      .filter((chip) => chip.getAttribute('aria-pressed') === 'false');
+    expect(untouched).toHaveLength(2);
+    for (const chip of untouched) await userEvent.click(chip);
+
+    await screen.findByRole('button', { name: 'Envoyer à 102 contacts' });
+    expect(screen.getByText('Le plan PRO autorise 100 destinataires par diffusion.')).toBeTruthy();
   });
 
   it('surfaces the plan-limit copy from the API', async () => {

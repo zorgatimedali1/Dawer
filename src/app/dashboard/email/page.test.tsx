@@ -43,6 +43,7 @@ type StubOptions = {
   sent?: number;
   history?: unknown[];
   customers?: unknown[];
+  batchLimit?: number;
   postStatus?: number;
   postError?: string;
   postCampaign?: { status?: 'PENDING' | 'COMPLETED' };
@@ -76,7 +77,7 @@ function stubFetch(options: StubOptions = {}) {
     if (url.startsWith('/api/email/status')) {
       const allowed = options.allowed ?? true;
       const monthlyLimit = allowed ? 1000 : 0;
-      const batchLimit = allowed ? 200 : 0;
+      const batchLimit = allowed ? (options.batchLimit ?? 200) : 0;
       const sent = options.sent ?? 0;
       return jsonResponse({
         success: true,
@@ -408,6 +409,35 @@ describe('Email marketing page', () => {
 
     expect(await screen.findByText('Campagne en cours d’envoi')).toBeTruthy();
   }, 15_000);
+
+  it('caps select-all at the per-broadcast batch limit with a random-pick notice', async () => {
+    stubFetch({
+      batchLimit: 2,
+      customers: [
+        ...CUSTOMERS_WITH_EMAIL,
+        {
+          id: 'cust-carol',
+          first_name: 'Carol',
+          last_name: 'Cassia',
+          email: 'carol@example.com',
+          phone: '22345680',
+          birthday: null,
+          marketing_consent: 1,
+          created_at: '2026-10-01T10:00:00.000Z',
+          last_activity_at: null,
+        },
+      ],
+    });
+    renderPage();
+
+    await screen.findByRole('button', { name: /Ada Lovelace/ });
+    // 3 customers with emails and a batch limit of 2 → a random pair is picked.
+    await userEvent.click(screen.getByRole('button', { name: 'Tout sélectionner' }));
+
+    expect(await screen.findByText('2 sélectionnés au hasard — votre plan autorise 2 destinataires par diffusion.')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Envoyer à 2 destinataires' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Tout désélectionner' })).toBeNull();
+  });
 
   it('rejects an unsupported attachment before uploading it', async () => {
     const fetchMock = stubFetch();

@@ -11,6 +11,7 @@ import { Progress } from '@/components/ui/toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { interpolate, msg } from '@/lib/i18n';
 import { useT } from '@/hooks/use-t';
+import { selectWithinBatch } from '@/lib/recipients';
 import { CustomerService, type Customer } from '@/services/customer.service';
 import {
   WhatsAppWebService,
@@ -79,6 +80,7 @@ export default function WebBroadcastPanel({ reloadKey }: { reloadKey: number }) 
   const [error, setError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [batchNotice, setBatchNotice] = useState('');
 
   const load = useCallback(async () => {
     setError('');
@@ -219,11 +221,33 @@ export default function WebBroadcastPanel({ reloadKey }: { reloadKey: number }) 
     setSelectedIds((current) =>
       current.includes(winnerId) ? current.filter((id) => id !== winnerId) : [...current, winnerId],
     );
+    setBatchNotice('');
+  };
+
+  const toggleAllWinners = () => {
+    const pick = selectWithinBatch(winners, status?.batchLimit ?? 0);
+    setSelectedIds(pick.ids);
+    setBatchNotice(
+      pick.capped
+        ? interpolate(t.webBroadcast.randomCap, { picked: pick.ids.length, limit: status?.batchLimit ?? 0 })
+        : '',
+    );
   };
 
   const toggleCustomer = (customerId: string) => {
     setSelectedCustomerIds((current) =>
       current.includes(customerId) ? current.filter((id) => id !== customerId) : [...current, customerId],
+    );
+    setBatchNotice('');
+  };
+
+  const toggleAllCustomers = () => {
+    const pick = selectWithinBatch(customersWithPhone, status?.batchLimit ?? 0);
+    setSelectedCustomerIds(pick.ids);
+    setBatchNotice(
+      pick.capped
+        ? interpolate(t.webBroadcast.randomCap, { picked: pick.ids.length, limit: status?.batchLimit ?? 0 })
+        : '',
     );
   };
 
@@ -236,6 +260,7 @@ export default function WebBroadcastPanel({ reloadKey }: { reloadKey: number }) 
       setConfirmOpen(false);
       setSelectedIds([]);
       setSelectedCustomerIds([]);
+      setBatchNotice('');
       setHistory((current) => [campaign, ...current]);
     } catch (caught) {
       setError(msg(t, caught instanceof Error ? caught.message : t.webBroadcast.startError));
@@ -490,7 +515,7 @@ export default function WebBroadcastPanel({ reloadKey }: { reloadKey: number }) 
                     variant="outline"
                     size="xs"
                     disabled={winners.length === 0 || selectedIds.length === winners.length}
-                    onClick={() => setSelectedIds(winners.map((winner) => winner.id))}
+                    onClick={toggleAllWinners}
                   >
                     {t.webBroadcast.selectAll}
                   </Button>
@@ -501,6 +526,7 @@ export default function WebBroadcastPanel({ reloadKey }: { reloadKey: number }) 
                       onClick={() => {
                         setSelectedIds([]);
                         setSelectedCustomerIds([]);
+                        setBatchNotice('');
                       }}
                     >
                       <X className="h-3.5 w-3.5" aria-hidden />
@@ -544,10 +570,22 @@ export default function WebBroadcastPanel({ reloadKey }: { reloadKey: number }) 
               </div>
 
               <div className="rounded-xl border border-line bg-surface-2/60 p-4">
-                <p className="mb-2.5 inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-                  <Users className="h-3.5 w-3.5" aria-hidden />
-                  {t.whatsapp.customersSection}
-                </p>
+                <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+                  <p className="inline-flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                    <Users className="h-3.5 w-3.5" aria-hidden />
+                    {t.whatsapp.customersSection}
+                  </p>
+                  {customersWithPhone.length > 0 ? (
+                    <button
+                      type="button"
+                      aria-pressed={selectedCustomerIds.length > 0 && selectedCustomerIds.length >= customersWithPhone.length}
+                      onClick={toggleAllCustomers}
+                      className="text-[13px] font-semibold text-brand-700 transition-colors hover:text-brand-800 dark:text-accent-bright dark:hover:text-accent-bright/90"
+                    >
+                      {t.webBroadcast.selectAll}
+                    </button>
+                  ) : null}
+                </div>
                 {customersWithPhone.length === 0 ? (
                   <p className="text-[13px] text-ink-subtle">{t.whatsapp.customersEmpty}</p>
                 ) : (
@@ -575,6 +613,15 @@ export default function WebBroadcastPanel({ reloadKey }: { reloadKey: number }) 
                 )}
                 <p className="mt-2.5 text-[12.5px] text-ink-subtle">{t.whatsapp.customersHint}</p>
               </div>
+
+              {batchNotice ? (
+                <p
+                  role="status"
+                  className="rounded-xl border border-info-300/60 bg-info-50 px-4 py-3 text-[13px] font-medium text-info-900 dark:border-info-900/60 dark:bg-info-900/25 dark:text-info-100"
+                >
+                  {batchNotice}
+                </p>
+              ) : null}
             </CardContent>
           </Card>
 
