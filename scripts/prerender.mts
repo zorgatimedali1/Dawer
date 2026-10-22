@@ -91,12 +91,24 @@ const prerenderAppContext = createContext<PrerenderAppValue | undefined>(undefin
 globals.__DAWER_PRERENDER_CONTEXT__ = prerenderAppContext;
 
 const LOADER_SOURCE = `
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 const TARGET = ${JSON.stringify(APP_CONTEXT_URL)};
+const PUBLIC_DIR = ${JSON.stringify(path.join(ROOT, 'public'))};
 const CODE_FILE = /\\.(?:tsx?|mts|cts)$/;
 const ASSET_FILE = /\\.(?:png|jpe?g|webp|svg|gif|ico|css|woff2?|ttf)$/;
 function toText(source) {
   if (typeof source === 'string') return source;
   return new TextDecoder().decode(source);
+}
+function publicAssetUrl(url) {
+  try {
+    const filePath = fileURLToPath(url);
+    const base = path.basename(filePath);
+    if (existsSync(path.join(PUBLIC_DIR, base))) return '/' + base;
+  } catch {}
+  return url;
 }
 export async function load(url, context, nextLoad) {
   const clean = url.split('?')[0].split('#')[0];
@@ -104,7 +116,7 @@ export async function load(url, context, nextLoad) {
     return {
       format: 'module',
       shortCircuit: true,
-      source: 'export default ' + JSON.stringify(clean) + ';',
+      source: 'export default ' + JSON.stringify(publicAssetUrl(clean)) + ';',
     };
   }
   const result = await nextLoad(url, context);
