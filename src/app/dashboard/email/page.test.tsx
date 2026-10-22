@@ -321,6 +321,22 @@ describe('Email marketing page', () => {
     expect(screen.getByText('0 destinataires sélectionnés')).toBeTruthy();
   });
 
+  it('selects and clears every customer with the select-all control', async () => {
+    stubFetch();
+    renderPage();
+
+    await screen.findByRole('button', { name: /Ada Lovelace/ });
+    const selectAll = screen.getByRole('button', { name: 'Tout sélectionner' });
+    await userEvent.click(selectAll);
+
+    expect(screen.getByText('2 destinataires sélectionnés')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Envoyer à 2 destinataires' })).toBeTruthy();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Tout désélectionner' }));
+    expect(screen.getByText('0 destinataires sélectionnés')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Tout désélectionner' })).toBeNull();
+  });
+
   it('surfaces the plan-limit copy from the API', async () => {
     stubFetch({
       postStatus: 403,

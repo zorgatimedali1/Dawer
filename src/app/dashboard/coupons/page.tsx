@@ -9,21 +9,13 @@ import { Field } from '@/components/ui/field';
 import { Input, Select } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
-import { StatCard } from '@/components/ui/stat-card';
-import { BadgeCheck, Percent, Ticket } from 'lucide-react';
+import { Ticket } from 'lucide-react';
 import { CouponService, type Coupon, type CouponStatus } from '@/services/coupon.service';
 import { msg } from '@/lib/i18n';
 import { useT } from '@/hooks/use-t';
-import { invalidateCachedResource, readCachedResource, setCachedResource } from '@/hooks/useCachedResource';
+import { readCachedResource, setCachedResource } from '@/hooks/useCachedResource';
 
 type StatusFilter = 'ALL' | 'ISSUED' | 'REDEEMED' | 'EXPIRED';
-
-const STATS_KEY = 'coupons:stats';
-
-interface CouponsStats {
-  total: number;
-  redeemed: number;
-}
 
 const listKeyOf = (status: string, search: string): string => `coupons:list:${status}:${search}`;
 
@@ -57,37 +49,6 @@ export default function CouponsPage() {
   const [loading, setLoading] = useState(() => readCachedResource(listKeyOf('ALL', '')) === null);
   const [error, setError] = useState<string | null>(null);
   const [redeemingId, setRedeemingId] = useState<string | null>(null);
-  // Global counts (not the filtered page): two limit-1 queries read the exact
-  // totals off the paginated endpoint without pulling any rows.
-  const [stats, setStats] = useState<CouponsStats | null>(() => readCachedResource<CouponsStats>(STATS_KEY));
-
-  useEffect(() => {
-    let cancelled = false;
-    const cached = readCachedResource<CouponsStats>(STATS_KEY);
-    if (cached) {
-      setStats(cached);
-      return () => {
-        cancelled = true;
-      };
-    }
-    void Promise.all([
-      CouponService.list({ status: 'ALL', limit: 1 }),
-      CouponService.list({ status: 'REDEEMED', limit: 1 }),
-    ])
-      .then(([all, redeemed]) => {
-        if (cancelled) return;
-        const next = { total: all.total, redeemed: redeemed.total };
-        setCachedResource(STATS_KEY, next);
-        setStats(next);
-      })
-      .catch(() => {
-        // Stats are decoration: the list below still works without them.
-        if (!cancelled) setStats(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const load = (force = false) => {
     const key = listKeyOf(status, search);
@@ -115,22 +76,6 @@ export default function CouponsPage() {
       .finally(() => setLoading(false));
   };
 
-  // The fresh-skip above must not swallow the results of a mutation: a force
-  // reload re-runs the network request and rewrites the cache entry.
-  const refreshStats = () => {
-    invalidateCachedResource(STATS_KEY);
-    void Promise.all([
-      CouponService.list({ status: 'ALL', limit: 1 }),
-      CouponService.list({ status: 'REDEEMED', limit: 1 }),
-    ])
-      .then(([all, redeemed]) => {
-        const next = { total: all.total, redeemed: redeemed.total };
-        setCachedResource(STATS_KEY, next);
-        setStats(next);
-      })
-      .catch(() => undefined);
-  };
-
   useEffect(() => {
     const timer = setTimeout(load, 250);
     return () => clearTimeout(timer);
@@ -144,16 +89,12 @@ export default function CouponsPage() {
     try {
       await CouponService.redeem(couponId);
       load(true);
-      refreshStats();
     } catch (cause) {
       setError(msg(t, cause instanceof Error ? cause.message : 'Unable to redeem the coupon.'));
     } finally {
       setRedeemingId(null);
     }
   };
-
-  const redemptionRate =
-    stats && stats.total > 0 ? Math.min(Math.round((stats.redeemed / stats.total) * 1000) / 10, 100) : 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -162,19 +103,6 @@ export default function CouponsPage() {
         title={t.coupons.title}
         description={t.coupons.description}
       />
-
-      {stats ? (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <StatCard label={t.coupons.statTotal} value={stats.total} icon={Ticket} />
-          <StatCard label={t.coupons.statRedeemed} value={stats.redeemed} icon={BadgeCheck} />
-          <StatCard
-            label={t.coupons.statRedemptionRate}
-            value={`${redemptionRate}%`}
-            icon={Percent}
-            featured
-          />
-        </div>
-      ) : null}
 
       <Card className="p-5 sm:p-6">
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)]">

@@ -567,9 +567,6 @@ export const coupons = {
   expiresLabel: 'Expire le :',
   redeemedLabel: 'Encaissé le :',
   statsEyebrow: 'Aperçu',
-  statTotal: 'Coupons émis',
-  statRedeemed: 'Coupons encaissés',
-  statRedemptionRate: 'Taux d’encaissement',
 } as const;
 export const poster = {
   eyebrow: 'Espace de travail',
@@ -1306,6 +1303,8 @@ export const email = {
   customersSection: 'Vos clients',
   customersHint: 'Sélectionnez vos clients pour les ajouter comme destinataires.',
   customersEmpty: 'Aucun client avec une adresse e-mail.',
+  selectAll: 'Tout sélectionner',
+  clearSelection: 'Tout désélectionner',
   assetLabel: 'Pièce jointe',
   assetUpload: 'Joindre une photo ou un PDF',
   assetUploading: 'Téléversement…',

@@ -570,9 +570,6 @@ export const coupons: D<typeof frDict.coupons> = {
   expiresLabel: 'Expires:',
   redeemedLabel: 'Redeemed:',
   statsEyebrow: 'Overview',
-  statTotal: 'Total coupons',
-  statRedeemed: 'Redeemed coupons',
-  statRedemptionRate: 'Redemption rate',
 };
 export const poster: D<typeof frDict.poster> = {
   eyebrow: 'Workspace',
@@ -1302,6 +1299,8 @@ export const email: D<typeof frDict.email> = {
   customersSection: 'Your customers',
   customersHint: 'Select your customers to add them as recipients.',
   customersEmpty: 'No customers with an email address yet.',
+  selectAll: 'Select all',
+  clearSelection: 'Deselect all',
   assetLabel: 'Attachment',
   assetUpload: 'Attach a photo or PDF',
   assetUploading: 'Uploading…',

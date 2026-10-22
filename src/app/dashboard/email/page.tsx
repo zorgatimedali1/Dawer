@@ -243,6 +243,13 @@ export default function EmailPage() {
     );
   };
 
+  const allSelected =
+    customersWithEmail.length > 0 && selectedCustomerIds.length >= customersWithEmail.length;
+
+  const toggleAllCustomers = () => {
+    setSelectedCustomerIds(allSelected ? [] : customersWithEmail.map((customer) => customer.id));
+  };
+
   const startBroadcast = async () => {
     setSendProgress(0);
     setSending(true);
@@ -375,10 +382,23 @@ export default function EmailPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-xl border border-line bg-surface-2/60 p-4">
-            <p className="mb-2.5 inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-              <Users className="h-3.5 w-3.5" aria-hidden />
-              {t.email.customersSection}
-            </p>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="inline-flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                <Users className="h-3.5 w-3.5" aria-hidden />
+                {t.email.customersSection}
+              </p>
+              {customersWithEmail.length > 0 ? (
+                <button
+                  type="button"
+                  disabled={!composerEnabled}
+                  aria-pressed={allSelected}
+                  onClick={toggleAllCustomers}
+                  className="text-[13px] font-semibold text-brand-700 transition-colors hover:text-brand-800 disabled:cursor-not-allowed disabled:opacity-50 dark:text-accent-bright dark:hover:text-accent-bright/90"
+                >
+                  {allSelected ? t.email.clearSelection : t.email.selectAll}
+                </button>
+              ) : null}
+            </div>
             {customersWithEmail.length === 0 ? (
               <p className="text-[13px] text-ink-subtle">{t.email.customersEmpty}</p>
             ) : (
@@ -392,14 +412,14 @@ export default function EmailPage() {
                       aria-pressed={chosen}
                       disabled={!composerEnabled}
                       onClick={() => toggleCustomer(customer.id)}
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12.5px] transition-colors duration-150 ${
+                      className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-[13.5px] transition-colors duration-150 ${
                         chosen
                           ? 'border-accent bg-accent-soft text-brand-800 dark:text-accent-bright'
                           : 'border-line bg-elevated text-ink-muted hover:border-line-strong'
                       }`}
                     >
-                      <span className="font-medium">{customer.name}</span>
-                      <span className="text-ink-subtle">{customer.email}</span>
+                      <span className="font-semibold">{customer.name}</span>
+                      <span className="font-medium">{customer.email}</span>
                     </button>
                   );
                 })}
