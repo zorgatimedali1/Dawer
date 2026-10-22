@@ -22,7 +22,7 @@ describe('overview plan features', () => {
         return new Response(JSON.stringify({ success: true, campaigns: [] }), { status: 200 });
       }
       if (url.startsWith('/api/business/rewards')) {
-        return new Response(JSON.stringify({ success: true, rewards: [] }), { status: 200 });
+        throw new Error(`Unexpected rewards request: ${url}`);
       }
       if (url === '/api/billing') {
         return new Response(JSON.stringify({
@@ -80,7 +80,7 @@ describe('overview plan features', () => {
         return new Response(JSON.stringify({ success: true, campaigns: [] }), { status: 200 });
       }
       if (url.startsWith('/api/business/rewards')) {
-        return new Response(JSON.stringify({ success: true, rewards: [] }), { status: 200 });
+        throw new Error(`Unexpected rewards request: ${url}`);
       }
       if (url === '/api/billing') {
         return new Response(JSON.stringify({
@@ -118,6 +118,9 @@ describe('overview plan features', () => {
 
     expect(await screen.findByRole('heading', { name: /Starter · Essai gratuit 7 jours/ })).toBeInTheDocument();
     expect(screen.getByText(/Essai : \d+ jour/)).toBeInTheDocument();
+    // The Starter/trial plan owns no rewards entitlement: no rewards fetch at
+    // all instead of a 403 that used to blank the whole page.
+    expect(screen.queryByText(/récompenses n’est pas incluse/)).toBeNull();
     const frame = document.querySelector('iframe');
     expect(frame).not.toBeNull();
     expect(frame).toHaveAttribute('src', DEMO_VIDEO_EMBED_URL);

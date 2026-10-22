@@ -86,13 +86,21 @@ export default function OverviewPage() {
   const hasAnalytics = planResolved
     ? (planAccess?.plan.features.features.some((feature) => /analytics/i.test(feature)) ?? false)
     : false;
+  // The rewards management module rides the "Gestion des récompenses" plan
+  // string (Pro+): trial/Starter accounts get a 403 on the rewards API, so the
+  // overview loader skips the fetch entirely instead of blanking the page.
+  const hasRewards = planResolved
+    ? (planAccess?.plan.features.features.some((feature) => /récompenses?|rewards?/i.test(feature)) ?? false)
+    : false;
 
   const {
     data: bundleData,
     error,
     reload: reloadBundle,
   } = useCachedResource<OverviewBundle>(
-    planResolved ? (hasAnalytics ? 'overview:bundle-analytics' : 'overview:bundle-base') : null,
+    planResolved
+      ? `overview:bundle-${hasAnalytics ? 'analytics' : 'base'}${hasRewards ? '-rewards' : ''}`
+      : null,
     async ({ fresh }) => {
       // A caller-forced retry bypasses the analytics KV cache so the Retry
       // button shows truly latest numbers; normal visits keep the server's
@@ -101,7 +109,7 @@ export default function OverviewPage() {
       const options = fresh ? { fresh: true } : undefined;
       const [campaignsResult, rewardsResult, overviewResult, timeseriesResult] = await Promise.allSettled([
         CampaignService.getCampaigns({ limit: 20 }),
-        RewardService.list(),
+        hasRewards ? RewardService.list() : Promise.resolve([]),
         hasAnalytics ? AnalyticsService.overview(options) : Promise.resolve(null),
         hasAnalytics ? AnalyticsService.timeSeries(30, options) : Promise.resolve(null),
       ]);
@@ -109,11 +117,19 @@ export default function OverviewPage() {
       if (campaignsResult.status === 'rejected') {
         throw new Error(msg(t, campaignsResult.reason instanceof Error ? campaignsResult.reason.message : 'Unable to load the overview.'));
       }
-      if (rewardsResult.status === 'rejected') {
-        throw new Error(msg(t, rewardsResult.reason instanceof Error ? rewardsResult.reason.message : 'Unable to load the overview.'));
-      }
 
       const failed: string[] = [];
+      const rewards =
+        rewardsResult.status === 'fulfilled'
+          ? rewardsResult.value
+          : (() => {
+              // A plan that owns the entitlement but hit a transient failure
+              // keeps the rest of the page alive with an empty rewards list.
+              if (hasRewards) {
+                failed.push(msg(t, rewardsResult.reason instanceof Error ? rewardsResult.reason.message : 'Unable to load the overview.'));
+              }
+              return [];
+            })();
       if (overviewResult.status === 'rejected') {
         failed.push(msg(t, overviewResult.reason instanceof Error ? overviewResult.reason.message : 'Unable to load analytics.'));
       }
@@ -123,7 +139,7 @@ export default function OverviewPage() {
 
       return {
         campaigns: campaignsResult.value,
-        rewards: rewardsResult.value,
+        rewards,
         summary: overviewResult.status === 'fulfilled' ? (overviewResult.value?.summary ?? null) : null,
         timeseries: timeseriesResult.status === 'fulfilled' ? timeseriesResult.value : null,
         sectionErrors: failed,
