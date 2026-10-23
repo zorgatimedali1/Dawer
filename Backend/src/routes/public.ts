@@ -513,9 +513,12 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
   // so deleting this one too would shrink the roster for nothing.
   let slotRecycled = false;
   // The Durable Object holding today's participation count (platform daily
-  // spin cap). Set only when the counter is live and seeded; the post-commit
-  // bump is skipped otherwise so the count cannot drift upward.
+  // spin cap). Set only when the counter is live and seeded; the reservation
+  // is skipped otherwise so the count cannot drift upward.
   let dailyCapStub: LockStub | null = null;
+  // True between a successful DO reservation and the D1 commit that consumes
+  // it; the release path (early returns and the catch) hands it back.
+  let dailyCapReserved = false;
   // Every durable `spin_claims` row this attempt wrote (browser key first,
   // then the advisory contact key) — all of them go back on any failure.
   const claimRowIds: string[] = [];
@@ -672,9 +675,11 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     // Counted on the Durable Object counter instead of a per-spin COUNT:
     // today's number lives in the DO's storage and only re-seeds from D1 once
     // per campaign per day (cold start or lost DO storage). Every spin then
-    // costs one ~1ms DO read instead of a scheduled-table aggregation. Spins
-    // that pass this gate bump the counter only AFTER their rows commit, so
-    // refused or rolled-back attempts never consume headroom.
+    // costs one ~1ms DO read instead of a scheduled-table aggregation. The
+    // actionable unit is a DO *reservation* taken right before the batch
+    // commits (storage ops are input-gate-serialized, so parallel waves
+    // cannot all seize the same headroom); a spin whose batch fails hands
+    // its reservation back via the release path below.
     const dailySpinCap = Number(env.CAMPAIGN_DAILY_SPIN_CAP ?? 5000);
     if (Number.isFinite(dailySpinCap) && dailySpinCap > 0) {
       const dayStart = new Date().toISOString().slice(0, 10);
@@ -772,18 +777,28 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       ? env.CAMPAIGN_LOCK.getByName(`campaign:${campaign.id}:${stickyKey}`)
       : null;
     let stickyLockClaimed = false;
+    let stickyClaimedAt: number | undefined;
+    let lockClaimedAt: number | undefined;
 
     // Hands back whichever claims are still held — used by every early return
     // below and by the catch block if a later write fails. Defined (and wired
     // into `undoRelease`) *before* the claims so a throw mid-claim can never
     // leak a slot that was granted: the catch block retries this same path.
     const releaseClaims = async () => {
+      if (dailyCapReserved && dailyCapStub) {
+        try {
+          await dailyCapStub.releaseDailySpinCount(campaign.id);
+        } catch (capReleaseError) {
+          console.error('daily_cap_release_failed', capReleaseError instanceof Error ? capReleaseError.message : String(capReleaseError));
+        }
+        dailyCapReserved = false;
+      }
       if (stickyLockClaimed && stickyLock && stickyKey) {
-        await stickyLock.release(campaign.id, stickyKey);
+        await stickyLock.release(campaign.id, stickyKey, stickyClaimedAt);
         stickyLockClaimed = false;
       }
       if (lockClaimed && lock) {
-        await lock.release(campaign.id, claimKey);
+        await lock.release(campaign.id, claimKey, lockClaimedAt);
         lockClaimed = false;
       }
       // A contact row this attempt created goes with the failed spin: keeping
@@ -822,9 +837,11 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
     let denialReason: string | null = lockResult && !lockResult.allowed ? String(lockResult.reason ?? 'duplicate_spin') : null;
     if (lockResult?.allowed) {
       lockClaimed = true;
+      lockClaimedAt = lockResult.claimedAt;
     }
     if (stickyResult?.allowed && stickyLock && stickyKey) {
       stickyLockClaimed = true;
+      stickyClaimedAt = stickyResult.claimedAt;
     }
 
     if (denialReason !== null) {
@@ -1087,17 +1104,39 @@ export async function handlePublicCampaignRoute(request: Request, env: Env): Pro
       ).bind(crypto.randomUUID(), campaign.id, visitorKey, body.deviceHash ?? null, ipHash, uaHash, isNoWin ? 0 : 1, distanceMeters, now),
     );
 
-    await env.DB.batch(chain);
-
-    // The spin occupies a slot today: bump the Durable Object counter so the
-    // next spins read the updated headroom instead of re-seeding. Best-effort —
-    // a lost bump only lets a few extra spins through the safety valve.
+    // Pre-commit reservation of today's platform cap headroom: parallel
+    // waves cannot both seize the same slot, and a commit failure hands the
+    // reservation back through the release path. Without a live counter
+    // (seed write failed) the earlier read-only gate already enforced the
+    // cap, accepting its small race.
     if (dailyCapStub) {
       try {
-        await dailyCapStub.bumpDailySpinCount(campaign.id);
-      } catch (bumpError) {
-        console.error('daily_cap_bump_failed', bumpError instanceof Error ? bumpError.message : String(bumpError));
+        const reserved = await dailyCapStub.reserveDailySpinCount(campaign.id, dailySpinCap);
+        if (!reserved) {
+          await releaseClaims();
+          return errorResponse(
+            'The wheel is at capacity today. Please come back tomorrow.',
+            429,
+            { code: 'campaign_capacity' },
+          );
+        }
+        dailyCapReserved = true;
+      } catch (reserveError) {
+        console.error('daily_cap_reserve_failed', reserveError instanceof Error ? reserveError.message : String(reserveError));
+        dailyCapStub = null;
       }
+    }
+
+    await env.DB.batch(chain);
+
+    // Committed: the reservation is consumed. Nothing further to bump.
+    dailyCapReserved = false;
+
+    // The spin occupies a slot today: bumped pre-commit via
+    // `reserveDailySpinCount` so parallel waves cannot overshoot. Committing
+    // finalizes the reservation — the release path only runs for failures.
+    if (dailyCapReserved) {
+      dailyCapReserved = false;
     }
 
     // The dashboard analytics caches can serve pre-spin aggregates for hours;

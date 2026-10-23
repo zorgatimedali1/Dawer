@@ -20,7 +20,18 @@ type ClaimState = {
   wins?: number[];
 };
 
-export type ClaimOutcome = { allowed: true } | { allowed: false; reason: 'duplicate_spin' | 'daily_limit' | 'cooldown' };
+/**
+ * A granted claim carries the exact timestamp the caller must hand back on
+ * release. Identifying the entry by timestamp (instead of popping the
+ * array's tail) keeps a concurrent claim from the same identity from having
+ * its slot attributed to the wrong attempt: the input gate serializes the
+ * storage ops, so claim A then claim B then release A would otherwise drop
+ * B's timestamp and free A's slot — drifting both the cooldown anchor and
+ * the charged attempt while never counting beyond `perDay`.
+ */
+export type ClaimOutcome =
+  | { allowed: true; claimedAt: number }
+  | { allowed: false; reason: 'duplicate_spin' | 'daily_limit' | 'cooldown' };
 
 const CAP_PREFIX = '#cap:';
 
@@ -71,13 +82,14 @@ export class CampaignParticipationLock extends DurableObject<Env> {
         return { allowed: false, reason: 'duplicate_spin' };
       }
 
+      const onceClaimedAt = Date.now();
       await this.ctx.storage.put(scopeKey, {
         campaignId,
         customerKey,
-        claimedAt: Date.now(),
+        claimedAt: onceClaimedAt,
       });
 
-      return { allowed: true };
+      return { allowed: true, claimedAt: onceClaimedAt };
     }
 
     const { claims, wins } = normalize(stored);
@@ -95,20 +107,47 @@ export class CampaignParticipationLock extends DurableObject<Env> {
     claims.push(now);
     await this.ctx.storage.put(scopeKey, { campaignId, customerKey, claims, wins });
 
-    return { allowed: true };
+    return { allowed: true, claimedAt: now };
   }
 
   /**
    * Hands the slot back when a spin is abandoned before anything is written
    * (sold-out campaign, for example) so the visitor keeps their attempt.
    * Windowed campaigns only forget the claim that was just made — earlier
-   * attempts in the rolling window stay recorded.
+   * attempts in the rolling window stay recorded. With a `claimAt` timestamp
+   * the exact granted entry is removed and a replayed double-release is a
+   * no-op; without one (legacy callers) the most recent entry is released.
    */
-  async release(campaignId: string, customerKey: string): Promise<void> {
+  async release(campaignId: string, customerKey: string, claimAt?: number): Promise<void> {
     const scopeKey = `${campaignId}:${customerKey}`;
     const stored = await this.ctx.storage.get<ClaimState>(scopeKey);
 
     if (!stored) return;
+
+    if (typeof claimAt === 'number') {
+      if (typeof stored.claimedAt === 'number') {
+        // Permanent `once` claim: only its own holder releases it.
+        if (stored.claimedAt !== claimAt) return;
+        if ((stored.wins?.length ?? 0) === 0) {
+          await this.ctx.storage.delete(scopeKey);
+          return;
+        }
+        await this.ctx.storage.put(scopeKey, { ...stored, claimedAt: undefined });
+        return;
+      }
+
+      if (!Array.isArray(stored.claims)) return;
+      const index = stored.claims.lastIndexOf(claimAt);
+      if (index < 0) return; // already released, or owned by another attempt
+      const claims = [...stored.claims];
+      claims.splice(index, 1);
+      if (claims.length || (stored.wins?.length ?? 0) > 0) {
+        await this.ctx.storage.put(scopeKey, { ...stored, claims });
+        return;
+      }
+      await this.ctx.storage.delete(scopeKey);
+      return;
+    }
 
     if (Array.isArray(stored.claims)) {
       const claims = [...stored.claims];
@@ -159,10 +198,29 @@ export class CampaignParticipationLock extends DurableObject<Env> {
     await this.ctx.storage.put(key, count);
   }
 
-  /** Post-commit bump — best-effort, skipped by the caller when unseeded. */
-  async bumpDailySpinCount(campaignId: string): Promise<void> {
+  /**
+   * Pre-commit daily spin-cap reservation: the increment happens inside the
+   * Durable Object (whose storage ops are input-gate-serialized), so two
+   * parallel spins can no longer both read headroom that only one could
+   * consume. `capacity` is delegated minus one: false means the counter is
+   * already at capacity and the spin must be refused. A spin that then fails
+   * to commit hands the slot back via `releaseDailySpinCount`.
+   */
+  async reserveDailySpinCount(campaignId: string, capacity: number): Promise<boolean> {
     const key = dailyCapKey(campaignId);
     const stored = await this.ctx.storage.get<number>(key);
-    await this.ctx.storage.put(key, (typeof stored === 'number' ? stored : 0) + 1);
+    const next = (typeof stored === 'number' ? stored : 0) + 1;
+    if (next > capacity) return false;
+    await this.ctx.storage.put(key, next);
+    return true;
+  }
+
+  /** Best-effort hand-back when a reserved spin fails to commit in D1. */
+  async releaseDailySpinCount(campaignId: string): Promise<void> {
+    const key = dailyCapKey(campaignId);
+    const stored = await this.ctx.storage.get<number>(key);
+    if (typeof stored === 'number' && stored > 0) {
+      await this.ctx.storage.put(key, stored - 1);
+    }
   }
 }

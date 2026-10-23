@@ -6,6 +6,7 @@ import { createCrossOriginGuard, createRateLimitMiddleware } from '../lib/expres
 import { createWorkerRoute } from '../lib/express-adapter';
 import { timingSafeEqualString } from '../lib/crypto';
 import { handleOperatorAuthRoute } from './routes/auth';
+import { handlePlatformBootstrapRoute } from './routes/bootstrap';
 import { handleSubscriptionRoute } from './routes/subscriptions';
 import { handlePlatformFeaturesRoute } from './routes/settings';
 import { handleStatsRoute } from './routes/stats';
@@ -57,6 +58,9 @@ app.get('/health', (request, response) => {
 });
 
 app.use('/api', createRateLimitMiddleware(env.API_RATE_LIMITER));
+// One-time first-operator provisioning (empty `platform_operators` table +
+// secret token). Mounted before auth so it can create the very first account.
+app.use('/api/bootstrap', createWorkerRoute(handlePlatformBootstrapRoute, env));
 // Operator auth gets a dedicated tight bucket on top of the general API one
 // (mirrors the merchant worker) and runs fail-closed: login is exactly where a
 // limiter outage must not mean "allow".

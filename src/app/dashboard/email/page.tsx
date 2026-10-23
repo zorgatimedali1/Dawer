@@ -43,9 +43,12 @@ function renderVariables(
   template: string,
   values: { name: string; email: string; link: string },
 ): string {
+  // Customer-controlled values (`name`, `email`) are HTML-escaped for parity
+  // with the server-side renderer (Backend/src/lib/email.ts renderTemplate);
+  // `link` stays verbatim, mirroring the actual broadcast substitution.
   return template
-    .replace(/\{\{\s*name\s*\}\}/g, values.name)
-    .replace(/\{\{\s*email\s*\}\}/g, values.email)
+    .replace(/\{\{\s*name\s*\}\}/g, escapeHtml(values.name))
+    .replace(/\{\{\s*email\s*\}\}/g, escapeHtml(values.email))
     .replace(/\{\{\s*link\s*\}\}/g, values.link);
 }
 

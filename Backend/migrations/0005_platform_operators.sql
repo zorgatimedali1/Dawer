@@ -36,17 +36,7 @@ ALTER TABLE audit_logs ADD COLUMN platform_operator_id TEXT;
 -- flag is dead weight and a standing invitation to confuse the two.
 ALTER TABLE users DROP COLUMN is_admin;
 
--- First operator. Password hash is PBKDF2-SHA256 / 100000 iterations, produced
--- by Backend/src/lib/crypto.ts hashPassword() — SQL cannot compute it inline.
-INSERT INTO platform_operators (id, email, password_hash, salt, first_name, last_name, status, created_at, updated_at)
-VALUES (
-  '9f1c0d2a-5b3e-4c71-8a64-2d9e7b1f3a55',
-  'admin@dawer.com',
-  'b794fa8138fe5d10f06c16040270089b2eebeeff0a75a0b2085e2ffc32083ae0',
-  '77fdbe77049837f549ed16d7fe525e7f',
-  'Platform',
-  'Admin',
-  'ACTIVE',
-  '2026-10-01T00:00:00.000Z',
-  '2026-10-01T00:00:00.000Z'
-);
+-- First operator: provisioned at deployment time via POST /api/bootstrap
+-- (Backend/src/platform/routes/bootstrap.ts) with a PLATFORM_BOOTSTRAP_TOKEN
+-- secret. No PBKDF2 hash/salt is committed here — a published credential pair
+-- on a public repo is an offline brute-force oracle.

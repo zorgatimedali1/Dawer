@@ -142,7 +142,7 @@ export function createLockRegistry() {
           if (!policy) {
             if (onceClaims.has(key)) return { allowed: false as const, reason: 'duplicate_spin' as const };
             onceClaims.add(key);
-            return { allowed: true as const };
+            return { allowed: true as const, claimedAt: Date.now() };
           }
 
           const now = Date.now();
@@ -159,14 +159,22 @@ export function createLockRegistry() {
 
           state.claims.push(now);
           windowedClaims.set(key, state);
-          return { allowed: true as const };
+          return { allowed: true as const, claimedAt: now };
         },
-        async release(campaignId: string, customerKey: string) {
+        async release(campaignId: string, customerKey: string, claimAt?: number) {
           const key = `${campaignId}:${customerKey}`;
           if (onceClaims.delete(key)) return;
 
           const state = windowedClaims.get(key);
           if (!state) return;
+
+          if (typeof claimAt === 'number') {
+            const index = state.claims.lastIndexOf(claimAt);
+            if (index < 0) return;
+            state.claims.splice(index, 1);
+            if (state.claims.length === 0 && state.wins.length === 0) windowedClaims.delete(key);
+            return;
+          }
 
           state.claims.pop();
           if (state.claims.length === 0 && state.wins.length === 0) windowedClaims.delete(key);
@@ -196,6 +204,18 @@ export function createLockRegistry() {
         async bumpDailySpinCount(campaignId: string) {
           const key = dailyCapKey(campaignId);
           dailyCaps.set(key, (dailyCaps.get(key) ?? 0) + 1);
+        },
+        async reserveDailySpinCount(campaignId: string, capacity: number) {
+          const key = dailyCapKey(campaignId);
+          const next = (dailyCaps.get(key) ?? 0) + 1;
+          if (next > capacity) return false;
+          dailyCaps.set(key, next);
+          return true;
+        },
+        async releaseDailySpinCount(campaignId: string) {
+          const key = dailyCapKey(campaignId);
+          const stored = dailyCaps.get(key);
+          if (typeof stored === 'number' && stored > 0) dailyCaps.set(key, stored - 1);
         },
       };
     },
@@ -359,18 +379,19 @@ function createPartnerLogoStore() {
  * at put() time, mirroring the subset of the R2 API the email routes use.
  */
 function createCampaignAssetStore() {
-  const objects = new Map<string, { bytes: Uint8Array; contentType: string; customMetadata: Record<string, string> }>();
+  const objects = new Map<string, { bytes: Uint8Array; contentType: string; customMetadata: Record<string, string>; uploaded: Date }>();
 
   return {
     async put(
       key: string,
       value: Uint8Array,
-      options?: { httpMetadata?: { contentType?: string }; customMetadata?: Record<string, string> },
+      options?: { httpMetadata?: { contentType?: string }; customMetadata?: Record<string, string>; uploaded?: Date },
     ): Promise<void> {
       objects.set(key, {
         bytes: value,
         contentType: options?.httpMetadata?.contentType ?? 'application/octet-stream',
         customMetadata: options?.customMetadata ?? {},
+        uploaded: options?.uploaded ?? new Date(),
       });
     },
     async get(
@@ -400,6 +421,18 @@ function createCampaignAssetStore() {
     },
     async delete(key: string): Promise<void> {
       objects.delete(key);
+    },
+    /** Paged listing mirroring the R2 subset (prefix scan, no cursor paging here). */
+    async list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<{
+      objects: Array<{ key: string; uploaded: Date }>;
+      truncated: false;
+    }> {
+      const prefix = options?.prefix ?? '';
+      const listed = [...objects.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .slice(0, options?.limit ?? 1000)
+        .map(([key, stored]) => ({ key, uploaded: stored.uploaded }));
+      return { objects: listed, truncated: false };
     },
     /** Test helper: keys currently stored. */
     keys(): string[] {

@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '../types';
 import { runReconcile } from '../lib/reconcile';
-import { createTestEnv, type TestDatabase } from './helpers/d1';
+import { createTestEnv, type TestDatabase, type TestEnv } from './helpers/d1';
 import { seedMerchant } from './helpers/fixtures';
 
 const DAY_MS = 86_400_000;
 
 let db: TestDatabase;
+let assets: TestEnv['CAMPAIGN_ASSETS'];
 let env: Env;
 
 function iso(offsetMs: number): string {
@@ -58,9 +59,31 @@ function count(table: string): number {
   return db.query<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`)[0].n;
 }
 
+async function insertVisit(createdAt: string): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO site_visits (id, path, referrer, visitor, device, created_at)
+       VALUES (?, '/', NULL, 'visitor-1', 'desktop', ?)`,
+    )
+    .bind(crypto.randomUUID(), createdAt)
+    .run()
+    ;
+}
+
+async function insertEmailCampaign(assetId: string | null): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO email_campaigns (id, business_id, user_id, subject, asset_id, recipients, content, status, created_at, updated_at)
+       VALUES (?, 'business-1', 'user-1', 'Test', ?, '[]', '<p>Test</p>', 'COMPLETED', ?, ?)`,
+    )
+    .bind(crypto.randomUUID(), assetId, iso(0), iso(0))
+    .run();
+}
+
 beforeEach(() => {
   const testEnv = createTestEnv();
   db = testEnv.DB;
+  assets = testEnv.CAMPAIGN_ASSETS;
   env = testEnv as unknown as Env;
 });
 
@@ -83,6 +106,9 @@ describe('runReconcile garbage collection', () => {
     // analytics: 400-day window.
     await insertAnalytics(iso(-401 * DAY_MS));
     await insertAnalytics(iso(-399 * DAY_MS));
+    // site visits: 180-day window.
+    await insertVisit(iso(-181 * DAY_MS));
+    await insertVisit(iso(-179 * DAY_MS));
 
     await runReconcile(env);
 
@@ -90,6 +116,7 @@ describe('runReconcile garbage collection', () => {
     expect(count('spin_events')).toBe(1);
     expect(count('whatsapp_message_log')).toBe(1);
     expect(count('analytics_events')).toBe(1);
+    expect(count('site_visits')).toBe(1);
   });
 
   it('caps each table at the per-run batch limit', async () => {
@@ -101,6 +128,49 @@ describe('runReconcile garbage collection', () => {
     // Two runs at 5 000 each would clear them all; the assertion documents
     // that the sweep actually removes rows rather than skipping the table.
     expect(count('spin_events')).toBe(0);
+  });
+});
+
+describe('runReconcile asset garbage collection', () => {
+  function assetPut(id: string, uploadedMsAgo: number): void {
+    assets.put(
+      `email-assets/${id}`,
+      new Uint8Array([1, 2, 3]),
+      { httpMetadata: { contentType: 'image/png' }, uploaded: new Date(Date.now() - uploadedMsAgo) },
+    );
+  }
+
+  it('deletes old uploads no campaign references and keeps referenced ones', async () => {
+    const referenced = crypto.randomUUID();
+    const orphan = crypto.randomUUID();
+    const fresh = crypto.randomUUID();
+    assetPut(referenced, 30 * DAY_MS);
+    assetPut(orphan, 2 * DAY_MS);
+    assetPut(fresh, 0);
+    await insertEmailCampaign(referenced);
+
+    await runReconcile(env);
+
+    expect(assets.keys().sort()).toEqual(
+      [`email-assets/${referenced}`, `email-assets/${fresh}`].sort(),
+    );
+  });
+
+  it('deletes an upload older than the batch limit age but not yet attached', async () => {
+    const orphan = crypto.randomUUID();
+    assetPut(orphan, 25 * 60 * 60_000);
+
+    await runReconcile(env);
+
+    expect(assets.keys()).toHaveLength(0);
+  });
+
+  it('keeps every object while it is younger than the grace window', async () => {
+    assetPut(crypto.randomUUID(), 0);
+
+    await runReconcile(env);
+
+    expect(assets.keys()).toHaveLength(1);
   });
 });
 

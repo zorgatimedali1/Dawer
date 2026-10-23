@@ -142,7 +142,7 @@ function stubFetch(options: StubOptions = {}) {
 }
 
 function renderPage() {
-  render(
+  return render(
     <MemoryRouter>
       <EmailPage />
     </MemoryRouter>,
@@ -456,4 +456,41 @@ describe('Email marketing page', () => {
       ),
     ).toBe(false);
   }, 15_000);
+
+  it('escapes customer-controlled values in the template preview', async () => {
+    stubFetch({
+      customers: [
+        {
+          id: 'cust-xss',
+          first_name: '<img src=x onerror=alert(1)>',
+          last_name: 'Kamikaze',
+          email: '"ada@example.com',
+          phone: '22345678',
+          birthday: null,
+          marketing_consent: 1,
+          created_at: '2026-10-01T10:00:00.000Z',
+          last_activity_at: null,
+        },
+      ],
+    });
+    const { baseElement } = renderPage();
+
+    await screen.findByRole('button', { name: /alert\(1\)/i });
+    await userEvent.click(screen.getByRole('button', { name: /alert\(1\)/i }));
+    fireEvent.change(screen.getByLabelText('Contenu de l’e-mail', { selector: 'textarea' }), {
+      target: { value: '<p>Merci {{name}} — {{email}}</p>' },
+    });
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Aperçu' }));
+
+    const panel = baseElement.querySelector('#email-editor-preview-panel');
+    expect(panel).toBeTruthy();
+    expect(panel?.querySelector('img[src="x"]')).toBeNull();
+    expect(panel?.querySelector('script')).toBeNull();
+    const html = panel?.innerHTML ?? '';
+    const text = panel?.textContent ?? '';
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(text).toContain('"ada@example.com');
+    expect(panel?.querySelector('p')).not.toBeNull();
+  });
 });

@@ -10,6 +10,10 @@ export type Env = Cloudflare.Env & {
   MAILJET_API_SECRET?: string;
   /** Token in the Mailjet event-callback URL (bounces/blocks/spam/unsub). */
   MAILJET_WEBHOOK_TOKEN?: string;
+  /** One-time secret for POST /api/bootstrap: provisions the first platform
+   *  operator on an empty install (replaces the seeded credential). Unset =
+   *  the route answers 404 and the bootstrap is impossible (fail closed). */
+  PLATFORM_BOOTSTRAP_TOKEN?: string;
   /** Dormant: Brevo API key (EMAIL_PROVIDER='brevo'). */
   BREVO_API_KEY?: string;
   /** Dormant: Resend API key (EMAIL_PROVIDER='resend'). */

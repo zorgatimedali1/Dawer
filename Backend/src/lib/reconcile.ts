@@ -59,11 +59,28 @@ const GC_RULES: Array<{ table: string; ageMs: number; sql: string }> = [
     sql: 'DELETE FROM analytics_events WHERE rowid IN (SELECT rowid FROM analytics_events WHERE created_at < ? LIMIT ?)',
   },
   {
-    table: 'oauth_states',
-    ageMs: 30 * 60_000,
-    sql: 'DELETE FROM oauth_states WHERE rowid IN (SELECT rowid FROM oauth_states WHERE created_at < ? LIMIT ?)',
+    table: 'analytics_events',
+    ageMs: 400 * DAY_MS,
+    sql: 'DELETE FROM analytics_events WHERE rowid IN (SELECT rowid FROM analytics_events WHERE created_at < ? LIMIT ?)',
+  },
+  {
+    table: 'site_visits',
+    ageMs: 180 * DAY_MS,
+    sql: 'DELETE FROM site_visits WHERE rowid IN (SELECT rowid FROM site_visits WHERE created_at < ? LIMIT ?)',
   },
 ];
+
+/**
+ * Uploaded-but-never-attached assets (tabs closed mid-compose, dropped
+ * uploads) would otherwise sit in R2 forever: attachment ownership lives in
+ * object metadata, not in a database row the sweeper could truncate.
+ * Referenced objects are never touched regardless of age — their keys are
+ * embedded in e-mails already delivered, and deleting the bytes would 404
+ * every attachment link still sitting in a recipient's inbox.
+ */
+const ASSET_PREFIX = 'email-assets/';
+const ASSET_GRACE_MS = 24 * 60 * 60_000;
+const ASSET_LIST_LIMIT = 50;
 
 /**
  * Bounded garbage collection for tables that only grow: expired sessions,
@@ -87,6 +104,48 @@ async function runGc(env: Env): Promise<void> {
 
   if (Object.keys(deleted).length > 0) {
     console.log('Reconciler GC.', JSON.stringify(deleted));
+  }
+}
+
+async function gcUnreferencedAssets(env: Env): Promise<void> {
+  const cutoff = Date.now() - ASSET_GRACE_MS;
+  let deleted = 0;
+  let truncated = true;
+
+  try {
+    while (truncated) {
+      const page = await env.CAMPAIGN_ASSETS.list({ prefix: ASSET_PREFIX, limit: ASSET_LIST_LIMIT });
+      truncated = page.truncated === true;
+
+      const candidates = page.objects.filter((object) => {
+        const id = object.key.slice(ASSET_PREFIX.length);
+        return /^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(id) && object.uploaded.getTime() < cutoff;
+      });
+      if (candidates.length === 0) continue;
+
+      const ids = candidates.map((object) => object.key.slice(ASSET_PREFIX.length));
+      const referenced = new Set(
+        (
+          await env.DB.prepare(
+            `SELECT DISTINCT asset_id FROM email_campaigns WHERE asset_id IN (${ids.map(() => '?').join(',')})`,
+          )
+            .bind(...ids)
+            .all<{ asset_id: string }>()
+        ).results?.map((row) => row.asset_id) ?? [],
+      );
+
+      for (const id of ids) {
+        if (referenced.has(id)) continue;
+        await env.CAMPAIGN_ASSETS.delete(`${ASSET_PREFIX}${id}`);
+        deleted += 1;
+      }
+    }
+  } catch (error) {
+    console.error('Reconciler asset GC failed.', error);
+  }
+
+  if (deleted > 0) {
+    console.log('Reconciler GC. unreferenced_email_assets', deleted);
   }
 }
 
@@ -164,4 +223,5 @@ export async function runReconcile(env: Env): Promise<void> {
   }
 
   await runGc(env);
+  await gcUnreferencedAssets(env);
 }
