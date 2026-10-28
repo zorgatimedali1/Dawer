@@ -39,4 +39,7 @@ User-agent: Bingbot
 Allow: /
 Content-Signal: ai-train=yes, search=yes, ai-input=yes
 
+# Agentic Resource Discovery manifest (ARD)
+Agentmap: https://dawer.tn/.well-known/ai-catalog.json
+
 Sitemap: https://dawer.tn/sitemap.xml

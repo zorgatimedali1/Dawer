@@ -12,6 +12,7 @@ import { LocaleSync } from './contexts/app-context';
 import { VisitBeacon } from './components/visit-beacon';
 import { BrandLoader } from './components/brand/brand-loader';
 import { lazyWithRecovery } from './lib/lazy-recovery';
+import { initWebMcp } from './lib/webmcp';
 import './app/globals.css';
 
 // A refresh must always land at the top of the page; the browser's default
@@ -25,6 +26,11 @@ if ('scrollRestoration' in window.history) {
 if (import.meta.env.VITE_SENTRY_DSN) {
   void import('./lib/sentry.client').then((m) => m.initSentry('merchant'));
 }
+
+// WebMCP: register the public site tools for in-browser AI agents (no-op when
+// the browser does not ship the document.modelContext API). These tools only
+// read public marketing data, so registering them on any SPA page is safe.
+initWebMcp();
 
 // lazyWithRecovery: a tab that outlived a deploy references content-hashed
 // chunks that no longer exist; instead of a dead error page on the next menu

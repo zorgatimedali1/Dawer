@@ -10,7 +10,7 @@ import { ensureStarterTrialForUser } from '../lib/business';
 import type { Env } from '../types';
 
 /** Same serving origin as the SPA/API (see AGENTS.md: dawer.tn). */
-const SITE_URL = 'https://dawer.tn';
+export const SITE_URL = 'https://dawer.tn';
 /** Merchant sessions last 3 days (mirrors routes/auth.ts; keep in sync). */
 const SESSION_MAX_AGE = 60 * 60 * 24 * 3;
 /** Wrong passwords tolerated before the account freezes (mirrors routes/auth.ts). */
@@ -115,6 +115,23 @@ export async function handleOauthDiscoveryRoute(request: Request, _env: Env): Pr
     response_types_supported: ['code'],
     scopes_supported: ['api'],
     token_expiry: SESSION_MAX_AGE,
+    /**
+     * auth.md agent-auth profile (https://github.com/workos/auth.md): agents
+     * register themselves as merchants with their own email+password — the
+     * "service_auth" method — and then trade those credentials for an access
+     * token at the password grant. register_uri points at the same endpoint
+     * browsers use (POST /api/auth/register); no separate agent surface exists.
+     */
+    agent_auth: {
+      skill: `${SITE_URL}/auth.md`,
+      register_uri: `${SITE_URL}/api/auth/register`,
+      identity_types_supported: ['service_auth'],
+      service_auth: {
+        credential_types_supported: ['email_password_pair'],
+        grant_types_supported: ['password'],
+        token_endpoint: `${SITE_URL}/api/oauth/token`,
+      },
+    },
   });
 }
 

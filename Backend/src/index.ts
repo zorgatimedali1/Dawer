@@ -17,7 +17,9 @@ import { handleEmailAssetRoute, handleEmailRoute } from './routes/email';
 import { handlePlacesAutocomplete } from './routes/places';
 import { handlePublicPartnerRoute } from './routes/partners';
 import { handlePublicPlansRoute } from './routes/public-plans';
-import { handleOauthDiscoveryRoute, handleOauthTokenRoute } from './routes/oauth';
+import { handleOauthTokenRoute } from './routes/oauth';
+import { handleMcpRoute } from './routes/mcp';
+import { handleWellKnownRoute } from './routes/agent-discovery';
 import { handlePublicCampaignRoute } from './routes/public';
 import { handleVisitRoute } from './routes/visits';
 import { handleSettingsRoute } from './routes/settings';
@@ -51,6 +53,17 @@ export const WhatsAppBroadcastSender = Sentry.instrumentDurableObjectWithSentry(
 
 const app = express();
 
+// RFC 8288 Link header advertising the machine-readable documents that point
+// AT this app's APIs (RFC 9727 registered relations + the OAuth AS metadata).
+// Applies to every worker response including /.well-known and /mcp; the static
+// SPA documents carry the identical header via public/_headers.
+const AGENT_LINK_HEADER = [
+  '</.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"',
+  '</.well-known/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json"',
+  '</llms.txt>; rel="service-doc"; type="text/plain"',
+  '</.well-known/oauth-authorization-server>; rel="describedby"; type="application/json"',
+].join(', ');
+
 app.disable('x-powered-by');
 // Baseline security headers for every API response; the SPA document gets the
 // same set (plus CSP) from the static assets `_headers` file. The API CSP
@@ -62,6 +75,7 @@ app.use((_request, response, next) => {
   response.set('X-Frame-Options', 'DENY');
   response.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   response.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
+  response.set('Link', AGENT_LINK_HEADER);
   response.set('Cross-Origin-Opener-Policy', 'same-origin');
   response.set('Cross-Origin-Resource-Policy', 'same-origin');
   response.set(
@@ -192,9 +206,17 @@ app.use('/api/places', createWorkerRoute(handlePlacesAutocomplete, env));
 // fail-closed: login is exactly where a limiter outage must not mean "allow".
 app.use('/api/auth', createRateLimitMiddleware(env.AUTH_RATE_LIMITER, { ipOnly: true, failClosed: true }));
 app.use('/api/auth', createWorkerRoute(handleAuthRoute, env));
-// RFC 8414 discovery doc: static JSON ahead of the SPA fallback. /.well-known/*
-// is in run_worker_first so the asset layer never claims it.
-app.use('/.well-known', createWorkerRoute(handleOauthDiscoveryRoute, env));
+// Agent-discovery documents: RFC 8414 (oauth.ts) plus the RFC 9727 linkset,
+// RFC 9728 protected-resource metadata, the OpenAPI description, the MCP
+// Server Card, the ARD manifest and the Agent Skills index — all static
+// public JSON/markdown, dispatch fn: handleWellKnownRoute. /.well-known/* is
+// in run_worker_first so the asset layer never claims it; a 300s edge cache
+// is safe because the content only changes on deploy.
+app.use('/.well-known', createWorkerRoute(handleWellKnownRoute, env, { cacheTtlSeconds: 300 }));
+// Stateless MCP server (Streamable HTTP transport) advertising read-only
+// public tools: same bucket-free treatment as the discovery documents —
+// agents probing docs/metadata in bursts should never spend API quotas.
+app.use('/mcp', createWorkerRoute(handleMcpRoute, env, { cacheTtlSeconds: 300 }));
 // OAuth token endpoint shares the interactive login's tight bucket (parameter
 // brute force is credential assault, not dashboard traffic).
 app.use('/api/oauth', createRateLimitMiddleware(env.AUTH_RATE_LIMITER, { ipOnly: true, failClosed: true }));

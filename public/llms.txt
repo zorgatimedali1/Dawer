@@ -35,3 +35,13 @@ Dawer is a gamified customer-acquisition platform for shops, restaurants and caf
 - The token endpoint accepts `grant_type=password` (RFC 6749 §4.3, form-encoded) with a merchant account's own e-mail and password and returns an `access_token` in the JSON body. Send it as `Authorization: Bearer <token>` on protected `/api/` calls.
 - Browser-based sign-in instead uses Google (OAuth 2.0 authorization code with PKCE) through the advertised authorization_endpoint.
 - Tokens are opaque, last 3 days, and receive the merchant operator's full access (scope `api`). No JWTs are issued, so no jwks_uri is published.
+
+## Agent discovery documents
+
+- auth.md (agent registration guide) : https://dawer.tn/auth.md
+- API catalog (RFC 9727) : https://dawer.tn/.well-known/api-catalog (lien service-desc vers https://dawer.tn/.well-known/openapi.json)
+- Protected-resource metadata (RFC 9728) : https://dawer.tn/.well-known/oauth-protected-resource
+- MCP server (outils publics en lecture seule) : https://dawer.tn/mcp — Server Card : https://dawer.tn/.well-known/mcp/server-card.json
+- Agent Skills : https://dawer.tn/.well-known/agent-skills/index.json
+- ARD manifest : https://dawer.tn/.well-known/ai-catalog.json (Agentmap dans robots.txt)
+- HTTP Link headers (RFC 8288) sur chaque réponse : rel api-catalog, service-desc, service-doc, describedby.
