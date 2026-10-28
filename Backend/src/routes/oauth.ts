@@ -116,20 +116,25 @@ export async function handleOauthDiscoveryRoute(request: Request, _env: Env): Pr
     scopes_supported: ['api'],
     token_expiry: SESSION_MAX_AGE,
     /**
-     * auth.md agent-auth profile (https://github.com/workos/auth.md): agents
-     * register themselves as merchants with their own email+password — the
-     * "service_auth" method — and then trade those credentials for an access
-     * token at the password grant. register_uri points at the same endpoint
-     * browsers use (POST /api/auth/register); no separate agent surface exists.
+     * auth.md agent-auth profile (https://github.com/workos/auth.md): the
+     * anonymous method is the supported registration archetype — an agent
+     * stages an unowned machine identity at POST /api/agent/identity
+     * {"type":"anonymous"}, trades the returned credentials for a token at
+     * the password grant, and the owner claims it at /auth/login. Revocation
+     * stays at /api/auth/logout.
      */
     agent_auth: {
       skill: `${SITE_URL}/auth.md`,
-      register_uri: `${SITE_URL}/api/auth/register`,
-      identity_types_supported: ['service_auth'],
-      service_auth: {
+      register_uri: `${SITE_URL}/api/agent/identity`,
+      identity_endpoint: `${SITE_URL}/api/agent/identity`,
+      claim_uri: `${SITE_URL}/auth/login`,
+      revocation_uri: `${SITE_URL}/api/auth/logout`,
+      identity_types_supported: ['anonymous'],
+      anonymous: {
         credential_types_supported: ['email_password_pair'],
-        grant_types_supported: ['password'],
+        claim_uri: `${SITE_URL}/auth/login`,
         token_endpoint: `${SITE_URL}/api/oauth/token`,
+        grant_types_supported: ['password'],
       },
     },
   });

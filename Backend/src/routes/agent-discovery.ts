@@ -129,6 +129,54 @@ const openApiDocument = {
         },
       },
     },
+    '/api/agent/identity': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Anonymous agent identity staging (auth.md anonymous method).',
+        description:
+          'Stages an UNOWNED machine identity: no business, no trial, e-mail campaigns disabled. '
+          + 'Credentials (email+password) are returned once for the password grant; the operator claims '
+          + 'ownership by signing in once at /auth/login. Advertised in agent_auth of the RFC 8414 document.',
+        operationId: 'registerAgentIdentity',
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['type'],
+                properties: { type: { type: 'string', enum: ['anonymous'] } },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Machine identity created with a one-time credential pair.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    registration_id: { type: 'string' },
+                    registration_type: { type: 'string', enum: ['anonymous'] },
+                    credentials: {
+                      type: 'object',
+                      properties: { username: { type: 'string' }, password: { type: 'string' } },
+                    },
+                    token_endpoint: { type: 'string' },
+                    claim_url: { type: 'string' },
+                    revocation_uri: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          '400': { description: 'Validation failed / unsupported registration type.' },
+        },
+      },
+    },
     '/api/auth/register': {
       post: {
         tags: ['Auth'],

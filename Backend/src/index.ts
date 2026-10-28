@@ -4,6 +4,7 @@ import { env } from 'cloudflare:workers';
 import * as Sentry from '@sentry/cloudflare';
 import { createCrossOriginGuard, createGeofenceMiddleware, createRateLimitMiddleware } from './lib/express-middleware';
 import { createWorkerRoute } from './lib/express-adapter';
+import { handleAgentIdentityRoute } from './routes/agent-identity';
 import { timingSafeEqualString } from './lib/crypto';
 import { runReconcile } from './lib/reconcile';
 import { CampaignParticipationLock as CampaignParticipationLockBase } from './durable/campaign-lock';
@@ -229,6 +230,10 @@ app.use('/api/billing', createWorkerRoute(handleSettingsRoute, env));
 app.use('/api/whatsapp', createWorkerRoute(handleWhatsAppRoute, env));
 // Parallel WhatsApp Web gateway feature (whatsapp-saas-backend container).
 app.use('/api/whatsapp-web', createWorkerRoute(handleWhatsAppWebRoute, env));
+// Anonymous agent identity registration (auth.md "anonymous" method): same
+// fail-closed ip-only bucket as /api/auth — it is an account-creation surface.
+app.use('/api/agent', createRateLimitMiddleware(env.AUTH_RATE_LIMITER, { ipOnly: true, failClosed: true }));
+app.use('/api/agent', createWorkerRoute(handleAgentIdentityRoute, env));
 // Parallel SMS marketing feature (SMS-Gate 3rd-party API).
 app.use('/api/sms', createWorkerRoute(handleSmsRoute, env));
 app.use('/api/email', createWorkerRoute(handleEmailRoute, env));

@@ -51,7 +51,7 @@ describe('agent discovery documents', () => {
     expect(response.headers.get('content-type')).toContain('application/vnd.oai.openapi+json');
     const body = await payload(response);
     expect(body.openapi).toBe('3.1.0');
-    for (const path of ['/health', '/api/public/plans', '/api/oauth/token', '/api/auth/register']) {
+    for (const path of ['/health', '/api/public/plans', '/api/oauth/token', '/api/auth/register', '/api/agent/identity']) {
       expect(body.paths, `${path} must be described`).toHaveProperty(path);
     }
   });
@@ -71,9 +71,14 @@ describe('agent discovery documents', () => {
       await handleOauthDiscoveryRoute(getRequest('/.well-known/oauth-authorization-server'), env as unknown as Env),
     );
     expect(asMetadata.issuer).toBe('https://dawer.tn');
-    // auth.md agent-auth profile: registration surface advertised.
+    // auth.md agent-auth profile: anonymous claim-ceremony registration.
     expect(asMetadata.agent_auth.skill).toBe('https://dawer.tn/auth.md');
-    expect(asMetadata.agent_auth.register_uri).toBe('https://dawer.tn/api/auth/register');
+    expect(asMetadata.agent_auth.register_uri).toBe('https://dawer.tn/api/agent/identity');
+    expect(asMetadata.agent_auth.identity_types_supported).toEqual(['anonymous']);
+    expect(asMetadata.agent_auth.anonymous.credential_types_supported).toEqual(['email_password_pair']);
+    expect(asMetadata.agent_auth.anonymous.token_endpoint).toBe('https://dawer.tn/api/oauth/token');
+    expect(asMetadata.agent_auth.claim_uri).toBe('https://dawer.tn/auth/login');
+    expect(asMetadata.agent_auth.revocation_uri).toBe('https://dawer.tn/api/auth/logout');
   });
 
   it('advertises the MCP Server Card at both reserved locations', async () => {
