@@ -17,6 +17,7 @@ import { handleEmailAssetRoute, handleEmailRoute } from './routes/email';
 import { handlePlacesAutocomplete } from './routes/places';
 import { handlePublicPartnerRoute } from './routes/partners';
 import { handlePublicPlansRoute } from './routes/public-plans';
+import { handleOauthDiscoveryRoute, handleOauthTokenRoute } from './routes/oauth';
 import { handlePublicCampaignRoute } from './routes/public';
 import { handleVisitRoute } from './routes/visits';
 import { handleSettingsRoute } from './routes/settings';
@@ -90,6 +91,9 @@ app.use('/api/email/asset', express.json({ limit: '12mb' }));
 // route can answer with a helpful validation message.
 app.use('/api/settings/logo', express.json({ limit: '2mb' }));
 app.use('/api/settings/wheel-logo', express.json({ limit: '2mb' }));
+// RFC 6749 §4.3.2 token grants arrive as form-encoded bodies; parse that
+// content type ahead of the global JSON parser.
+app.use('/api/oauth/token', express.urlencoded({ extended: false }));
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', async (request, response) => {
@@ -188,6 +192,13 @@ app.use('/api/places', createWorkerRoute(handlePlacesAutocomplete, env));
 // fail-closed: login is exactly where a limiter outage must not mean "allow".
 app.use('/api/auth', createRateLimitMiddleware(env.AUTH_RATE_LIMITER, { ipOnly: true, failClosed: true }));
 app.use('/api/auth', createWorkerRoute(handleAuthRoute, env));
+// RFC 8414 discovery doc: static JSON ahead of the SPA fallback. /.well-known/*
+// is in run_worker_first so the asset layer never claims it.
+app.use('/.well-known', createWorkerRoute(handleOauthDiscoveryRoute, env));
+// OAuth token endpoint shares the interactive login's tight bucket (parameter
+// brute force is credential assault, not dashboard traffic).
+app.use('/api/oauth', createRateLimitMiddleware(env.AUTH_RATE_LIMITER, { ipOnly: true, failClosed: true }));
+app.use('/api/oauth', createWorkerRoute(handleOauthTokenRoute, env));
 app.use('/api/business', createWorkerRoute(handleBusinessRoute, env));
 app.use('/api/analytics', createWorkerRoute(handleAnalyticsRoute, env));
 app.use('/api/profile', createWorkerRoute(handleSettingsRoute, env));

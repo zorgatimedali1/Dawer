@@ -28,3 +28,10 @@ Dawer is a gamified customer-acquisition platform for shops, restaurants and caf
 - Privacy (EN) : https://dawer.tn/en/privacy
 - Blog (FR) : https://dawer.tn/blog
 - Blog (EN) : https://dawer.tn/en/blog
+
+## API authentication
+
+- OAuth 2.0 authorization-server metadata (RFC 8414) : https://dawer.tn/.well-known/oauth-authorization-server
+- The token endpoint accepts `grant_type=password` (RFC 6749 §4.3, form-encoded) with a merchant account's own e-mail and password and returns an `access_token` in the JSON body. Send it as `Authorization: Bearer <token>` on protected `/api/` calls.
+- Browser-based sign-in instead uses Google (OAuth 2.0 authorization code with PKCE) through the advertised authorization_endpoint.
+- Tokens are opaque, last 3 days, and receive the merchant operator's full access (scope `api`). No JWTs are issued, so no jwks_uri is published.

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '../types';
 import { CampaignParticipationLock } from '../durable/campaign-lock';
+import type { ClaimOutcome } from '../durable/campaign-lock';
 
 type StorageValue = unknown;
 
@@ -126,6 +127,7 @@ function dailyKeyNow(campaignId: string): string {
   return `#cap:${campaignId}:${new Date().toISOString().slice(0, 10)}`;
 }
 
-function claim(outcome: { allowed: true; claimedAt: number }): number {
+function claim(outcome: ClaimOutcome): number {
+  if (!outcome.allowed) throw new Error(`Unexpected denied claim: ${'reason' in outcome ? outcome.reason : 'unknown'}`);
   return outcome.claimedAt;
 }
